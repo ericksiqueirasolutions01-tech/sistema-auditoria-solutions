@@ -3,6 +3,7 @@ import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
 import { db } from '../db/storage';
 import { ModalIdentificacaoComputador } from './ModalIdentificacaoComputador';
+import { ModalItensPendentes } from './ModalItensPendentes';
 import { ComputadorInfo } from '../types';
 import {
   LogOut,
@@ -27,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [mostrarModalComputador, setMostrarModalComputador] = useState(false);
+  const [mostrarModalPendentes, setMostrarModalPendentes] = useState(false);
   const [computadorAtual, setComputadorAtual] = useState<ComputadorInfo>(() =>
     db.obterComputadorAtual(usuario?.regional || undefined)
   );
@@ -102,23 +104,28 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
           </div>
 
           {/* Status, Sync Engine & User Actions */}
-          <div className="flex items-center gap-2 overflow-x-auto py-1">
-            {/* Sync Status Box */}
-            <div
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 shadow-2xs whitespace-nowrap ${
+          <div className="flex items-center gap-2 py-1 shrink-0">
+            {/* Sync Status Button (Clicável com modal de pendências) */}
+            <button
+              onClick={() => setMostrarModalPendentes(true)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 shadow-2xs whitespace-nowrap transition-all cursor-pointer hover:shadow-sm active:scale-95 ${
                 statusSync.pendentes === 0
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-amber-50 text-amber-900 border-amber-300'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/70'
+                  : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/70 ring-1 ring-amber-300 animate-subtle-pulse'
               }`}
+              title="Clique para ver os detalhes dos itens pendentes de sincronização"
             >
               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
               <div className="flex flex-col text-left">
                 <span className="text-[9px] font-black text-slate-500 uppercase leading-none">Status</span>
-                <span className="text-xs font-black uppercase tracking-tight">
+                <span className="text-xs font-black uppercase tracking-tight flex items-center gap-1">
                   {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pendente${statusSync.pendentes > 1 ? 's' : ''}`}
+                  {statusSync.pendentes > 0 && (
+                    <span className="text-[9px] underline font-bold text-amber-700 ml-0.5">(Ver)</span>
+                  )}
                 </span>
               </div>
-            </div>
+            </button>
 
             {/* Botão ENVIAR PARA ONLINE */}
             <button
@@ -209,18 +216,20 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
 
           {/* Linha Inferior Mobile: Status + Botão Enviar para Online em destaque */}
           <div className="grid grid-cols-12 gap-2 items-center">
-            <div
-              className={`col-span-4 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl border text-[11px] font-bold ${
+            <button
+              onClick={() => setMostrarModalPendentes(true)}
+              className={`col-span-4 flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl border text-[11px] font-bold cursor-pointer active:scale-95 transition-all shadow-2xs ${
                 statusSync.pendentes === 0
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-amber-50 text-amber-900 border-amber-300'
+                  : 'bg-amber-50 text-amber-900 border-amber-300 ring-1 ring-amber-300'
               }`}
+              title="Clique para ver os itens pendentes"
             >
               <span className={`w-2 h-2 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
               <span className="truncate">
                 {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pend.`}
               </span>
-            </div>
+            </button>
 
             <button
               onClick={handleSincronizar}
@@ -256,6 +265,15 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
           }}
         />
       )}
+
+      {/* Modal de Itens Pendentes (Inspeciona seriais e permite envio imediato) */}
+      <ModalItensPendentes
+        isOpen={mostrarModalPendentes}
+        onClose={() => setMostrarModalPendentes(false)}
+        onSyncConcluido={() => {
+          setStatusSync(db.obterStatusSincronizacao());
+        }}
+      />
     </header>
   );
 };

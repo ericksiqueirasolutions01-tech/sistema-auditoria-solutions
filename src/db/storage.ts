@@ -198,10 +198,20 @@ class AuditoriaDatabase {
     this.puxarAtualizacoesServidor();
     setInterval(() => {
       this.puxarAtualizacoesServidor();
-    }, 5000);
+    }, 4000);
     window.addEventListener('focus', () => {
       this.puxarAtualizacoesServidor();
     });
+    window.addEventListener('online', () => {
+      this.puxarAtualizacoesServidor();
+    });
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.puxarAtualizacoesServidor();
+        }
+      });
+    }
   }
 
   private carregarDados() {
@@ -922,6 +932,20 @@ class AuditoriaDatabase {
   }
 
   // =========================================================================
+  listarProdutosPendentes(): ProdutoAuditoria[] {
+    const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
+    return this.produtos.filter((p) => {
+      if (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO' || p.sync_status === 'SINCRONIZADO') {
+        return false;
+      }
+      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
+      if (!isPendente) return false;
+      if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      return true;
+    });
+  }
+
+  // =========================================================================
   // MOTOR DE SINCRONIZAÇÃO INCREMENTAL INTELIGENTE (OFFLINE-FIRST)
   // Requisito 4: Envia APENAS registros novos (PENDENTE). Nunca reenvia antigos.
   // Requisito 6: Tratamento de duplicidade antes de gravar no servidor.
@@ -929,11 +953,38 @@ class AuditoriaDatabase {
   // =========================================================================
   async puxarAtualizacoesServidor(): Promise<boolean> {
     try {
-      const res = await fetch('/api/central/produtos');
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (data && Array.isArray(data.produtos)) {
-        const alterou = this.mesclarProdutosCentral(data.produtos);
+      // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware)
+      let produtosRemotos: ProdutoAuditoria[] | null = null;
+      try {
+        const res = await fetch('/api/central/produtos');
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const data = await res.json();
+            if (data && Array.isArray(data.produtos)) {
+              produtosRemotos = data.produtos;
+            }
+          }
+        }
+      } catch (errApi) {
+        console.warn('[Storage] Falha ao consultar /api/central/produtos:', errApi);
+      }
+
+      // 2. Fallback Nuvem Direta caso a rota local/proxy não responda
+      if (!produtosRemotos) {
+        try {
+          const cloudRes = await fetch('https://extendsclass.com/api/json-storage/bin/dcccfea');
+          if (cloudRes.ok) {
+            const cloudData = await cloudRes.json();
+            if (cloudData && Array.isArray(cloudData.produtos)) {
+              produtosRemotos = cloudData.produtos;
+            }
+          }
+        } catch {}
+      }
+
+      if (produtosRemotos && produtosRemotos.length > 0) {
+        const alterou = this.mesclarProdutosCentral(produtosRemotos);
         if (alterou) {
           this.salvarTudo();
           this.notificarMudanca('produtos');
@@ -941,8 +992,8 @@ class AuditoriaDatabase {
         }
         return true;
       }
-    } catch {
-      // Servidor localmente inacessível (offline temporário)
+    } catch (e) {
+      console.warn('[Storage] Servidor inacessível no momento (offline):', e);
     }
     return false;
   }

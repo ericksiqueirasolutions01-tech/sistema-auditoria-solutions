@@ -39,11 +39,22 @@ function readCentralDb(): CentralData {
   }
 }
 
+const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+
 function writeCentralDb(data: CentralData) {
   ensureDataFiles();
   try {
     data.ultimaAtualizacao = new Date().toISOString();
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    fetch(CLOUD_STORAGE_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+        produtos: data.produtos,
+        historico_envios: readCentralLogs(),
+      }),
+    }).catch(() => {});
   } catch (e) {
     console.error('[CentralServer] Erro ao gravar banco central:', e);
   }

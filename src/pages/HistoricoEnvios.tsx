@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../db/storage';
 import { RegistroSincronizacaoEnvio } from '../types';
 import {
@@ -30,6 +30,13 @@ export const HistoricoEnvios: React.FC = () => {
   const [busca, setBusca] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
   const [notificacao, setNotificacao] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    return db.onMudanca(() => {
+      setRefreshKey((k) => k + 1);
+    });
+  }, []);
 
   const historicoEnvios = db.listarHistoricoEnvios(regionalFiltro);
   const computadores = db.listarComputadoresCadastrados(regionalFiltro);

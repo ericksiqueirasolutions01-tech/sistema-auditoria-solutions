@@ -108,15 +108,22 @@ export const BipagemRapida: React.FC = () => {
     serialInputRef.current?.focus();
   }, [caixaAtiva, produtos.length, lacreAtivo]);
 
+  const recarregarDados = (filtro: string) => {
+    setProdutos(db.listarProdutos(filtro === 'TODAS' ? undefined : { caixa: filtro }));
+    setContadores(db.obterContadoresCaixa(caixaAtiva));
+  };
+
   // Refresh when box or filter changes
   useEffect(() => {
     recarregarDados(filtroCaixa);
   }, [filtroCaixa, caixaAtiva]);
 
-  const recarregarDados = (filtro: string) => {
-    setProdutos(db.listarProdutos(filtro === 'TODAS' ? undefined : { caixa: filtro }));
-    setContadores(db.obterContadoresCaixa(caixaAtiva));
-  };
+  // Listener reativo em tempo real para sincronização e novos dados: atualiza imediatamente sem F5
+  useEffect(() => {
+    return db.onMudanca(() => {
+      recarregarDados(filtroCaixa);
+    });
+  }, [filtroCaixa, caixaAtiva]);
 
   // When user changes the model input, try to auto-fill EAN if it matches a Samsung preset, but keep it editable!
   const handleModeloChange = (novoModelo: string) => {

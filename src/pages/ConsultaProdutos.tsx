@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../db/storage';
 import { ProdutoAuditoria, SimNao } from '../types';
 import {
@@ -39,6 +39,12 @@ export const ConsultaProdutos: React.FC = () => {
   const [editMarcas, setEditMarcas] = useState<SimNao | null>('NÃO');
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    return db.onMudanca(() => {
+      setRefreshKey((k) => k + 1);
+    });
+  }, []);
 
   const regionais = db.listarRegionais();
   const computadores = db.listarComputadoresCadastrados(

@@ -138,5 +138,6 @@ export interface FiltroConsulta {
   data?: string;
   produtoLacrado?: 'TODOS' | SimNao;
   marcasUso?: 'TODOS' | SimNao;
+  kitCompleto?: 'TODOS' | SimNao;
 }
 

@@ -317,6 +317,25 @@ class AuditoriaDatabase {
     }
   }
 
+  // Sistema de Notificação Reativa em Tempo Real (Zero necessidade de atualizar a página)
+  notificarMudanca(tipo: string = 'dados') {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('solutions_dados_atualizados', { detail: { tipo } })
+      );
+    }
+  }
+
+  onMudanca(callback: (tipo: string) => void): () => void {
+    if (typeof window === 'undefined') return () => {};
+    const listener = (e: Event) => {
+      const customEvent = e as CustomEvent<{ tipo: string }>;
+      callback(customEvent.detail?.tipo || 'dados');
+    };
+    window.addEventListener('solutions_dados_atualizados', listener);
+    return () => window.removeEventListener('solutions_dados_atualizados', listener);
+  }
+
   private salvarTudo() {
     try {
       // 1. Gravação síncrona no LocalStorage
@@ -331,6 +350,7 @@ class AuditoriaDatabase {
     } catch (e) {
       console.error('Erro ao salvar no storage:', e);
     }
+    this.notificarMudanca('dados');
   }
 
   // Auth
@@ -694,49 +714,54 @@ class AuditoriaDatabase {
       baseList = baseList.filter((p) => (p.regional || 'VIA VAREJO RJ') === targetRegional);
     }
 
-    if (!filtro) return [...baseList];
+    if (!filtro) return baseList.map((p) => ({ ...p }));
 
-    return baseList.filter((p) => {
-      if (filtro.termoBusca) {
-        const termo = filtro.termoBusca.toLowerCase().trim();
-        const match =
-          p.serial.toLowerCase().includes(termo) ||
-          p.modelo_produto.toLowerCase().includes(termo) ||
-          p.ean.toLowerCase().includes(termo) ||
-          p.numero_caixa.toLowerCase().includes(termo) ||
-          (p.regional && p.regional.toLowerCase().includes(termo)) ||
-          p.observacao.toLowerCase().includes(termo);
-        if (!match) return false;
-      }
-      if (filtro.modelo && filtro.modelo !== 'TODOS' && p.modelo_produto !== filtro.modelo) {
-        return false;
-      }
-      if (filtro.ean && !p.ean.includes(filtro.ean.trim())) {
-        return false;
-      }
-      if (filtro.serial && !p.serial.includes(filtro.serial.trim().toUpperCase())) {
-        return false;
-      }
-      if (filtro.caixa && filtro.caixa !== 'TODOS' && p.numero_caixa !== filtro.caixa) {
-        return false;
-      }
-      if (filtro.data && p.data_auditoria !== filtro.data) {
-        return false;
-      }
-      if (filtro.produtoLacrado && filtro.produtoLacrado !== 'TODOS' && p.produto_lacrado !== filtro.produtoLacrado) {
-        return false;
-      }
-      if (filtro.marcasUso && filtro.marcasUso !== 'TODOS' && p.aparelho_marcas_uso !== filtro.marcasUso) {
-        return false;
-      }
-      if (filtro.computador_id && filtro.computador_id !== 'TODOS' && p.computador_id !== filtro.computador_id) {
-        return false;
-      }
-      if (filtro.status_sincronizacao && filtro.status_sincronizacao !== 'TODOS' && p.status_sincronizacao !== filtro.status_sincronizacao) {
-        return false;
-      }
-      return true;
-    });
+    return baseList
+      .filter((p) => {
+        if (filtro.termoBusca) {
+          const termo = filtro.termoBusca.toLowerCase().trim();
+          const match =
+            p.serial.toLowerCase().includes(termo) ||
+            p.modelo_produto.toLowerCase().includes(termo) ||
+            p.ean.toLowerCase().includes(termo) ||
+            p.numero_caixa.toLowerCase().includes(termo) ||
+            (p.regional && p.regional.toLowerCase().includes(termo)) ||
+            p.observacao.toLowerCase().includes(termo);
+          if (!match) return false;
+        }
+        if (filtro.modelo && filtro.modelo !== 'TODOS' && p.modelo_produto !== filtro.modelo) {
+          return false;
+        }
+        if (filtro.ean && !p.ean.includes(filtro.ean.trim())) {
+          return false;
+        }
+        if (filtro.serial && !p.serial.includes(filtro.serial.trim().toUpperCase())) {
+          return false;
+        }
+        if (filtro.caixa && filtro.caixa !== 'TODOS' && p.numero_caixa !== filtro.caixa) {
+          return false;
+        }
+        if (filtro.data && p.data_auditoria !== filtro.data) {
+          return false;
+        }
+        if (filtro.produtoLacrado && filtro.produtoLacrado !== 'TODOS' && p.produto_lacrado !== filtro.produtoLacrado) {
+          return false;
+        }
+        if (filtro.marcasUso && filtro.marcasUso !== 'TODOS' && p.aparelho_marcas_uso !== filtro.marcasUso) {
+          return false;
+        }
+        if (filtro.kitCompleto && filtro.kitCompleto !== 'TODOS' && p.kit_completo !== filtro.kitCompleto) {
+          return false;
+        }
+        if (filtro.computador_id && filtro.computador_id !== 'TODOS' && p.computador_id !== filtro.computador_id) {
+          return false;
+        }
+        if (filtro.status_sincronizacao && filtro.status_sincronizacao !== 'TODOS' && p.status_sincronizacao !== filtro.status_sincronizacao) {
+          return false;
+        }
+        return true;
+      })
+      .map((p) => ({ ...p }));
   }
 
   listarCaixas(regional?: string): string[] {
@@ -981,6 +1006,7 @@ class AuditoriaDatabase {
       localStorage.setItem('solutions_ultima_sincronizacao', agora);
     }
     this.salvarTudo();
+    this.notificarMudanca('sync');
 
     // 3. Gravar Registro no Histórico de Envios apenas se houve novos seriais enviados
     if (countSincronizados > 0) {

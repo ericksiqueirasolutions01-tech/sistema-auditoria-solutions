@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
 import { db } from '../db/storage';
@@ -31,13 +31,20 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
     db.obterComputadorAtual(usuario?.regional || undefined)
   );
 
-  const statusSync = db.obterStatusSincronizacao();
+  const [statusSync, setStatusSync] = useState(() => db.obterStatusSincronizacao());
+
+  useEffect(() => {
+    return db.onMudanca(() => {
+      setStatusSync(db.obterStatusSincronizacao());
+    });
+  }, []);
 
   const handleSincronizar = () => {
     setSyncLoading(true);
     setTimeout(() => {
       const res = db.sincronizarOnline();
       setSyncLoading(false);
+      setStatusSync(db.obterStatusSincronizacao());
       setSyncFeedback(res.mensagem);
       setTimeout(() => setSyncFeedback(null), 4000);
     }, 600);

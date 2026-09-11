@@ -29,6 +29,7 @@ const STORAGE_KEY_HISTORICO_ENVIOS = 'solutions_historico_envios_online_v1';
 const STORAGE_KEY_SERVIDOR_CENTRAL = 'solutions_servidor_central_produtos_v1';
 const STORAGE_KEY_FOTOS = 'solutions_auditoria_fotos_grupos_v1';
 const STORAGE_KEY_FOTOS_10_CAIXAS = 'solutions_auditoria_10_fotos_caixas_v1';
+const STORAGE_KEY_SERIAIS_LIMPOS_TELA = 'solutions_seriais_limpos_tela_v1';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -176,7 +177,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: new Date().toISOString(),
   },
   {
-    id: 4,
+    id: 3,
     nome: 'VIA VAREJO SP',
     login: 'VIA VAREJO SP',
     senha: 'Senha123',
@@ -186,7 +187,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: new Date().toISOString(),
   },
   {
-    id: 5,
+    id: 4,
     nome: 'VIA VAREJO MG',
     login: 'VIA VAREJO MG',
     senha: 'Senha123',
@@ -196,7 +197,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: new Date().toISOString(),
   },
   {
-    id: 6,
+    id: 5,
     nome: 'VIA VAREJO BA',
     login: 'VIA VAREJO BA',
     senha: 'Senha123',
@@ -233,6 +234,7 @@ class AuditoriaDatabase {
   private registros10Fotos: Registro10FotosCaixa[] = [];
   private usuarioAtual: Usuario | null = null;
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
+  private seriaisLimposDaTela: Set<string> = new Set<string>();
 
   constructor() {
     this.carregarDados();
@@ -353,6 +355,17 @@ class AuditoriaDatabase {
       for (const p of this.produtos) {
         this.serialMap.set(p.serial.trim().toUpperCase(), p);
       }
+
+      // Carregar seriais limpos da tela local
+      try {
+        const limposRaw = localStorage.getItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
+        if (limposRaw) {
+          const arr = JSON.parse(limposRaw);
+          if (Array.isArray(arr)) {
+            this.seriaisLimposDaTela = new Set<string>(arr);
+          }
+        }
+      } catch {}
 
       // Sync to IndexedDB for backup
       if (this.produtos.length > 0) {
@@ -696,6 +709,13 @@ class AuditoriaDatabase {
 
     this.produtos.unshift(novoProduto);
     this.serialMap.set(serialNorm, novoProduto);
+
+    const chaveSerial = `${regionalFinal.trim().toUpperCase()}:::${serialNorm}`;
+    if (this.seriaisLimposDaTela.has(chaveSerial)) {
+      this.seriaisLimposDaTela.delete(chaveSerial);
+      this.salvarSeriaisLimposDaTela();
+    }
+
     this.salvarTudo();
 
     this.registrarHistorico(
@@ -1408,6 +1428,8 @@ class AuditoriaDatabase {
     localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
     localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
     localStorage.removeItem('solutions_ultima_sincronizacao');
+    this.seriaisLimposDaTela.clear();
+    localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
 
     salvarIndexedDB(STORAGE_KEY_PRODUTOS, []);
     salvarIndexedDB(STORAGE_KEY_FOTOS, []);
@@ -1450,10 +1472,22 @@ class AuditoriaDatabase {
   }
 
   // =========================================================================
-  // LIMPAR REGISTROS LOCAIS NÃO ENVIADOS (OPERACIONAL / COLABORADOR)
-  // Remove APENAS os registros que ainda NÃO foram enviados para o online.
-  // Tudo o que já foi enviado para o online CONTINUA gravado e preservado 100%.
   // =========================================================================
+  // LIMPAR REGISTROS DA TELA DO COLABORADOR (OPERACIONAL)
+  // Limpa a tela deste computador para novas auditorias.
+  // IMPORTANTE: Tudo o que já foi enviado para o online CONTINUA 100% gravado
+  // e preservado na nuvem. A base central online só pode ser excluída pelo ADMIN.
+  // =========================================================================
+  salvarSeriaisLimposDaTela() {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY_SERIAIS_LIMPOS_TELA,
+        JSON.stringify(Array.from(this.seriaisLimposDaTela))
+      );
+    } catch {}
+  }
+
   obterContagemStatusRegistros(regional?: string): { pendentes: number; enviados: number; total: number } {
     const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional ? this.usuarioAtual.regional : undefined);
     const lista = this.produtos.filter((p) => {
@@ -1464,7 +1498,7 @@ class AuditoriaDatabase {
     return { pendentes, enviados, total: lista.length };
   }
 
-  limparRegistrosLocaisNaoEnviados(regional?: string): {
+  limparTelaColaborador(regional?: string): {
     sucesso: boolean;
     removidos: number;
     preservados: number;
@@ -1479,12 +1513,14 @@ class AuditoriaDatabase {
     for (const p of this.produtos) {
       const matchRegional = !regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo;
       if (matchRegional) {
+        const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
+        this.seriaisLimposDaTela.add(chave);
         if (p.status_sincronizacao === 'ENVIADO') {
-          novosProdutos.push(p);
           enviadosCount++;
         } else {
           pendentesCount++;
         }
+        // Remove da visualização e memória local desta tela
       } else {
         novosProdutos.push(p);
       }
@@ -1493,20 +1529,21 @@ class AuditoriaDatabase {
     this.produtos = novosProdutos;
     this.serialMap.clear();
     for (const p of this.produtos) {
-      this.serialMap.set(p.serial, p);
+      this.serialMap.set(p.serial.trim().toUpperCase(), p);
     }
 
-    // Filtrar fotos de evidência: remover apenas as fotos locais que NÃO foram enviadas
+    // Salvar seriais para não serem re-importados automaticamente para este colaborador
+    this.salvarSeriaisLimposDaTela();
+
+    // Limpar fotos locais desta regional da tela do computador
     this.fotosGrupos = this.fotosGrupos.filter((f) => {
       const matchRegional = !regAlvo || regAlvo === 'TODAS' || (f.regional || 'VIA VAREJO RJ') === regAlvo;
-      if (!matchRegional) return true;
-      return f.status_sincronizacao === 'ENVIADO';
+      return !matchRegional;
     });
 
     this.registros10Fotos = this.registros10Fotos.filter((r) => {
       const matchRegional = !regAlvo || regAlvo === 'TODAS' || r.regional === regAlvo;
-      if (!matchRegional) return true;
-      return r.status_sincronizacao === 'ENVIADO';
+      return !matchRegional;
     });
 
     this.salvarTudo();
@@ -1516,19 +1553,25 @@ class AuditoriaDatabase {
     this.notificarMudanca('sync');
 
     const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+    const totalRemovidos = pendentesCount + enviadosCount;
     this.registrarHistorico(
       usuarioNome,
-      'LIMPEZA_REGISTROS_LOCAIS',
-      `Limpeza de registros locais: ${pendentesCount} produtos pendentes removidos. ${enviadosCount} produtos já enviados ao online foram mantidos intactos.`,
+      'LIMPEZA_TELA_COLABORADOR',
+      `Tela limpa pelo operador: ${totalRemovidos} produtos removidos da tela (${enviadosCount} já enviados ao online continuam 100% gravados na nuvem).`,
       regAlvo
     );
 
     return {
       sucesso: true,
-      removidos: pendentesCount,
+      removidos: totalRemovidos,
       preservados: enviadosCount,
-      mensagem: `Limpeza concluída! ${pendentesCount} registro(s) pendente(s) removido(s). ${enviadosCount} registro(s) já enviados para o online foram preservados com sucesso.`,
+      mensagem: `Tela limpa com sucesso! ${totalRemovidos} produto(s) removido(s) da visualização. Os ${enviadosCount} registro(s) já enviados ao online continuam 100% salvos e protegidos na nuvem central.`,
     };
+  }
+
+  // Alias para retrocompatibilidade
+  limparRegistrosLocaisNaoEnviados(regional?: string) {
+    return this.limparTelaColaborador(regional);
   }
 
   // =========================================================================
@@ -1612,6 +1655,10 @@ class AuditoriaDatabase {
 
     for (const cp of produtosCentral) {
       const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
+      // Se for operador e este produto foi limpo da tela deste computador, não restaurar na tela dele
+      if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.seriaisLimposDaTela.has(chave)) {
+        continue;
+      }
       const local = locaisMap.get(chave);
       if (!local) {
         // Produto novo vindo de outro celular ou computador

@@ -1,9 +1,11 @@
 const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -25,7 +27,7 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ erro: 'Nenhum produto ou foto enviado para sincronizacao.' });
     }
 
-    let cloudData: { system?: string; produtos: any[]; fotos?: any[]; historico_envios: any[] } = {
+    let cloudData: { system?: string; produtos: any[]; fotos?: any[]; historico_envios: any[]; ultimaAtualizacao?: string } = {
       system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
       produtos: [],
       fotos: [],
@@ -33,7 +35,10 @@ export default async function handler(req: any, res: any) {
     };
 
     try {
-      const getRes = await fetch(CLOUD_STORAGE_URL);
+      let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
+      if (!getRes.ok) {
+        getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+      }
       if (getRes.ok) {
         const parsed = await getRes.json();
         if (parsed && Array.isArray(parsed.produtos)) {
@@ -49,37 +54,41 @@ export default async function handler(req: any, res: any) {
     let duplicadosCount = 0;
 
     const mapExistentes = new Map<string, any>();
-    for (const p of cloudData.produtos) {
-      const reg = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
-      const sn = (p.serial || '').trim().toUpperCase();
-      mapExistentes.set(`${reg}:::${sn}`, p);
+    if (Array.isArray(cloudData.produtos)) {
+      for (const p of cloudData.produtos) {
+        const reg = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
+        const sn = (p.serial || '').trim().toUpperCase();
+        mapExistentes.set(`${reg}:::${sn}`, p);
+      }
+    } else {
+      cloudData.produtos = [];
     }
 
-    const novosAdicionados: any[] = [];
-    for (const p of produtos) {
-      const reg = (p.regional || regional || 'VIA VAREJO RJ').trim().toUpperCase();
-      const sn = (p.serial || '').trim().toUpperCase();
-      const chave = `${reg}:::${sn}`;
+    if (Array.isArray(produtos)) {
+      for (const p of produtos) {
+        const reg = (p.regional || regional || 'VIA VAREJO RJ').trim().toUpperCase();
+        const sn = (p.serial || '').trim().toUpperCase();
+        const chave = `${reg}:::${sn}`;
 
-      if (mapExistentes.has(chave)) {
-        duplicadosCount++;
-      } else {
-        const itemNormalizado = {
-          ...p,
-          regional: p.regional || regional || 'VIA VAREJO RJ',
-          computador_id: p.computador_id || computador?.id || 'PC-001',
-          computador_nome: p.computador_nome || computador?.nome || 'Estacao',
-          usuario_criacao: p.usuario_criacao || usuario || 'Operador',
-          status_sincronizacao: 'ENVIADO',
-          sync_status: 'ENVIADO',
-          data_sincronizacao: agora,
-          sync_data: agora,
-          id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        };
-        cloudData.produtos.unshift(itemNormalizado);
-        mapExistentes.set(chave, itemNormalizado);
-        novosAdicionados.push(itemNormalizado);
-        novosCount++;
+        if (mapExistentes.has(chave)) {
+          duplicadosCount++;
+        } else {
+          const itemNormalizado = {
+            ...p,
+            regional: p.regional || regional || 'VIA VAREJO RJ',
+            computador_id: p.computador_id || computador?.id || 'PC-001',
+            computador_nome: p.computador_nome || computador?.nome || 'Estacao',
+            usuario_criacao: p.usuario_criacao || usuario || 'Operador',
+            status_sincronizacao: 'ENVIADO',
+            sync_status: 'ENVIADO',
+            data_sincronizacao: agora,
+            sync_data: agora,
+            id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          };
+          cloudData.produtos.unshift(itemNormalizado);
+          mapExistentes.set(chave, itemNormalizado);
+          novosCount++;
+        }
       }
     }
 
@@ -95,7 +104,12 @@ export default async function handler(req: any, res: any) {
       for (const f of fotos) {
         if (f && f.id) {
           if (!mapFotos.has(f.id)) fotosCount++;
-          mapFotos.set(f.id, { ...f, status_sincronizacao: 'ENVIADO' });
+          // Manter fotos leves para nuvem central (se for base64 pesado, salvar preview compacto)
+          let uri = f.fotoDataUri;
+          if (uri && uri.startsWith('data:image') && uri.length > 2000) {
+            uri = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90"><rect width="120" height="90" fill="%230F172A"/><text x="60" y="45" fill="%2338BDF8" font-size="11" font-family="sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">FOTO REGISTRADA</text></svg>';
+          }
+          mapFotos.set(f.id, { ...f, fotoDataUri: uri, status_sincronizacao: 'ENVIADO' });
         }
       }
       cloudData.fotos = Array.from(mapFotos.values());
@@ -122,11 +136,24 @@ export default async function handler(req: any, res: any) {
       cloudData.historico_envios = cloudData.historico_envios.slice(0, 200);
     }
 
-    await fetch(CLOUD_STORAGE_URL, {
+    cloudData.ultimaAtualizacao = agora;
+
+    // Salva no storage principal e espelha no backup
+    const bodyStr = JSON.stringify(cloudData);
+    let putRes = await fetch(CLOUD_STORAGE_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cloudData),
+      body: bodyStr,
     });
+
+    if (!putRes.ok) {
+      console.warn('PUT principal falhou, tentando backup...');
+      putRes = await fetch(CLOUD_STORAGE_BACKUP_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyStr,
+      });
+    }
 
     return res.status(200).json({
       sucesso: true,

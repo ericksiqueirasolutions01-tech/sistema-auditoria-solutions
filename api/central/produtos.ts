@@ -1,18 +1,23 @@
 const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
 
   try {
-    const getRes = await fetch(CLOUD_STORAGE_URL);
+    let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
     if (!getRes.ok) {
-      return res.status(200).json({ produtos: [], historico_envios: [] });
+      getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+    }
+    if (!getRes.ok) {
+      return res.status(200).json({ produtos: [], fotos: [], historico_envios: [] });
     }
     const data = await getRes.json();
     return res.status(200).json({

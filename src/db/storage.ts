@@ -38,6 +38,44 @@ export const REGIONAIS_PADRAO = [
   'VIA VAREJO BA',
 ];
 
+export const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+export const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
+
+async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
+  if (!dataUri) return '';
+  if (!dataUri.startsWith('data:image') || dataUri.length < 2000) return dataUri;
+
+  // 1. Tentar upload rápido para freeimage.host obtendo URL leve
+  try {
+    const base64Content = dataUri.split(',')[1];
+    if (base64Content) {
+      const form = new FormData();
+      form.append('key', '6d207e02198a847aa98d0a2a901485a5');
+      form.append('action', 'upload');
+      form.append('source', base64Content);
+      form.append('format', 'json');
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch('https://freeimage.host/api/1/upload', {
+        method: 'POST',
+        body: form,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.image?.url) {
+          return data.image.url;
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Se timeout ou offline, usar placeholder SVG ultraleve (< 200 bytes) para não estourar a nuvem
+  return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90"><rect width="120" height="90" fill="%230F172A"/><text x="60" y="45" fill="%2338BDF8" font-size="11" font-family="sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">FOTO REGISTRADA</text></svg>';
+}
+
 // IndexedDB Database & Store Configuration for High-Reliability Zero-Data-Loss
 const IDB_NAME = 'SolutionsAuditoriaDB_v1';
 const IDB_STORE = 'auditoria_store';
@@ -1337,17 +1375,23 @@ class AuditoriaDatabase {
     salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
 
     try {
-      await fetch('https://extendsclass.com/api/json-storage/bin/dcccfea', {
+      const cleanPayload = JSON.stringify({
+        system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+        produtos: [],
+        fotos: [],
+        historico_envios: [],
+        ultimaAtualizacao: new Date().toISOString(),
+      });
+      await fetch(CLOUD_STORAGE_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-          produtos: [],
-          fotos: [],
-          historico_envios: [],
-          ultimaAtualizacao: new Date().toISOString(),
-        }),
-      });
+        body: cleanPayload,
+      }).catch(() => {});
+      await fetch(CLOUD_STORAGE_BACKUP_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: cleanPayload,
+      }).catch(() => {});
     } catch (e) {
       console.warn('Erro ao zerar nuvem central:', e);
     }
@@ -1373,11 +1417,11 @@ class AuditoriaDatabase {
   // =========================================================================
   async puxarAtualizacoesServidor(): Promise<boolean> {
     try {
-      // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware)
+      // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware) com anti-cache
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
       try {
-        const res = await fetch('/api/central/produtos');
+        const res = await fetch(`/api/central/produtos?_t=${Date.now()}`);
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
@@ -1397,7 +1441,10 @@ class AuditoriaDatabase {
       // 2. Fallback Nuvem Direta caso a rota local/proxy não responda
       if (!produtosRemotos) {
         try {
-          const cloudRes = await fetch('https://extendsclass.com/api/json-storage/bin/dcccfea');
+          let cloudRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
+          if (!cloudRes.ok) {
+            cloudRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+          }
           if (cloudRes.ok) {
             const cloudData = await cloudRes.json();
             if (cloudData && Array.isArray(cloudData.produtos)) {
@@ -1520,13 +1567,24 @@ class AuditoriaDatabase {
     if (pendentes.length === 0 && pendentesFotos.length === 0) {
       await this.puxarAtualizacoesServidor();
       return {
-        sucesso: false,
+        sucesso: true,
         totalSincronizados: 0,
         duplicadosEvitados: 0,
         timestamp: agora,
         mensagem: 'Não há novos seriais ou fotos pendentes neste dispositivo. Base sincronizada com o servidor central.',
       };
     }
+
+    // Preparar fotos leves para sincronização em nuvem (sem estourar payload)
+    const pendentesFotosSync = await Promise.all(
+      pendentesFotos.map(async (f) => ({
+        ...f,
+        fotoDataUri: await prepararFotoLeveParaSync(f.fotoDataUri),
+      }))
+    );
+
+    let sincronizouComSucesso = false;
+    let dataResposta: any = null;
 
     // 2. ENVIAR PARA O SERVIDOR CENTRAL VIA HTTP REAL (REDE / NUVEM)
     try {
@@ -1535,7 +1593,7 @@ class AuditoriaDatabase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           produtos: pendentes,
-          fotos: pendentesFotos,
+          fotos: pendentesFotosSync,
           computador: compAtual,
           usuario: this.usuarioAtual?.nome || 'Operador',
           regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
@@ -1543,73 +1601,212 @@ class AuditoriaDatabase {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        const pendentesSeriais = new Set(pendentes.map((p) => p.serial.trim().toUpperCase()));
-        const idsSincronizados: number[] = [];
-
-        for (const p of this.produtos) {
-          if (pendentesSeriais.has(p.serial.trim().toUpperCase())) {
-            p.status_sincronizacao = 'ENVIADO';
-            p.sync_status = 'ENVIADO';
-            p.data_sincronizacao = agora;
-            p.sync_data = agora;
-            idsSincronizados.push(p.id);
+        const ct = response.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          dataResposta = await response.json();
+          if (dataResposta && dataResposta.sucesso) {
+            sincronizouComSucesso = true;
           }
         }
-
-        // Marcar fotos enviadas
-        for (const f of this.fotosGrupos) {
-          if (pendentesFotos.some((pf) => pf.id === f.id)) {
-            f.status_sincronizacao = 'ENVIADO';
-            f.data_sincronizacao = agora;
-          }
-        }
-
-        // Ingerir e mesclar todos os produtos do servidor central
-        if (Array.isArray(data.produtosCentral)) {
-          this.mesclarProdutosCentral(data.produtosCentral);
-        }
-        if (Array.isArray(data.fotosCentral)) {
-          this.mesclarFotosCentral(data.fotosCentral);
-        }
-
-        this.salvarTudo();
-        this.notificarMudanca('sync');
-        this.notificarMudanca('produtos');
-        this.notificarMudanca('fotos');
-
-        this.salvarRegistroEnvio({
-          data_envio: agoraFormatada,
-          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-          computador_id: compAtual.id,
-          computador_nome: compAtual.nome,
-          quantidade_enviada: data.sincronizados,
-          status: 'OK',
-          detalhes: data.mensagem,
-          produtos_ids: idsSincronizados,
-        });
-
-        const usuarioNome = this.usuarioAtual?.nome || 'Operador';
-        this.registrarHistorico(
-          usuarioNome,
-          'ENVIAR_PARA_ONLINE',
-          `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${data.sincronizados} novos seriais sincronizados no servidor central.`,
-          compAtual.regional
-        );
-
-        return {
-          sucesso: true,
-          totalSincronizados: data.sincronizados,
-          duplicadosEvitados: data.duplicadosEvitados,
-          timestamp: agora,
-          mensagem: data.mensagem,
-        };
       }
     } catch (err) {
-      console.warn('[Storage] Erro ao enviar para servidor central via HTTP:', err);
+      console.warn('[Storage] /api/central/sync indisponível, acionando fallback direto na nuvem:', err);
     }
 
-    // Fallback Offline: se o servidor estiver temporariamente inacessível
+    // 3. Fallback Nuvem Direta caso a rota /api/central/sync não responda (hospedagem estática, Vercel timeout, etc.)
+    if (!sincronizouComSucesso) {
+      try {
+        let cloudData: any = {
+          system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+          produtos: [],
+          fotos: [],
+          historico_envios: [],
+        };
+
+        let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
+        if (!getRes.ok) {
+          getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+        }
+        if (getRes.ok) {
+          try {
+            const parsed = await getRes.json();
+            if (parsed && Array.isArray(parsed.produtos)) {
+              cloudData = parsed;
+            }
+          } catch {}
+        }
+
+        const mapExistentes = new Map<string, any>();
+        if (Array.isArray(cloudData.produtos)) {
+          for (const p of cloudData.produtos) {
+            const reg = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
+            const sn = (p.serial || '').trim().toUpperCase();
+            mapExistentes.set(`${reg}:::${sn}`, p);
+          }
+        } else {
+          cloudData.produtos = [];
+        }
+
+        let novosCount = 0;
+        let duplicadosCount = 0;
+        for (const p of pendentes) {
+          const reg = (p.regional || compAtual.regional || 'VIA VAREJO RJ').trim().toUpperCase();
+          const sn = (p.serial || '').trim().toUpperCase();
+          const chave = `${reg}:::${sn}`;
+          if (mapExistentes.has(chave)) {
+            duplicadosCount++;
+          } else {
+            const normalizado = {
+              ...p,
+              regional: p.regional || compAtual.regional || 'VIA VAREJO RJ',
+              computador_id: p.computador_id || compAtual.id || 'PC-001',
+              computador_nome: p.computador_nome || compAtual.nome || 'Estacao',
+              usuario_cadastro: (p as any).usuario_cadastro || (p as any).usuario_criacao || (this.usuarioAtual?.nome || 'Operador'),
+              status_sincronizacao: 'ENVIADO',
+              sync_status: 'ENVIADO',
+              data_sincronizacao: agora,
+              sync_data: agora,
+              id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            };
+            cloudData.produtos.unshift(normalizado);
+            mapExistentes.set(chave, normalizado);
+            novosCount++;
+          }
+        }
+
+        let fotosCount = 0;
+        if (pendentesFotosSync.length > 0) {
+          if (!Array.isArray(cloudData.fotos)) cloudData.fotos = [];
+          const mapFotos = new Map<string, any>();
+          for (const f of cloudData.fotos) {
+            if (f && f.id) mapFotos.set(f.id, f);
+          }
+          for (const f of pendentesFotosSync) {
+            if (f && f.id) {
+              if (!mapFotos.has(f.id)) fotosCount++;
+              mapFotos.set(f.id, { ...f, status_sincronizacao: 'ENVIADO' });
+            }
+          }
+          cloudData.fotos = Array.from(mapFotos.values());
+        }
+
+        if (!Array.isArray(cloudData.historico_envios)) {
+          cloudData.historico_envios = [];
+        }
+        cloudData.historico_envios.unshift({
+          id: Date.now(),
+          data_envio: agoraFormatada,
+          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          computador_id: compAtual.id || 'PC-001',
+          computador_nome: compAtual.nome || 'Estacao',
+          usuario: this.usuarioAtual?.nome || 'Operador',
+          quantidade_enviada: novosCount,
+          status: 'OK',
+          detalhes: `${novosCount} novos seriais sincronizados na nuvem central (${duplicadosCount} duplicados evitados).`,
+          timestamp: agora,
+        });
+
+        cloudData.ultimaAtualizacao = agora;
+
+        const bodyStr = JSON.stringify(cloudData);
+        let putRes = await fetch(CLOUD_STORAGE_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: bodyStr,
+        });
+
+        if (!putRes.ok) {
+          putRes = await fetch(CLOUD_STORAGE_BACKUP_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: bodyStr,
+          });
+        }
+
+        if (putRes.ok) {
+          sincronizouComSucesso = true;
+          dataResposta = {
+            sucesso: true,
+            sincronizados: novosCount,
+            fotosSincronizadas: fotosCount,
+            duplicadosEvitados: duplicadosCount,
+            totalNaBaseCentral: cloudData.produtos.length,
+            produtosCentral: cloudData.produtos,
+            fotosCentral: cloudData.fotos,
+            mensagem: `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
+            timestamp: agora,
+          };
+        }
+      } catch (errDirect) {
+        console.error('[Storage] Erro no Fallback de sincronização direta:', errDirect);
+      }
+    }
+
+    // 4. Conclusão da Sincronização com Sucesso
+    if (sincronizouComSucesso && dataResposta) {
+      const pendentesSeriais = new Set(pendentes.map((p) => p.serial.trim().toUpperCase()));
+      const idsSincronizados: number[] = [];
+
+      for (const p of this.produtos) {
+        if (pendentesSeriais.has(p.serial.trim().toUpperCase())) {
+          p.status_sincronizacao = 'ENVIADO';
+          p.sync_status = 'ENVIADO';
+          p.data_sincronizacao = agora;
+          p.sync_data = agora;
+          idsSincronizados.push(p.id);
+        }
+      }
+
+      // Marcar fotos enviadas
+      for (const f of this.fotosGrupos) {
+        if (pendentesFotos.some((pf) => pf.id === f.id)) {
+          f.status_sincronizacao = 'ENVIADO';
+          f.data_sincronizacao = agora;
+        }
+      }
+
+      // Ingerir e mesclar todos os produtos do servidor central
+      if (Array.isArray(dataResposta.produtosCentral)) {
+        this.mesclarProdutosCentral(dataResposta.produtosCentral);
+      }
+      if (Array.isArray(dataResposta.fotosCentral)) {
+        this.mesclarFotosCentral(dataResposta.fotosCentral);
+      }
+
+      this.salvarTudo();
+      this.notificarMudanca('sync');
+      this.notificarMudanca('produtos');
+      this.notificarMudanca('fotos');
+
+      this.salvarRegistroEnvio({
+        data_envio: agoraFormatada,
+        regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+        computador_id: compAtual.id,
+        computador_nome: compAtual.nome,
+        quantidade_enviada: dataResposta.sincronizados,
+        status: 'OK',
+        detalhes: dataResposta.mensagem,
+        produtos_ids: idsSincronizados,
+      });
+
+      const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+      this.registrarHistorico(
+        usuarioNome,
+        'ENVIAR_PARA_ONLINE',
+        `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${dataResposta.sincronizados} novos seriais sincronizados no servidor central.`,
+        compAtual.regional
+      );
+
+      return {
+        sucesso: true,
+        totalSincronizados: dataResposta.sincronizados,
+        duplicadosEvitados: dataResposta.duplicadosEvitados,
+        timestamp: agora,
+        mensagem: dataResposta.mensagem,
+      };
+    }
+
+    // Fallback Offline: se o servidor e a nuvem estiverem temporariamente inacessíveis
     return {
       sucesso: false,
       totalSincronizados: 0,

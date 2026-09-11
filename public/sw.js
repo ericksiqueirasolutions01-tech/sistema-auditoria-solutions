@@ -1,7 +1,7 @@
 // Service Worker para Sistema de Auditoria Grupo Solutions - Samsung
-// Garante que o sistema abra e funcione 100% OFFLINE mesmo sem conexão com a internet
+// Garante suporte 100% OFFLINE e sincronização em tempo real sem interferir nas rotas de API
 
-const CACHE_NAME = 'solutions-auditoria-cache-v1';
+const CACHE_NAME = 'solutions-auditoria-cache-v3';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -10,26 +10,26 @@ const PRECACHE_ASSETS = [
   '/logo-solutions.png'
 ];
 
-// 1. Instalação: Pré-carrega os arquivos essenciais
+// 1. Instalação: Pré-carrega os arquivos essenciais e ativa imediatamente
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Pré-carregando arquivos para suporte offline');
+      console.log('[Service Worker v3] Pré-carregando arquivos para suporte offline');
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('[Service Worker] Erro ao pré-carregar alguns arquivos:', err);
+        console.warn('[Service Worker v3] Erro ao pré-carregar alguns arquivos:', err);
       });
     }).then(() => self.skipWaiting())
   );
 });
 
-// 2. Ativação: Limpa versões antigas de cache
+// 2. Ativação: Limpa versões antigas de cache agressivamente
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((name) => {
           if (name !== CACHE_NAME) {
-            console.log('[Service Worker] Removendo cache antigo:', name);
+            console.log('[Service Worker v3] Removendo cache antigo:', name);
             return caches.delete(name);
           }
         })
@@ -38,22 +38,31 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 3. Interceptação de Requisições (Cache-First com fallback de rede e gravação dinâmica)
+// 3. Interceptação de Requisições
 self.addEventListener('fetch', (event) => {
   const req = event.request;
 
-  // Apenas métodos GET são cacheados
+  // Apenas métodos GET são interceptados
   if (req.method !== 'GET') {
     return;
   }
 
-  // Não interceptar requisições externas desnecessárias
   const url = new URL(req.url);
   if (!url.protocol.startsWith('http')) {
     return;
   }
 
-  // Para navegação entre páginas HTML: se offline, serve o index.html em cache
+  // CRÍTICO: NUNCA interceptar nem cachear chamadas de API, sincronização ou nuvem
+  if (
+    url.pathname.startsWith('/api') ||
+    url.hostname.includes('extendsclass.com') ||
+    url.hostname.includes('freeimage.host') ||
+    url.hostname.includes('iili.io')
+  ) {
+    return;
+  }
+
+  // Para navegação entre páginas HTML: Network-First com fallback para cache offline
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)
@@ -65,7 +74,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          console.log('[Service Worker] Modo Offline detectado. Servindo aplicação a partir do cache.');
+          console.log('[Service Worker v3] Modo Offline detectado. Servindo aplicação do cache.');
           return caches.match('/index.html').then((cachedIndex) => {
             return cachedIndex || caches.match('/');
           });
@@ -74,36 +83,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Para recursos estáticos (JS, CSS, Imagens, Fontes): Cache-First
+  // Para recursos estáticos locais (JS, CSS, Imagens): Cache com Stale-While-Revalidate
   event.respondWith(
     caches.match(req).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Atualiza o cache em segundo plano (Stale-While-Revalidate)
-        fetch(req).then((networkResponse) => {
+      const fetchPromise = fetch(req)
+        .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, networkResponse));
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
           }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-
-      // Se não estava no cache, busca na rede e salva para o próximo uso offline
-      return fetch(req).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
           return networkResponse;
-        }
-        const copy = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        return networkResponse;
-      }).catch((error) => {
-        console.warn('[Service Worker] Falha de rede para recurso:', req.url);
-        // Tenta fallback para imagens ou index se aplicável
-        if (req.destination === 'image') {
-          return caches.match('/logo-solutions.png');
-        }
-        throw error;
-      });
+        })
+        .catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });
-

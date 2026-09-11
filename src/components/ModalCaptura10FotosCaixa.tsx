@@ -538,3 +538,4 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
     </div>
   );
 };
+

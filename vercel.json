@@ -1,4 +1,4 @@
-﻿{
+{
   "rewrites": [
     {
       "source": "/((?!api/|sw\\.js|manifest\\.json).*)",
@@ -11,7 +11,16 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-cache"
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
         }
       ]
     }

@@ -106,9 +106,9 @@ export const BipagemRapida: React.FC = () => {
     caixaDestino?: string;
   } | null>(null);
 
-  // Modal Limpar Base de Testes (Requisito 2)
-  const [mostrarModalLimparBase, setMostrarModalLimparBase] = useState(false);
-  const [limpandoBase, setLimpandoBase] = useState(false);
+  // Modal Limpar Registros Não Enviados
+  const [mostrarModalLimparRegistros, setMostrarModalLimparRegistros] = useState(false);
+  const [limpandoRegistros, setLimpandoRegistros] = useState(false);
 
   // Estados de Validação e Bloqueio de Troca de Caixa (Requisito 8)
   const [bloqueioTrocaModalAberto, setBloqueioTrocaModalAberto] = useState(false);
@@ -334,6 +334,11 @@ export const BipagemRapida: React.FC = () => {
 
   // Full Inline Row Editing (Excel mode) - Allows editing Modelo, EAN, Serial, Caixa, Lacre, Kit, Marcas, Obs
   const iniciarEdicaoLinha = (item: ProdutoAuditoria) => {
+    if (item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      sounds.playError();
+      setAlertaValidacao('Este produto já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode editar registros sincronizados.');
+      return;
+    }
     setLinhaEditandoId(item.id);
     setEditModelo(item.modelo_produto);
     setEditEan(item.ean);
@@ -403,9 +408,19 @@ export const BipagemRapida: React.FC = () => {
   };
 
   // Excluir linha
-  const handleExcluirLinha = (id: number, serial: string) => {
+  const handleExcluirLinha = (id: number, serial: string, statusSync?: string) => {
+    if (statusSync === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      sounds.playError();
+      setAlertaValidacao('Este produto já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.');
+      return;
+    }
     if (window.confirm(`Deseja remover o serial ${serial}?`)) {
-      db.excluirProduto(id);
+      const res = db.excluirProduto(id);
+      if (!res.sucesso) {
+        sounds.playError();
+        setAlertaValidacao(res.erro || 'Erro ao excluir produto.');
+        return;
+      }
       recarregarDados(filtroCaixa);
       focarInputSerial();
     }
@@ -543,24 +558,19 @@ export const BipagemRapida: React.FC = () => {
     setMostrarNovaCaixaModal(true);
   };
 
-  // Limpeza Completa da Base de Testes (Requisito 2)
-  const handleConfirmarLimpezaBase = async () => {
-    setLimpandoBase(true);
+  // Limpeza de Registros Locais Não Enviados (Apenas Pendentes)
+  const handleConfirmarLimpezaRegistros = () => {
+    setLimpandoRegistros(true);
     try {
-      await db.limparBaseOperacional();
-      setProdutos([]);
-      setCaixaAtiva('Caixa 01');
-      setFiltroCaixa('Caixa 01');
-      setCaixaPara10Fotos('Caixa 01');
-      setContadores(db.obterContadoresCaixa('Caixa 01'));
-      setMostrarModalLimparBase(false);
-      setSucessoNotif('Base de testes limpa com sucesso! Produtos: 0 | Caixas: 0 | Fotos: 0 | Sincronizações: 0');
-      setTimeout(() => setSucessoNotif(null), 4000);
-      recarregarDados('Caixa 01');
+      const res = db.limparRegistrosLocaisNaoEnviados(regionalAtiva);
+      setMostrarModalLimparRegistros(false);
+      setSucessoNotif(res.mensagem);
+      setTimeout(() => setSucessoNotif(null), 5000);
+      recarregarDados(filtroCaixa);
     } catch {
-      setAlertaValidacao('Erro ao limpar a base de testes.');
+      setAlertaValidacao('Erro ao limpar registros locais.');
     } finally {
-      setLimpandoBase(false);
+      setLimpandoRegistros(false);
     }
   };
 
@@ -939,6 +949,7 @@ export const BipagemRapida: React.FC = () => {
 
   const espelhoCaixaAtual = obterDadosEspelhoCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
   const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
+  const contagemStatusRegistros = db.obterContagemStatusRegistros(regionalAtiva);
   const gruposFotosCaixaAtiva = db.obterGruposFotosCaixa(caixaAtiva, regionalAtiva);
   const totalFotosCaixaAtiva = gruposFotosCaixaAtiva.filter((g) => g.temFoto).length;
   const totalFotos10CaixaAtiva = db.obterContadorFotos10(caixaAtiva, regionalAtiva);
@@ -1530,14 +1541,23 @@ export const BipagemRapida: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleExcluirLinha(item.id, item.serial)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 cursor-pointer shrink-0"
-                      title="Excluir item"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR' ? (
+                      <span
+                        title="Item enviado para o online. Apenas o Administrador pode excluir."
+                        className="p-1.5 text-slate-400 cursor-not-allowed shrink-0 flex items-center"
+                      >
+                        <Lock className="w-4 h-4 text-slate-400" />
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleExcluirLinha(item.id, item.serial, item.status_sincronizacao)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 cursor-pointer shrink-0"
+                        title="Excluir item"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1807,15 +1827,15 @@ export const BipagemRapida: React.FC = () => {
               Importar
             </button>
 
-            {/* 8. Limpar Base de Testes (Requisito 2) */}
+            {/* 8. Limpar Registros Não Enviados */}
             <button
               type="button"
-              onClick={() => setMostrarModalLimparBase(true)}
-              className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Zerar produtos, caixas, fotos e sincronizações para início dos testes operacionais"
+              onClick={() => setMostrarModalLimparRegistros(true)}
+              className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Limpar registros locais que ainda não foram enviados para o online"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Limpar Base
+              Limpar Registros
             </button>
           </div>
         </div>
@@ -2253,20 +2273,38 @@ export const BipagemRapida: React.FC = () => {
                     </td>
                     <td className="py-2 px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => iniciarEdicaoLinha(item)}
-                          title="Editar esta linha (ou duplo clique)"
-                          className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 transition-colors cursor-pointer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleExcluirLinha(item.id, item.serial)}
-                          title="Remover linha"
-                          className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR' ? (
+                          <span
+                            title="Item enviado para o online. Apenas o Administrador pode editar."
+                            className="text-slate-400 p-1 cursor-not-allowed inline-flex items-center"
+                          >
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => iniciarEdicaoLinha(item)}
+                            title="Editar esta linha (ou duplo clique)"
+                            className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 transition-colors cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR' ? (
+                          <span
+                            title="Item enviado para o online. Apenas o Administrador pode excluir."
+                            className="text-slate-400 p-1 cursor-not-allowed inline-flex items-center"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleExcluirLinha(item.id, item.serial, item.status_sincronizacao)}
+                            title="Remover linha"
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2954,71 +2992,81 @@ export const BipagemRapida: React.FC = () => {
         onConcluido={handle10FotosConcluidas}
       />
 
-      {/* 11. MODAL: LIMPEZA COMPLETA DA BASE DE TESTES (REQUISITO 2) */}
-      {mostrarModalLimparBase && (
+      {/* 11. MODAL: LIMPAR REGISTROS LOCAIS NÃO ENVIADOS */}
+      {mostrarModalLimparRegistros && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-500 space-y-4">
-            <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-slate-400 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-600 shrink-0">
+                <div className="w-11 h-11 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0">
                   <Trash2 className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-rose-950 uppercase tracking-tight">
-                    Limpar Base para Início dos Testes
+                  <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                    Limpar Registros Locais
                   </h3>
-                  <span className="text-xs font-bold text-rose-600">
-                    Ação de limpeza da base de testes
+                  <span className="text-xs font-bold text-amber-700">
+                    Apenas registros NÃO enviados ao online serão removidos
                   </span>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setMostrarModalLimparBase(false)}
+                onClick={() => setMostrarModalLimparRegistros(false)}
                 className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-rose-950 text-xs font-medium space-y-2">
-              <div className="flex items-center gap-2 font-black text-rose-900 text-sm">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                Deseja realmente zerar todos os dados operacionais?
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-amber-950 text-xs font-medium space-y-3">
+              <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                Aviso Importante sobre a Limpeza
               </div>
-              <p>Os seguintes dados serão completamente excluídos:</p>
-              <ul className="list-disc pl-5 space-y-1 font-bold text-rose-900">
-                <li>Produtos cadastrados: <strong>0</strong></li>
-                <li>Seriais e caixas: <strong>0</strong></li>
-                <li>Fotos e evidências: <strong>0</strong></li>
-                <li>Sincronizações e histórico: <strong>0</strong></li>
-              </ul>
-              <p className="pt-2 text-emerald-800 font-bold border-t border-rose-200">
-                ✓ Usuários, Regionais e Configurações serão <strong>MANTIDOS</strong>.
+              <p className="leading-relaxed">
+                Esta ação limpará do seu computador <strong>apenas os registros locais que NÃO foram enviados para o online</strong>.
               </p>
+              <div className="grid grid-cols-2 gap-2 pt-1 pb-1">
+                <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Registros Pendentes</span>
+                  <span className="text-lg font-black text-amber-700">{contagemStatusRegistros.pendentes}</span>
+                  <span className="text-[10px] text-amber-600 block mt-0.5">Serão removidos deste aparelho</span>
+                </div>
+                <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Enviados ao Online</span>
+                  <span className="text-lg font-black text-emerald-700">{contagemStatusRegistros.enviados}</span>
+                  <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">100% protegidos na nuvem</span>
+                </div>
+              </div>
+              <div className="pt-2 text-emerald-900 font-semibold border-t border-amber-200 space-y-1">
+                <p className="flex items-center gap-1.5 text-xs text-emerald-800 font-bold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  Tudo o que já subiu para o online permanecerá intacto e gravado na nuvem.
+                </p>
+                <p className="text-[11px] text-slate-600 font-normal">
+                  Depois que os dados sobem para o online, somente o <strong>Administrador Geral</strong> consegue editar, excluir seriais ou limpar a base geral.
+                </p>
+              </div>
             </div>
-
-            <p className="text-xs text-slate-500">
-              Após confirmar, a base local (IndexedDB/LocalStorage) e a nuvem central serão limpas para que os testes operacionais iniciem do zero.
-            </p>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
-                disabled={limpandoBase}
-                onClick={() => setMostrarModalLimparBase(false)}
+                disabled={limpandoRegistros}
+                onClick={() => setMostrarModalLimparRegistros(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                disabled={limpandoBase}
-                onClick={handleConfirmarLimpezaBase}
-                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase text-white bg-rose-600 hover:bg-rose-700 shadow-md flex items-center gap-2 cursor-pointer transition-colors"
+                disabled={limpandoRegistros}
+                onClick={handleConfirmarLimpezaRegistros}
+                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase text-white bg-amber-600 hover:bg-amber-700 shadow-md flex items-center gap-2 cursor-pointer transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
-                {limpandoBase ? 'Limpando Base...' : 'SIM, LIMPAR BASE AGORA'}
+                {limpandoRegistros ? 'Limpando Registros...' : 'CONFIRMAR LIMPEZA DE REGISTROS'}
               </button>
             </div>
           </div>

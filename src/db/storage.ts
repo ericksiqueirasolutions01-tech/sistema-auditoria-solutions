@@ -718,6 +718,15 @@ class AuditoriaDatabase {
     }
 
     const anterior = this.produtos[idx];
+
+    // Regra de Proteção Online: Registros já enviados para o online só podem ser editados pelo Administrador Geral
+    if (anterior.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      return {
+        sucesso: false,
+        erro: 'Este número de série já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode editar registros sincronizados.',
+      };
+    }
+
     const serialNovo = dados.serial ? dados.serial.trim().toUpperCase() : anterior.serial;
 
     // Check serial uniqueness if changing serial
@@ -769,6 +778,15 @@ class AuditoriaDatabase {
     }
 
     const removido = this.produtos[idx];
+
+    // Regra de Proteção Online: Registros já enviados para o online só podem ser excluídos pelo Administrador Geral
+    if (removido.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      return {
+        sucesso: false,
+        erro: 'Este número de série já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.',
+      };
+    }
+
     this.produtos.splice(idx, 1);
     this.serialMap.delete(removido.serial);
     this.salvarTudo();
@@ -1367,10 +1385,16 @@ class AuditoriaDatabase {
   }
 
   // =========================================================================
-  // LIMPEZA DA BASE DE TESTES (REQUISITO 2)
-  // Zera produtos, caixas, fotos e sincronizações. Mantém usuários e regionais.
+  // LIMPEZA GERAL DA BASE (ONLINE + LOCAL) - RESTRITO EXCLUSIVAMENTE AO ADMIN
   // =========================================================================
   async limparBaseOperacional(): Promise<{ sucesso: boolean; mensagem: string }> {
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      return {
+        sucesso: false,
+        mensagem: 'Apenas o Administrador Geral possui autorização para solicitar a limpeza da base de dados online.',
+      };
+    }
+
     this.produtos = [];
     this.serialMap.clear();
     this.fotosGrupos = [];
@@ -1421,9 +1445,90 @@ class AuditoriaDatabase {
 
     return {
       sucesso: true,
-      mensagem: 'Base de dados resetada com sucesso para início dos testes: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.',
+      mensagem: 'Base de dados resetada com sucesso pelo Administrador: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.',
     };
+  }
 
+  // =========================================================================
+  // LIMPAR REGISTROS LOCAIS NÃO ENVIADOS (OPERACIONAL / COLABORADOR)
+  // Remove APENAS os registros que ainda NÃO foram enviados para o online.
+  // Tudo o que já foi enviado para o online CONTINUA gravado e preservado 100%.
+  // =========================================================================
+  obterContagemStatusRegistros(regional?: string): { pendentes: number; enviados: number; total: number } {
+    const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional ? this.usuarioAtual.regional : undefined);
+    const lista = this.produtos.filter((p) => {
+      return !regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo;
+    });
+    const pendentes = lista.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
+    const enviados = lista.filter((p) => p.status_sincronizacao === 'ENVIADO').length;
+    return { pendentes, enviados, total: lista.length };
+  }
+
+  limparRegistrosLocaisNaoEnviados(regional?: string): {
+    sucesso: boolean;
+    removidos: number;
+    preservados: number;
+    mensagem: string;
+  } {
+    const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional ? this.usuarioAtual.regional : undefined);
+
+    let pendentesCount = 0;
+    let enviadosCount = 0;
+
+    const novosProdutos: ProdutoAuditoria[] = [];
+    for (const p of this.produtos) {
+      const matchRegional = !regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      if (matchRegional) {
+        if (p.status_sincronizacao === 'ENVIADO') {
+          novosProdutos.push(p);
+          enviadosCount++;
+        } else {
+          pendentesCount++;
+        }
+      } else {
+        novosProdutos.push(p);
+      }
+    }
+
+    this.produtos = novosProdutos;
+    this.serialMap.clear();
+    for (const p of this.produtos) {
+      this.serialMap.set(p.serial, p);
+    }
+
+    // Filtrar fotos de evidência: remover apenas as fotos locais que NÃO foram enviadas
+    this.fotosGrupos = this.fotosGrupos.filter((f) => {
+      const matchRegional = !regAlvo || regAlvo === 'TODAS' || (f.regional || 'VIA VAREJO RJ') === regAlvo;
+      if (!matchRegional) return true;
+      return f.status_sincronizacao === 'ENVIADO';
+    });
+
+    this.registros10Fotos = this.registros10Fotos.filter((r) => {
+      const matchRegional = !regAlvo || regAlvo === 'TODAS' || r.regional === regAlvo;
+      if (!matchRegional) return true;
+      return r.status_sincronizacao === 'ENVIADO';
+    });
+
+    this.salvarTudo();
+    this.notificarMudanca('produtos');
+    this.notificarMudanca('fotos');
+    this.notificarMudanca('caixas');
+    this.notificarMudanca('sync');
+
+    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+    this.registrarHistorico(
+      usuarioNome,
+      'LIMPEZA_REGISTROS_LOCAIS',
+      `Limpeza de registros locais: ${pendentesCount} produtos pendentes removidos. ${enviadosCount} produtos já enviados ao online foram mantidos intactos.`,
+      regAlvo
+    );
+
+    return {
+      sucesso: true,
+      removidos: pendentesCount,
+      preservados: enviadosCount,
+      mensagem: `Limpeza concluída! ${pendentesCount} registro(s) pendente(s) removido(s). ${enviadosCount} registro(s) já enviados para o online foram preservados com sucesso.`,
+    };
   }
 
   // =========================================================================

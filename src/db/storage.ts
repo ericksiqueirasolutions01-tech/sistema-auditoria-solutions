@@ -14,6 +14,9 @@ import {
   SimNao,
   FotoGrupoAuditoria,
   GrupoFotosInfo,
+  FotoCaixa10Item,
+  Registro10FotosCaixa,
+  ROTULOS_10_FOTOS_CAIXA,
 } from '../types';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
@@ -25,6 +28,7 @@ const STORAGE_KEY_COMPUTADORES = 'solutions_computadores_lista_v1';
 const STORAGE_KEY_HISTORICO_ENVIOS = 'solutions_historico_envios_online_v1';
 const STORAGE_KEY_SERVIDOR_CENTRAL = 'solutions_servidor_central_produtos_v1';
 const STORAGE_KEY_FOTOS = 'solutions_auditoria_fotos_grupos_v1';
+const STORAGE_KEY_FOTOS_10_CAIXAS = 'solutions_auditoria_10_fotos_caixas_v1';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -188,6 +192,7 @@ class AuditoriaDatabase {
   private usuarios: Usuario[] = [];
   private historico: HistoricoAuditoria[] = [];
   private fotosGrupos: FotoGrupoAuditoria[] = [];
+  private registros10Fotos: Registro10FotosCaixa[] = [];
   private usuarioAtual: Usuario | null = null;
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
 
@@ -285,6 +290,9 @@ class AuditoriaDatabase {
       const fotosRaw = localStorage.getItem(STORAGE_KEY_FOTOS);
       this.fotosGrupos = fotosRaw ? JSON.parse(fotosRaw) : [];
 
+      const fotos10Raw = localStorage.getItem(STORAGE_KEY_FOTOS_10_CAIXAS);
+      this.registros10Fotos = fotos10Raw ? JSON.parse(fotos10Raw) : [];
+
       // Rebuild high-speed serial index (O(1) lookups)
       this.serialMap.clear();
       for (const p of this.produtos) {
@@ -297,6 +305,7 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_USUARIOS, this.usuarios);
         salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
         salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
+        salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, this.registros10Fotos);
       }
 
       // Limpeza de sessão legada no localStorage para garantir que entrar no sistema sempre exija login
@@ -373,12 +382,14 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_USUARIOS, JSON.stringify(this.usuarios));
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
       localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify(this.fotosGrupos));
+      localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify(this.registros10Fotos));
 
       // 2. Gravação redundante no IndexedDB (Zero Data Loss)
       salvarIndexedDB(STORAGE_KEY_PRODUTOS, this.produtos);
       salvarIndexedDB(STORAGE_KEY_USUARIOS, this.usuarios);
       salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
       salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
+      salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, this.registros10Fotos);
     } catch (e) {
       console.error('Erro ao salvar no storage:', e);
     }
@@ -1089,6 +1100,123 @@ class AuditoriaDatabase {
     return false;
   }
 
+  // =========================================================================
+  // GESTÃO DAS 10 FOTOS OBRIGATÓRIAS DA CAIXA (REQUISITOS 4 E 5)
+  // Ao finalizar / trocar de caixa: 10 fotos obrigatórias
+  // =========================================================================
+  obter10FotosCaixa(caixa: string, regional?: string): Registro10FotosCaixa | null {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    return (
+      this.registros10Fotos.find(
+        (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
+      ) || null
+    );
+  }
+
+  tem10FotosCompletas(caixa: string, regional?: string): boolean {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const reg = this.registros10Fotos.find(
+      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
+    );
+    if (!reg || !reg.fotos || reg.fotos.length !== 10) return false;
+    return reg.fotos.every((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50);
+  }
+
+  obterContadorFotos10(caixa: string, regional?: string): number {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const reg = this.registros10Fotos.find(
+      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
+    );
+    if (!reg || !reg.fotos) return 0;
+    return reg.fotos.filter((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50).length;
+  }
+
+  salvar10FotosCaixa(
+    caixa: string,
+    fotos: { indice: number; rotulo: string; descricao?: string; fotoDataUri: string }[],
+    regional?: string
+  ): { sucesso: boolean; registro: Registro10FotosCaixa } {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const compAtual = this.obterComputadorAtual(regAlvo);
+    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+    const agora = new Date().toISOString();
+
+    const fotosFormatadas: FotoCaixa10Item[] = ROTULOS_10_FOTOS_CAIXA.map((ref) => {
+      const encontrada = fotos.find((f) => f.indice === ref.id);
+      return {
+        indice: ref.id,
+        rotulo: ref.rotulo,
+        descricao: ref.descricao,
+        fotoDataUri: encontrada?.fotoDataUri || '',
+      };
+    });
+
+    const registroNovo: Registro10FotosCaixa = {
+      id: `FOTOS10-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${Date.now()}`,
+      regional: regAlvo,
+      caixa,
+      dataCriacao: agora,
+      computador_id: compAtual.id,
+      usuario: usuarioNome,
+      fotos: fotosFormatadas,
+      status_sincronizacao: 'PENDENTE',
+      data_sincronizacao: null,
+    };
+
+    const idxExistente = this.registros10Fotos.findIndex(
+      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
+    );
+    if (idxExistente >= 0) {
+      this.registros10Fotos[idxExistente] = registroNovo;
+    } else {
+      this.registros10Fotos.push(registroNovo);
+    }
+
+    // Salvar também em fotosGrupos para visualização na galeria do Admin e sincronização com nuvem
+    for (const fotoItem of fotosFormatadas) {
+      if (fotoItem.fotoDataUri) {
+        const fotoGrupoItem: FotoGrupoAuditoria = {
+          id: `FOTO10-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${fotoItem.indice}-${Date.now()}`,
+          regional: regAlvo,
+          caixa,
+          grupoNumero: fotoItem.indice,
+          grupoRotulo: `${fotoItem.indice}. ${fotoItem.rotulo}`,
+          rangeInicio: 1,
+          rangeFim: 10,
+          totalNoGrupo: 10,
+          seriais: [],
+          fotoDataUri: fotoItem.fotoDataUri,
+          dataCriacao: agora,
+          computador_id: compAtual.id,
+          usuario: usuarioNome,
+          status_sincronizacao: 'PENDENTE',
+          data_sincronizacao: null,
+        };
+        const idxG = this.fotosGrupos.findIndex(
+          (f) => f.caixa === caixa && f.grupoNumero === fotoItem.indice && f.regional === regAlvo
+        );
+        if (idxG >= 0) {
+          this.fotosGrupos[idxG] = fotoGrupoItem;
+        } else {
+          this.fotosGrupos.push(fotoGrupoItem);
+        }
+      }
+    }
+
+    this.salvarTudo();
+    this.notificarMudanca('fotos');
+    this.notificarMudanca('sync');
+
+    this.registrarHistorico(
+      usuarioNome,
+      'ANEXO_10_FOTOS_CAIXA',
+      `Registradas as 10 fotos comprobatórias obrigatórias da ${caixa}.`,
+      regAlvo
+    );
+
+    return { sucesso: true, registro: registroNovo };
+  }
+
   validarTrocaCaixa(
     caixaAtual: string,
     regional?: string
@@ -1098,32 +1226,48 @@ class AuditoriaDatabase {
     gruposFaltantes: GrupoFotosInfo[];
     totalGrupos: number;
     gruposComFoto: number;
+    precisa10Fotos: boolean;
   } {
-    const grupos = this.obterGruposFotosCaixa(caixaAtual, regional);
-    if (grupos.length === 0) {
-      return { permitida: true, gruposFaltantes: [], totalGrupos: 0, gruposComFoto: 0 };
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const prodsCaixa = this.produtos.filter(
+      (p) => p.numero_caixa === caixaAtual && (regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo)
+    );
+
+    // Se a caixa atual não tem produtos cadastrados, pode trocar livremente
+    if (prodsCaixa.length === 0) {
+      return {
+        permitida: true,
+        gruposFaltantes: [],
+        totalGrupos: 0,
+        gruposComFoto: 0,
+        precisa10Fotos: false,
+      };
     }
 
-    const gruposFaltantes = grupos.filter((g) => !g.temFoto);
-    const gruposComFoto = grupos.filter((g) => g.temFoto).length;
+    // Se a caixa tem produtos, é OBRIGATÓRIO ter as 10 fotos da caixa (Requisito 4 e 5)
+    const completas = this.tem10FotosCompletas(caixaAtual, regAlvo);
+    const contagem = this.obterContadorFotos10(caixaAtual, regAlvo);
 
-    if (gruposFaltantes.length > 0) {
+    if (!completas) {
       return {
         permitida: false,
-        mensagem: 'Existem produtos da caixa atual sem evidência fotográfica.',
-        gruposFaltantes,
-        totalGrupos: grupos.length,
-        gruposComFoto,
+        mensagem: `É obrigatório registrar as 10 fotos comprobatórias da ${caixaAtual} antes de iniciar uma nova caixa ou trocar de caixa. (${contagem} de 10 capturadas)`,
+        gruposFaltantes: [],
+        totalGrupos: 10,
+        gruposComFoto: contagem,
+        precisa10Fotos: true,
       };
     }
 
     return {
       permitida: true,
       gruposFaltantes: [],
-      totalGrupos: grupos.length,
-      gruposComFoto: grupos.length,
+      totalGrupos: 10,
+      gruposComFoto: 10,
+      precisa10Fotos: false,
     };
   }
+
 
   listarFotosCaixa(caixa: string, regional?: string): FotoGrupoAuditoria[] {
     const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
@@ -1175,10 +1319,12 @@ class AuditoriaDatabase {
     this.produtos = [];
     this.serialMap.clear();
     this.fotosGrupos = [];
+    this.registros10Fotos = [];
     this.historico = [];
 
     localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
     localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify([]));
     localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
     localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
     localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
@@ -1186,6 +1332,7 @@ class AuditoriaDatabase {
 
     salvarIndexedDB(STORAGE_KEY_PRODUTOS, []);
     salvarIndexedDB(STORAGE_KEY_FOTOS, []);
+    salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, []);
     salvarIndexedDB(STORAGE_KEY_HISTORICO, []);
     salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
 
@@ -1208,12 +1355,14 @@ class AuditoriaDatabase {
     this.salvarTudo();
     this.notificarMudanca('produtos');
     this.notificarMudanca('fotos');
+    this.notificarMudanca('caixas');
     this.notificarMudanca('sync');
 
     return {
       sucesso: true,
       mensagem: 'Base de dados resetada com sucesso para início dos testes: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.',
     };
+
   }
 
   // =========================================================================

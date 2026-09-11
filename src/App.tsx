@@ -103,8 +103,8 @@ export const App: React.FC = () => {
       {/* Navigation Bar */}
       <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* Main Content Area (100% da Largura do Monitor) */}
-      <main className="flex-1 w-full px-2 sm:px-3 lg:px-4 py-2">
+      {/* Main Content Area (100% da Largura do Monitor - Modo Excel Completo) */}
+      <main className="flex-1 w-full px-1 sm:px-2 py-1">
         {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === 'admin-regionais' && <PainelAdmin />}
         {activeTab === 'relatorios' && <ConsultaProdutos />}
@@ -121,10 +121,10 @@ export const App: React.FC = () => {
       </main>
 
       {/* Corporate Footer (No Print) */}
-      <footer className="no-print bg-white border-t border-slate-200 py-6 mt-12 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="no-print bg-white border-t border-slate-200 py-3 mt-4 text-xs text-slate-500">
+        <div className="w-full px-2 sm:px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <SolutionsLogo height={24} showText={false} />
+            <SolutionsLogo height={22} showText={false} />
             <span className="font-bold text-slate-700">GRUPO SOLUTIONS</span>
             <span>•</span>
             <span>Sistema de Auditoria e Qualidade Samsung</span>

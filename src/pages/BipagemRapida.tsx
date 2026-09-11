@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao, GrupoFotosInfo } from '../types';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import { ModalCapturaFotoGrupo } from '../components/ModalCapturaFotoGrupo';
 import { ModalVisualizarFotosCaixa } from '../components/ModalVisualizarFotosCaixa';
+import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa';
 import {
   FileSpreadsheet,
   Plus,
@@ -98,6 +99,18 @@ export const BipagemRapida: React.FC = () => {
   const [modalFotoGrupoAberto, setModalFotoGrupoAberto] = useState(false);
   const [grupoFotoAtivo, setGrupoFotoAtivo] = useState<GrupoFotosInfo | null>(null);
   const [modalVisualizarFotosAberto, setModalVisualizarFotosAberto] = useState(false);
+
+  // Estados para as 10 Fotos Obrigatórias da Caixa (Requisitos 4 e 5)
+  const [modal10FotosAberto, setModal10FotosAberto] = useState(false);
+  const [caixaPara10Fotos, setCaixaPara10Fotos] = useState(caixaAtiva);
+  const [acaoApos10Fotos, setAcaoApos10Fotos] = useState<{
+    tipo: 'mudar_caixa' | 'nova_caixa';
+    caixaDestino?: string;
+  } | null>(null);
+
+  // Modal Limpar Base de Testes (Requisito 2)
+  const [mostrarModalLimparBase, setMostrarModalLimparBase] = useState(false);
+  const [limpandoBase, setLimpandoBase] = useState(false);
 
   // Estados de Validação e Bloqueio de Troca de Caixa (Requisito 8)
   const [bloqueioTrocaModalAberto, setBloqueioTrocaModalAberto] = useState(false);
@@ -404,6 +417,10 @@ export const BipagemRapida: React.FC = () => {
   // Se SIM: Bloquear a alteração de caixa.
   // Exibir: "Existem produtos da caixa atual sem evidência fotográfica. Anexe as fotos dos produtos antes de iniciar uma nova caixa."
   // =========================================================================
+  // =========================================================================
+  // VALIDAÇÃO RIGOROSA DAS 10 FOTOS AO TROCAR DE CAIXA (REQUISITOS 4 E 5)
+  // Ao finalizar uma caixa e iniciar nova caixa: OBRIGATÓRIO 10 FOTOS.
+  // =========================================================================
   const tentarMudarCaixa = (novaCaixa: string): boolean => {
     const cxDestino = novaCaixa.trim();
     if (!cxDestino || cxDestino === caixaAtiva) {
@@ -413,14 +430,16 @@ export const BipagemRapida: React.FC = () => {
     const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
     if (!check.permitida) {
       sounds.playError();
-      setGruposFaltantesBloqueio(check.gruposFaltantes);
+      setCaixaPara10Fotos(caixaAtiva);
       setCaixaDestinoTentativa(cxDestino);
-      setBloqueioTrocaModalAberto(true);
+      setAcaoApos10Fotos({ tipo: 'mudar_caixa', caixaDestino: cxDestino });
+      setModal10FotosAberto(true);
       return false;
     }
 
     setCaixaAtiva(cxDestino);
     setFiltroCaixa(cxDestino);
+    recarregarDados(cxDestino);
     setSucessoNotif(`Caixa alterada para ${cxDestino}.`);
     setTimeout(() => setSucessoNotif(null), 2000);
     return true;
@@ -430,9 +449,10 @@ export const BipagemRapida: React.FC = () => {
     const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
     if (!check.permitida) {
       sounds.playError();
-      setGruposFaltantesBloqueio(check.gruposFaltantes);
+      setCaixaPara10Fotos(caixaAtiva);
       setCaixaDestinoTentativa(null);
-      setBloqueioTrocaModalAberto(true);
+      setAcaoApos10Fotos({ tipo: 'mudar_caixa' });
+      setModal10FotosAberto(true);
       return;
     }
     setCaixaParaMudarInput(caixaAtiva);
@@ -459,28 +479,50 @@ export const BipagemRapida: React.FC = () => {
     recarregarDados(filtroCaixa);
     setSucessoNotif('Evidência fotográfica registrada e salva com sucesso!');
     setTimeout(() => setSucessoNotif(null), 3000);
+  };
 
-    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
-    if (!check.permitida) {
-      setGruposFaltantesBloqueio(check.gruposFaltantes);
-    } else {
-      setBloqueioTrocaModalAberto(false);
-      if (caixaDestinoTentativa) {
-        setCaixaAtiva(caixaDestinoTentativa);
-        setFiltroCaixa(caixaDestinoTentativa);
-        setCaixaDestinoTentativa(null);
+  // Conclusão das 10 Fotos Obrigatórias da Caixa (Requisitos 4 e 5)
+  const handle10FotosConcluidas = () => {
+    setModal10FotosAberto(false);
+    recarregarDados(filtroCaixa);
+    setSucessoNotif(`10 fotos comprobatórias da ${caixaPara10Fotos} salvas com sucesso!`);
+    setTimeout(() => setSucessoNotif(null), 3000);
+
+    if (acaoApos10Fotos?.tipo === 'nova_caixa') {
+      setAcaoApos10Fotos(null);
+      const match = caixaAtiva.match(/(\d+)/);
+      let sugestaoProxima = 'Caixa 01';
+      if (match) {
+        const num = parseInt(match[1], 10) + 1;
+        sugestaoProxima = `Caixa ${num < 10 ? '0' + num : num}`;
+      } else {
+        sugestaoProxima = `${caixaAtiva} Lote 2`;
       }
+      setNovaCaixaNome(sugestaoProxima);
+      setMostrarNovaCaixaModal(true);
+    } else if (acaoApos10Fotos?.tipo === 'mudar_caixa' && acaoApos10Fotos.caixaDestino) {
+      const dest = acaoApos10Fotos.caixaDestino;
+      setAcaoApos10Fotos(null);
+      setCaixaAtiva(dest);
+      setFiltroCaixa(dest);
+      recarregarDados(dest);
     }
   };
 
-  // Nova Auditoria / Próxima Caixa com Validação de Foto da Caixa Atual
+  const abrir10FotosCaixaAtiva = () => {
+    setCaixaPara10Fotos(caixaAtiva);
+    setAcaoApos10Fotos(null);
+    setModal10FotosAberto(true);
+  };
+
+  // Nova Auditoria / Próxima Caixa com Validação das 10 Fotos da Caixa Atual
   const handleNovaAuditoria = () => {
     const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
     if (!check.permitida) {
       sounds.playError();
-      setGruposFaltantesBloqueio(check.gruposFaltantes);
-      setCaixaDestinoTentativa(null);
-      setBloqueioTrocaModalAberto(true);
+      setCaixaPara10Fotos(caixaAtiva);
+      setAcaoApos10Fotos({ tipo: 'nova_caixa' });
+      setModal10FotosAberto(true);
       return;
     }
 
@@ -495,6 +537,27 @@ export const BipagemRapida: React.FC = () => {
     setNovaCaixaNome(sugestaoProxima);
     setMostrarNovaCaixaModal(true);
   };
+
+  // Limpeza Completa da Base de Testes (Requisito 2)
+  const handleConfirmarLimpezaBase = async () => {
+    setLimpandoBase(true);
+    try {
+      await db.limparBaseOperacional();
+      setProdutos([]);
+      setCaixaAtiva('Caixa 01');
+      setFiltroCaixa('Caixa 01');
+      setContadores(db.obterContadoresCaixa('Caixa 01'));
+      setMostrarModalLimparBase(false);
+      setSucessoNotif('Base de testes limpa com sucesso! Produtos: 0 | Caixas: 0 | Fotos: 0 | Sincronizações: 0');
+      setTimeout(() => setSucessoNotif(null), 4000);
+      recarregarDados('Caixa 01');
+    } catch {
+      setAlertaValidacao('Erro ao limpar a base de testes.');
+    } finally {
+      setLimpandoBase(false);
+    }
+  };
+
 
   const confirmarCriacaoNovaCaixa = () => {
     const nome = novaCaixaNome.trim();
@@ -871,6 +934,8 @@ export const BipagemRapida: React.FC = () => {
   const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
   const gruposFotosCaixaAtiva = db.obterGruposFotosCaixa(caixaAtiva, regionalAtiva);
   const totalFotosCaixaAtiva = gruposFotosCaixaAtiva.filter((g) => g.temFoto).length;
+  const totalFotos10CaixaAtiva = db.obterContadorFotos10(caixaAtiva, regionalAtiva);
+  const registro10Atual = db.obter10FotosCaixa(caixaAtiva, regionalAtiva);
 
   return (
     <div className="space-y-4">
@@ -1628,17 +1693,22 @@ export const BipagemRapida: React.FC = () => {
           {/* BOTÕES DE AÇÃO: ESPELHO, FOTOS, RELATÓRIO GERAL E SEGURANÇA */}
           {/* ========================================================================= */}
           <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-            {/* 0. Fotos da Caixa */}
+            {/* 0. 10 Fotos Obrigatórias da Caixa */}
             <button
               type="button"
-              onClick={() => setModalVisualizarFotosAberto(true)}
-              className="bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600 font-black text-xs uppercase px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Visualizar Fotos Comprovatórias da Caixa Atual"
+              onClick={abrir10FotosCaixaAtiva}
+              className={`font-black text-xs uppercase px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer ${
+                totalFotos10CaixaAtiva === 10
+                  ? 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-500'
+                  : 'bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600'
+              }`}
+              title="10 Fotos Comprobatórias Obrigatórias da Caixa Atual"
             >
-              <Camera className="w-3.5 h-3.5 text-blue-300" />
-              Fotos ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+              <Camera className="w-3.5 h-3.5 text-amber-300" />
+              10 Fotos ({totalFotos10CaixaAtiva}/10)
             </button>
-            {/* 1. Nova Auditoria */}
+
+            {/* 1. Nova Caixa */}
             <button
               onClick={handleNovaAuditoria}
               className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-transform active:scale-95 cursor-pointer"
@@ -1648,7 +1718,7 @@ export const BipagemRapida: React.FC = () => {
               Nova Caixa
             </button>
 
-            {/* 2. Gerar Espelho da Caixa (COM LOGO SAMSUNG & SOLUTIONS, MODELO, EAN E QTD) */}
+            {/* 2. Gerar Espelho da Caixa */}
             <button
               onClick={() => {
                 setIncluirSeriaisEspelho(false);
@@ -1695,7 +1765,7 @@ export const BipagemRapida: React.FC = () => {
             <button
               onClick={baixarCopiaSeguranca}
               className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Salvar cópia de segurança completa para seu computador (Risco Zero de Perda)"
+              title="Salvar cópia de segurança completa para seu computador"
             >
               <HardDrive className="w-3.5 h-3.5" />
               Backup Seguro
@@ -1710,10 +1780,21 @@ export const BipagemRapida: React.FC = () => {
               <Upload className="w-3.5 h-3.5 text-slate-600" />
               Importar
             </button>
+
+            {/* 8. Limpar Base de Testes (Requisito 2) */}
+            <button
+              type="button"
+              onClick={() => setMostrarModalLimparBase(true)}
+              className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Zerar produtos, caixas, fotos e sincronizações para início dos testes operacionais"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Limpar Base
+            </button>
           </div>
         </div>
 
-        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (GRUPOS DE 10 EM 10) */}
+        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (10 FOTOS OBRIGATÓRIAS - REQUISITOS 4 E 5) */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl p-3 text-white border border-slate-700 space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-2">
             <div className="flex items-center gap-2">
@@ -1723,21 +1804,23 @@ export const BipagemRapida: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-black uppercase tracking-wider text-white">
-                    Evidências Fotográficas dos Produtos da {caixaAtiva}
+                    Evidências Fotográficas da {caixaAtiva}
                   </span>
                   <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold">
-                    10 em 10 produtos
+                    10 Fotos Obrigatórias
                   </span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                    gruposFotosCaixaAtiva.length > 0 && totalFotosCaixaAtiva === gruposFotosCaixaAtiva.length
+                    totalFotos10CaixaAtiva === 10
                       ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
                       : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
                   }`}>
-                    {totalFotosCaixaAtiva} de {gruposFotosCaixaAtiva.length} grupos fotografados
+                    {totalFotos10CaixaAtiva} de 10 fotos capturadas
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-300 font-medium">
-                  A foto deve comprovar visualmente os <strong>aparelhos dentro da caixa</strong> (agrupados a cada 10 produtos auditados).
+                  {totalFotos10CaixaAtiva === 10
+                    ? '✓ Todas as 10 fotos estão registradas. Liberação para trocar ou iniciar nova caixa habilitada.'
+                    : 'Atenção: Obrigatório capturar as 10 fotos completas para poder finalizar e trocar de caixa.'}
                 </p>
               </div>
             </div>
@@ -1745,63 +1828,51 @@ export const BipagemRapida: React.FC = () => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setModalVisualizarFotosAberto(true)}
+                onClick={abrir10FotosCaixaAtiva}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
               >
-                <Eye className="w-3.5 h-3.5" />
-                Ver Fotos da Caixa ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+                <Camera className="w-3.5 h-3.5" />
+                {totalFotos10CaixaAtiva === 10 ? 'Visualizar 10 Fotos' : `Capturar 10 Fotos (${totalFotos10CaixaAtiva}/10)`}
               </button>
             </div>
           </div>
 
-          {/* Linha dos Grupos */}
-          {gruposFotosCaixaAtiva.length === 0 ? (
-            <div className="text-xs text-slate-400 italic py-1">
-              Nenhum produto auditado nesta caixa ainda. Conforme os seriais forem bipados, os grupos de fotos serão gerados aqui a cada 10 produtos.
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {gruposFotosCaixaAtiva.map((grupo) => (
-                <div
-                  key={grupo.grupoNumero}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border shrink-0 transition-all ${
-                    grupo.temFoto
-                      ? 'bg-emerald-950/70 border-emerald-500/60'
-                      : 'bg-amber-950/70 border-amber-500/60'
+          {/* Slots das 10 Fotos */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-1.5 pt-1">
+            {ROTULOS_10_FOTOS_CAIXA.map((ref) => {
+              const fItem = registro10Atual?.fotos.find((f) => f.indice === ref.id);
+              const temF = !!fItem?.fotoDataUri;
+              return (
+                <button
+                  key={ref.id}
+                  type="button"
+                  onClick={abrir10FotosCaixaAtiva}
+                  className={`p-1.5 rounded-lg border text-left flex flex-col justify-between h-14 transition-all cursor-pointer ${
+                    temF
+                      ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/60'
+                      : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={`${ref.rotulo} - ${temF ? 'Foto Registrada' : 'Pendente'}`}
                 >
-                  <div className="w-7 h-7 rounded-lg bg-black/30 flex items-center justify-center shrink-0">
-                    {grupo.temFoto ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[9px] font-mono font-black text-slate-400">
+                      #{ref.id}
+                    </span>
+                    {temF ? (
+                      <Check className="w-3 h-3 text-emerald-400" />
                     ) : (
-                      <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                     )}
                   </div>
-                  <div className="text-left">
-                    <div className="text-xs font-black uppercase text-white whitespace-nowrap">
-                      Foto {grupo.grupoNumero}: {grupo.grupoRotulo}
-                    </div>
-                    <div className="text-[10px] text-slate-300">
-                      {grupo.totalNoGrupo} aparelhos {grupo.temFoto ? '• Registrada' : '• Sem foto'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => abrirCapturaGrupo(grupo)}
-                    className={`ml-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
-                      grupo.temFoto
-                        ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
-                        : 'bg-amber-600 hover:bg-amber-500 text-white shadow-xs'
-                    }`}
-                  >
-                    <Camera className="w-3 h-3" />
-                    {grupo.temFoto ? 'Ver / Trocar' : 'Tirar Foto'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                  <span className="text-[9px] font-bold line-clamp-1 leading-tight text-white">
+                    {ref.rotulo}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
 
         {/* Linha 2: Indicadores em Tempo Real e Status de Proteção */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
@@ -1851,8 +1922,8 @@ export const BipagemRapida: React.FC = () => {
       {/* ========================================================================= */}
       {/* 2. TABELA OPERACIONAL EM FORMATO PLANILHA EXCEL */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border-2 border-slate-300 shadow-md overflow-hidden">
-        <div className="bg-emerald-800 text-white px-4 py-2.5 flex items-center justify-between text-xs font-bold select-none">
+      <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden w-full">
+        <div className="bg-emerald-800 text-white px-3.5 py-2 flex items-center justify-between text-xs font-bold select-none">
           <div className="flex items-center gap-2">
             <span className="bg-white text-emerald-800 font-mono font-black px-1.5 py-0.5 rounded text-[10px] uppercase">
               XLS
@@ -1867,28 +1938,28 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
+        <div className="overflow-x-auto h-[calc(100vh-250px)] max-h-[calc(100vh-220px)] min-h-[500px] overflow-y-auto w-full">
           <table className="w-full text-left text-xs border-collapse font-sans">
             <thead className="bg-slate-200 text-slate-800 uppercase font-black text-[11px] tracking-wider sticky top-0 z-20 border-b-2 border-slate-300 select-none shadow-2xs">
               <tr>
-                <th className="py-2.5 px-3 w-10 text-center bg-slate-300 border-r border-slate-300">#</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[95px] bg-slate-100">Estação 💻</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 w-24">Fabricante</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[170px]">Modelo Produto ✏️</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 font-mono min-w-[140px]">EAN ✏️</th>
-                <th className="py-2.5 px-4 border-r border-slate-300 min-w-[190px] bg-blue-100 text-blue-950">
+                <th className="py-1.5 px-2 w-10 text-center bg-slate-300 border-r border-slate-300">#</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-center">Estação 💻</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 w-20 text-center">Fabricante</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[140px]">Modelo Produto ✏️</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[120px]">EAN ✏️</th>
+                <th className="py-1.5 px-3 border-r border-slate-300 min-w-[160px] bg-blue-100 text-blue-950">
                   Serial (Bipar / Editar) ⚡
                 </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center w-28">Data Auditoria</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center min-w-[120px] bg-indigo-50 text-indigo-950">
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Data Auditoria</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-indigo-50 text-indigo-950">
                   Caixa ✏️
                 </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center w-32">Produto Lacrado</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center w-28">Kit Completo</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center w-28">Marcas de Uso</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[160px]">Observação</th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center min-w-[95px]">Status Sync</th>
-                <th className="py-2.5 px-2 text-center w-16">Ação</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[120px]">Observação</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[85px]">Status Sync</th>
+                <th className="py-1.5 px-1.5 text-center w-14">Ação</th>
               </tr>
             </thead>
 
@@ -2925,6 +2996,91 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 10. MODAL: CAPTURA OBRIGATÓRIA DAS 10 FOTOS DA CAIXA (REQUISITOS 4 E 5) */}
+      <ModalCaptura10FotosCaixa
+        isOpen={modal10FotosAberto}
+        caixa={caixaPara10Fotos}
+        regional={regionalAtiva}
+        onClose={() => {
+          setModal10FotosAberto(false);
+          setCaixaDestinoTentativa(null);
+          setAcaoApos10Fotos(null);
+        }}
+        onConcluido={handle10FotosConcluidas}
+      />
+
+      {/* 11. MODAL: LIMPEZA COMPLETA DA BASE DE TESTES (REQUISITO 2) */}
+      {mostrarModalLimparBase && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-500 space-y-4">
+            <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-600 shrink-0">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-rose-950 uppercase tracking-tight">
+                    Limpar Base para Início dos Testes
+                  </h3>
+                  <span className="text-xs font-bold text-rose-600">
+                    Ação de limpeza da base de testes
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarModalLimparBase(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-rose-950 text-xs font-medium space-y-2">
+              <div className="flex items-center gap-2 font-black text-rose-900 text-sm">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                Deseja realmente zerar todos os dados operacionais?
+              </div>
+              <p>Os seguintes dados serão completamente excluídos:</p>
+              <ul className="list-disc pl-5 space-y-1 font-bold text-rose-900">
+                <li>Produtos cadastrados: <strong>0</strong></li>
+                <li>Seriais e caixas: <strong>0</strong></li>
+                <li>Fotos e evidências: <strong>0</strong></li>
+                <li>Sincronizações e histórico: <strong>0</strong></li>
+              </ul>
+              <p className="pt-2 text-emerald-800 font-bold border-t border-rose-200">
+                ✓ Usuários, Regionais e Configurações serão <strong>MANTIDOS</strong>.
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Após confirmar, a base local (IndexedDB/LocalStorage) e a nuvem central serão limpas para que os testes operacionais iniciem do zero.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={limpandoBase}
+                onClick={() => setMostrarModalLimparBase(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={limpandoBase}
+                onClick={handleConfirmarLimpezaBase}
+                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase text-white bg-rose-600 hover:bg-rose-700 shadow-md flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                {limpandoBase ? 'Limpando Base...' : 'SIM, LIMPAR BASE AGORA'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

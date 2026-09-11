@@ -1,12 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA } from '../types';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
-import { ModalCapturaFotoGrupo } from '../components/ModalCapturaFotoGrupo';
-import { ModalVisualizarFotosCaixa } from '../components/ModalVisualizarFotosCaixa';
 import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa';
 import {
   FileSpreadsheet,
@@ -184,9 +182,12 @@ export const BipagemRapida: React.FC = () => {
     focarInputSerial();
   }, [caixaAtiva, produtos.length, lacreAtivo, modoVisualizacao]);
 
+  const [contadorAtualizacao, setContadorAtualizacao] = useState(0);
+
   const recarregarDados = (filtro: string) => {
     setProdutos(db.listarProdutos(filtro === 'TODAS' ? undefined : { caixa: filtro }));
     setContadores(db.obterContadoresCaixa(caixaAtiva));
+    setContadorAtualizacao((prev) => prev + 1);
   };
 
   // Refresh when box or filter changes
@@ -439,6 +440,7 @@ export const BipagemRapida: React.FC = () => {
 
     setCaixaAtiva(cxDestino);
     setFiltroCaixa(cxDestino);
+    setCaixaPara10Fotos(cxDestino);
     recarregarDados(cxDestino);
     setSucessoNotif(`Caixa alterada para ${cxDestino}.`);
     setTimeout(() => setSucessoNotif(null), 2000);
@@ -464,6 +466,8 @@ export const BipagemRapida: React.FC = () => {
     if (cx) {
       const ok = tentarMudarCaixa(cx);
       if (ok) {
+        setCaixaParaMudarInput(cx);
+        setCaixaPara10Fotos(cx);
         setMostrarAlterarCaixaModal(false);
       }
     }
@@ -481,11 +485,11 @@ export const BipagemRapida: React.FC = () => {
     setTimeout(() => setSucessoNotif(null), 3000);
   };
 
-  // Conclusão das 10 Fotos Obrigatórias da Caixa (Requisitos 4 e 5)
+  // Conclusão das 2 Fotos Obrigatórias da Caixa
   const handle10FotosConcluidas = () => {
     setModal10FotosAberto(false);
     recarregarDados(filtroCaixa);
-    setSucessoNotif(`10 fotos comprobatórias da ${caixaPara10Fotos} salvas com sucesso!`);
+    setSucessoNotif(`2 fotos comprobatórias da ${caixaPara10Fotos} salvas com sucesso!`);
     setTimeout(() => setSucessoNotif(null), 3000);
 
     if (acaoApos10Fotos?.tipo === 'nova_caixa') {
@@ -505,6 +509,7 @@ export const BipagemRapida: React.FC = () => {
       setAcaoApos10Fotos(null);
       setCaixaAtiva(dest);
       setFiltroCaixa(dest);
+      setCaixaPara10Fotos(dest);
       recarregarDados(dest);
     }
   };
@@ -546,6 +551,7 @@ export const BipagemRapida: React.FC = () => {
       setProdutos([]);
       setCaixaAtiva('Caixa 01');
       setFiltroCaixa('Caixa 01');
+      setCaixaPara10Fotos('Caixa 01');
       setContadores(db.obterContadoresCaixa('Caixa 01'));
       setMostrarModalLimparBase(false);
       setSucessoNotif('Base de testes limpa com sucesso! Produtos: 0 | Caixas: 0 | Fotos: 0 | Sincronizações: 0');
@@ -564,6 +570,7 @@ export const BipagemRapida: React.FC = () => {
     if (nome) {
       setCaixaAtiva(nome);
       setFiltroCaixa(nome);
+      setCaixaPara10Fotos(nome);
       setMostrarNovaCaixaModal(false);
       recarregarDados(nome);
       setSucessoNotif(`Iniciada ${nome}. Pronto para bipagem!`);
@@ -1132,77 +1139,96 @@ export const BipagemRapida: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 1.5: Evidências Fotográficas dos Produtos da Caixa (10 em 10) */}
-          <div className="bg-slate-900 border-2 border-blue-600/40 rounded-2xl p-4 shadow-sm text-white space-y-3">
+          {/* Card 1.5: Evidências Fotográficas da Caixa (2 Fotos Obrigatórias) */}
+          <div className="bg-slate-900 border-2 border-blue-600/50 rounded-2xl p-3.5 shadow-sm text-white space-y-3">
             <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-2.5">
               <div className="flex items-center gap-2">
-                <Camera className="w-4 h-4 text-blue-400" />
+                <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 shrink-0">
+                  <Camera className="w-4 h-4" />
+                </div>
                 <div>
-                  <span className="text-xs font-black uppercase text-white block">
-                    Fotos dos Produtos ({caixaAtiva})
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-black uppercase text-white">
+                      Fotos da {caixaAtiva}
+                    </span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
+                        totalFotos10CaixaAtiva === 2
+                          ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
+                          : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
+                      }`}
+                    >
+                      {totalFotos10CaixaAtiva} de 2 Fotos
+                    </span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
-                    Aparelhos na caixa • 10 em 10 produtos
+                    Obrigatórias para finalizar e trocar de caixa
                   </span>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setModalVisualizarFotosAberto(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[11px] uppercase px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
+                onClick={abrir10FotosCaixaAtiva}
+                className={`font-black text-xs uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
+                  totalFotos10CaixaAtiva === 2
+                    ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
               >
-                <Eye className="w-3 h-3" /> Ver Todas ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+                <Camera className="w-3.5 h-3.5" />
+                {totalFotos10CaixaAtiva === 2 ? 'Ver Fotos' : `Tirar Fotos (${totalFotos10CaixaAtiva}/2)`}
               </button>
             </div>
 
-            {gruposFotosCaixaAtiva.length === 0 ? (
-              <p className="text-[11px] text-slate-400 italic">
-                Bipe os produtos desta caixa para habilitar as fotos (a cada 10 unidades).
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {gruposFotosCaixaAtiva.map((grupo) => (
+            {/* Os 2 Slots da Caixa Ativa */}
+            <div className="grid grid-cols-2 gap-2">
+              {ROTULOS_2_FOTOS_CAIXA.map((ref) => {
+                const fItem = registro10Atual?.fotos.find((f) => f.indice === ref.id);
+                const temFoto = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
+
+                return (
                   <div
-                    key={grupo.grupoNumero}
-                    className={`p-2.5 rounded-xl border ${
-                      grupo.temFoto
-                        ? 'bg-emerald-950/60 border-emerald-500/60'
-                        : 'bg-amber-950/60 border-amber-500/60'
+                    key={ref.id}
+                    onClick={abrir10FotosCaixaAtiva}
+                    className={`p-2 rounded-xl border flex flex-col justify-between transition-all cursor-pointer ${
+                      temFoto
+                        ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                        : 'bg-slate-800/80 border-dashed border-slate-600 text-slate-400 hover:border-slate-500'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-black uppercase text-slate-200">
-                        Foto {grupo.grupoNumero}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-black uppercase text-slate-300">
+                        Foto #{ref.id}
                       </span>
-                      {grupo.temFoto ? (
+                      {temFoto ? (
                         <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                          <CheckCircle2 className="w-2.5 h-2.5" /> OK
+                          <Check className="w-2.5 h-2.5" /> OK
                         </span>
                       ) : (
-                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 animate-pulse">
-                          <AlertTriangle className="w-2.5 h-2.5" /> Foto
+                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full">
+                          Vazia
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-slate-300 truncate mb-2 font-medium">
-                      {grupo.grupoRotulo} ({grupo.totalNoGrupo} un)
+
+                    {temFoto ? (
+                      <div className="w-full h-16 rounded-lg overflow-hidden bg-black/40 mb-1 border border-emerald-500/30 flex items-center justify-center">
+                        <img src={fItem?.fotoDataUri} alt={ref.rotulo} className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-full h-16 rounded-lg border border-dashed border-slate-700 bg-slate-900/50 mb-1 flex flex-col items-center justify-center text-slate-500">
+                        <Camera className="w-5 h-5 mb-0.5 text-slate-600" />
+                        <span className="text-[9px] font-medium">Espaço limpo</span>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] font-bold text-white truncate leading-tight" title={ref.rotulo}>
+                      {ref.rotulo}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => abrirCapturaGrupo(grupo)}
-                      className={`w-full py-1 rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-1 cursor-pointer ${
-                        grupo.temFoto
-                          ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
-                          : 'bg-amber-600 hover:bg-amber-500 text-white'
-                      }`}
-                    >
-                      <Camera className="w-3 h-3" />
-                      {grupo.temFoto ? 'Substituir' : 'Fotografar'}
-                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
 
           {/* Card 2: Seleção de Modelo Samsung & EAN */}
@@ -1693,19 +1719,19 @@ export const BipagemRapida: React.FC = () => {
           {/* BOTÕES DE AÇÃO: ESPELHO, FOTOS, RELATÓRIO GERAL E SEGURANÇA */}
           {/* ========================================================================= */}
           <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-            {/* 0. 10 Fotos Obrigatórias da Caixa */}
+            {/* 0. 2 Fotos Obrigatórias da Caixa */}
             <button
               type="button"
               onClick={abrir10FotosCaixaAtiva}
               className={`font-black text-xs uppercase px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer ${
-                totalFotos10CaixaAtiva === 10
+                totalFotos10CaixaAtiva === 2
                   ? 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-500'
                   : 'bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600'
               }`}
-              title="10 Fotos Comprobatórias Obrigatórias da Caixa Atual"
+              title="2 Fotos Comprobatórias Obrigatórias da Caixa Atual"
             >
               <Camera className="w-3.5 h-3.5 text-amber-300" />
-              10 Fotos ({totalFotos10CaixaAtiva}/10)
+              2 Fotos ({totalFotos10CaixaAtiva}/2)
             </button>
 
             {/* 1. Nova Caixa */}
@@ -1794,7 +1820,7 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
 
-        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (10 FOTOS OBRIGATÓRIAS - REQUISITOS 4 E 5) */}
+        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (2 FOTOS OBRIGATÓRIAS) */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl p-3 text-white border border-slate-700 space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-2">
             <div className="flex items-center gap-2">
@@ -1807,20 +1833,22 @@ export const BipagemRapida: React.FC = () => {
                     Evidências Fotográficas da {caixaAtiva}
                   </span>
                   <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold">
-                    10 Fotos Obrigatórias
+                    2 Fotos Obrigatórias
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                    totalFotos10CaixaAtiva === 10
-                      ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
-                      : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
-                  }`}>
-                    {totalFotos10CaixaAtiva} de 10 fotos capturadas
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
+                      totalFotos10CaixaAtiva === 2
+                        ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
+                        : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
+                    }`}
+                  >
+                    {totalFotos10CaixaAtiva} de 2 fotos capturadas
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-300 font-medium">
-                  {totalFotos10CaixaAtiva === 10
-                    ? '✓ Todas as 10 fotos estão registradas. Liberação para trocar ou iniciar nova caixa habilitada.'
-                    : 'Atenção: Obrigatório capturar as 10 fotos completas para poder finalizar e trocar de caixa.'}
+                  {totalFotos10CaixaAtiva === 2
+                    ? '✓ As 2 fotos obrigatórias da caixa estão salvas. Liberação para trocar ou iniciar nova caixa habilitada.'
+                    : 'Atenção: Obrigatório anexar as 2 fotos completas da caixa para poder finalizar e trocar de caixa.'}
                 </p>
               </div>
             </div>
@@ -1829,44 +1857,66 @@ export const BipagemRapida: React.FC = () => {
               <button
                 type="button"
                 onClick={abrir10FotosCaixaAtiva}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                className={`font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer ${
+                  totalFotos10CaixaAtiva === 2
+                    ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
               >
                 <Camera className="w-3.5 h-3.5" />
-                {totalFotos10CaixaAtiva === 10 ? 'Visualizar 10 Fotos' : `Capturar 10 Fotos (${totalFotos10CaixaAtiva}/10)`}
+                {totalFotos10CaixaAtiva === 2 ? 'Visualizar / Editar Fotos' : `Capturar 2 Fotos (${totalFotos10CaixaAtiva}/2)`}
               </button>
             </div>
           </div>
 
-          {/* Slots das 10 Fotos */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-10 gap-1.5 pt-1">
-            {ROTULOS_10_FOTOS_CAIXA.map((ref) => {
+          {/* Slots das 2 Fotos da Caixa Ativa */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {ROTULOS_2_FOTOS_CAIXA.map((ref) => {
               const fItem = registro10Atual?.fotos.find((f) => f.indice === ref.id);
-              const temF = !!fItem?.fotoDataUri;
+              const temF = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
+
               return (
                 <button
                   key={ref.id}
                   type="button"
                   onClick={abrir10FotosCaixaAtiva}
-                  className={`p-1.5 rounded-lg border text-left flex flex-col justify-between h-14 transition-all cursor-pointer ${
+                  className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
                     temF
-                      ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/60'
-                      : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/50'
+                      : 'bg-slate-800/80 border-dashed border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-400'
                   }`}
-                  title={`${ref.rotulo} - ${temF ? 'Foto Registrada' : 'Pendente'}`}
+                  title={`${ref.rotulo} - ${temF ? 'Foto Registrada' : 'Espaço limpo - clique para fotografar'}`}
                 >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-[9px] font-mono font-black text-slate-400">
-                      #{ref.id}
-                    </span>
-                    {temF ? (
-                      <Check className="w-3 h-3 text-emerald-400" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    )}
+                  {temF ? (
+                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 shrink-0 border border-emerald-500/40">
+                      <img src={fItem?.fotoDataUri} alt={ref.rotulo} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-600 bg-slate-900/50 flex flex-col items-center justify-center text-slate-400 shrink-0">
+                      <Camera className="w-5 h-5 text-slate-400" />
+                      <span className="text-[9px] font-mono mt-0.5">#{ref.id}</span>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-black uppercase text-white truncate">
+                        Foto {ref.id}: {ref.rotulo}
+                      </span>
+                      {temF ? (
+                        <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                          <Check className="w-3 h-3" /> OK
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full shrink-0 animate-pulse">
+                          Espaço Limpo (Pendente)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-medium truncate">
+                      {temF ? 'Foto salva com sucesso. Clique para ampliar ou alterar.' : ref.descricao}
+                    </p>
                   </div>
-                  <span className="text-[9px] font-bold line-clamp-1 leading-tight text-white">
-                    {ref.rotulo}
-                  </span>
                 </button>
               );
             })}
@@ -2813,114 +2863,7 @@ export const BipagemRapida: React.FC = () => {
         </div>
       )}
 
-      {/* 6. MODAL: CAPTURA DE FOTO DE EVIDÊNCIA DO GRUPO (10 EM 10) */}
-      <ModalCapturaFotoGrupo
-        isOpen={modalFotoGrupoAberto}
-        onClose={() => setModalFotoGrupoAberto(false)}
-        grupoInfo={grupoFotoAtivo}
-        caixa={caixaAtiva}
-        regional={regionalAtiva}
-        onFotoSalva={lidarComFotoSalva}
-      />
 
-      {/* 7. MODAL: VISUALIZAR TODAS AS FOTOS DA CAIXA */}
-      <ModalVisualizarFotosCaixa
-        isOpen={modalVisualizarFotosAberto}
-        onClose={() => setModalVisualizarFotosAberto(false)}
-        caixa={caixaAtiva}
-        regional={regionalAtiva}
-        onAbrirCapturaGrupo={(g) => {
-          setGrupoFotoAtivo(g);
-          setModalVisualizarFotosAberto(false);
-          setModalFotoGrupoAberto(true);
-        }}
-      />
-
-      {/* 8. MODAL: BLOQUEIO DE ALTERAÇÃO DE CAIXA (REQUISITO 8 DO PROMPT) */}
-      {bloqueioTrocaModalAberto && (
-        <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border-2 border-rose-500 space-y-4">
-            <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-600 shrink-0">
-                  <Lock className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-rose-950 uppercase tracking-tight">
-                    Alteração de Caixa Bloqueada
-                  </h3>
-                  <span className="text-xs font-bold text-rose-600">
-                    {caixaAtiva} ({regionalAtiva})
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setBloqueioTrocaModalAberto(false);
-                  setCaixaDestinoTentativa(null);
-                }}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-rose-950 text-xs font-black leading-relaxed flex items-start gap-2.5">
-              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-              <div>
-                Existem produtos da caixa atual sem evidência fotográfica. Anexe as fotos dos produtos antes de iniciar uma nova caixa.
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 block">
-                Grupos sem evidência fotográfica ({gruposFaltantesBloqueio.length} pendente{gruposFaltantesBloqueio.length > 1 ? 's' : ''}):
-              </span>
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {gruposFaltantesBloqueio.map((g) => (
-                  <div
-                    key={g.grupoNumero}
-                    className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200"
-                  >
-                    <div>
-                      <span className="text-xs font-black text-slate-900 block">
-                        Foto {g.grupoNumero}: {g.grupoRotulo}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-medium">
-                        Contém {g.totalNoGrupo} aparelhos auditados
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGrupoFotoAtivo(g);
-                        setModalFotoGrupoAberto(true);
-                      }}
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <Camera className="w-3.5 h-3.5" /> Anexar Foto
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setBloqueioTrocaModalAberto(false);
-                  setCaixaDestinoTentativa(null);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                Voltar e Fotografar Produtos
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 9. MODAL: ALTERAR CAIXA OPERACIONAL */}
       {mostrarAlterarCaixaModal && (
@@ -2997,10 +2940,11 @@ export const BipagemRapida: React.FC = () => {
         </div>
       )}
 
-      {/* 10. MODAL: CAPTURA OBRIGATÓRIA DAS 10 FOTOS DA CAIXA (REQUISITOS 4 E 5) */}
+      {/* 10. MODAL: CAPTURA OBRIGATÓRIA DAS 2 FOTOS DA CAIXA */}
       <ModalCaptura10FotosCaixa
+        key={`${caixaPara10Fotos || caixaAtiva}-${modal10FotosAberto}`}
         isOpen={modal10FotosAberto}
-        caixa={caixaPara10Fotos}
+        caixa={caixaPara10Fotos || caixaAtiva}
         regional={regionalAtiva}
         onClose={() => {
           setModal10FotosAberto(false);

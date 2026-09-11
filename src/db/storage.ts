@@ -263,6 +263,23 @@ class AuditoriaDatabase {
 
   private carregarDados() {
     try {
+      const STORAGE_RESET_KEY = 'solutions_reset_version_2026_09_11_v5_zerado_oficial';
+      if (typeof window !== 'undefined' && localStorage.getItem(STORAGE_RESET_KEY) !== 'OK') {
+        localStorage.setItem(STORAGE_RESET_KEY, 'OK');
+        localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
+        localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
+        localStorage.removeItem('solutions_ultima_sincronizacao');
+        salvarIndexedDB(STORAGE_KEY_PRODUTOS, []);
+        salvarIndexedDB(STORAGE_KEY_FOTOS, []);
+        salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, []);
+        salvarIndexedDB(STORAGE_KEY_HISTORICO, []);
+        salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
+      }
+
       const prodRaw = localStorage.getItem(STORAGE_KEY_PRODUTOS);
       this.produtos = prodRaw ? JSON.parse(prodRaw) : [];
 
@@ -1156,7 +1173,7 @@ class AuditoriaDatabase {
     const reg = this.registros10Fotos.find(
       (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
     );
-    if (!reg || !reg.fotos || reg.fotos.length !== 10) return false;
+    if (!reg || !reg.fotos || reg.fotos.length !== 2) return false;
     return reg.fotos.every((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50);
   }
 
@@ -1190,7 +1207,7 @@ class AuditoriaDatabase {
     });
 
     const registroNovo: Registro10FotosCaixa = {
-      id: `FOTOS10-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${Date.now()}`,
+      id: `FOTOS2-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${Date.now()}`,
       regional: regAlvo,
       caixa,
       dataCriacao: agora,
@@ -1214,14 +1231,14 @@ class AuditoriaDatabase {
     for (const fotoItem of fotosFormatadas) {
       if (fotoItem.fotoDataUri) {
         const fotoGrupoItem: FotoGrupoAuditoria = {
-          id: `FOTO10-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${fotoItem.indice}-${Date.now()}`,
+          id: `FOTO2-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${fotoItem.indice}-${Date.now()}`,
           regional: regAlvo,
           caixa,
           grupoNumero: fotoItem.indice,
           grupoRotulo: `${fotoItem.indice}. ${fotoItem.rotulo}`,
           rangeInicio: 1,
-          rangeFim: 10,
-          totalNoGrupo: 10,
+          rangeFim: 2,
+          totalNoGrupo: 2,
           seriais: [],
           fotoDataUri: fotoItem.fotoDataUri,
           dataCriacao: agora,
@@ -1247,8 +1264,8 @@ class AuditoriaDatabase {
 
     this.registrarHistorico(
       usuarioNome,
-      'ANEXO_10_FOTOS_CAIXA',
-      `Registradas as 10 fotos comprobatórias obrigatórias da ${caixa}.`,
+      'ANEXO_2_FOTOS_CAIXA',
+      `Registradas as 2 fotos comprobatórias obrigatórias da ${caixa}.`,
       regAlvo
     );
 
@@ -1282,16 +1299,16 @@ class AuditoriaDatabase {
       };
     }
 
-    // Se a caixa tem produtos, é OBRIGATÓRIO ter as 10 fotos da caixa (Requisito 4 e 5)
+    // Se a caixa tem produtos, é OBRIGATÓRIO ter as 2 fotos da caixa
     const completas = this.tem10FotosCompletas(caixaAtual, regAlvo);
     const contagem = this.obterContadorFotos10(caixaAtual, regAlvo);
 
     if (!completas) {
       return {
         permitida: false,
-        mensagem: `É obrigatório registrar as 10 fotos comprobatórias da ${caixaAtual} antes de iniciar uma nova caixa ou trocar de caixa. (${contagem} de 10 capturadas)`,
+        mensagem: `É obrigatório registrar as 2 fotos comprobatórias da ${caixaAtual} antes de iniciar uma nova caixa ou trocar de caixa. (${contagem} de 2 capturadas)`,
         gruposFaltantes: [],
-        totalGrupos: 10,
+        totalGrupos: 2,
         gruposComFoto: contagem,
         precisa10Fotos: true,
       };
@@ -1300,8 +1317,8 @@ class AuditoriaDatabase {
     return {
       permitida: true,
       gruposFaltantes: [],
-      totalGrupos: 10,
-      gruposComFoto: 10,
+      totalGrupos: 2,
+      gruposComFoto: 2,
       precisa10Fotos: false,
     };
   }

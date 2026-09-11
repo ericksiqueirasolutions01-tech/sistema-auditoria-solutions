@@ -173,19 +173,13 @@ export interface GrupoFotosInfo {
   temFoto: boolean;
 }
 
-// 10 FOTOS OBRIGATÓRIAS AO FINALIZAR / TROCAR DE CAIXA (REQUISITOS 4 E 5)
-export const ROTULOS_10_FOTOS_CAIXA = [
-  { id: 1, rotulo: 'Frente da caixa', descricao: 'Vista frontal nítida da caixa' },
-  { id: 2, rotulo: 'Traseira da caixa', descricao: 'Vista traseira da caixa' },
-  { id: 3, rotulo: 'Lateral direita', descricao: 'Vista da lateral direita da caixa' },
-  { id: 4, rotulo: 'Lateral esquerda', descricao: 'Vista da lateral esquerda da caixa' },
-  { id: 5, rotulo: 'Parte superior', descricao: 'Vista superior com fechamento da tampa' },
-  { id: 6, rotulo: 'Parte inferior', descricao: 'Vista do fundo da caixa' },
-  { id: 7, rotulo: 'Produtos organizados dentro da caixa', descricao: 'Visão dos aparelhos acomodados no interior' },
-  { id: 8, rotulo: 'Lacre / fechamento', descricao: 'Fita adesiva, lacre ou selo de segurança intacto' },
-  { id: 9, rotulo: 'Etiqueta de identificação', descricao: 'Etiqueta com código de barras, modelo e lote' },
-  { id: 10, rotulo: 'Visão geral da caixa pronta', descricao: 'Foto panorâmica da caixa pronta para despacho' },
+// 2 FOTOS OBRIGATÓRIAS AO FINALIZAR / TROCAR DE CAIXA
+export const ROTULOS_2_FOTOS_CAIXA = [
+  { id: 1, rotulo: 'Produtos organizados dentro da caixa', descricao: 'Vista superior/interna com os aparelhos organizados' },
+  { id: 2, rotulo: 'Caixa fechada com lacre e etiqueta', descricao: 'Vista externa com fechamento, lacre de segurança e etiqueta' },
 ] as const;
+
+export const ROTULOS_10_FOTOS_CAIXA = ROTULOS_2_FOTOS_CAIXA;
 
 export interface FotoCaixa10Item {
   indice: number; // 1 a 10

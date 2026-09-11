@@ -196,10 +196,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
             <ShieldCheck className="w-4 h-4 text-purple-600" />
             <span>Selecionar <strong>ADMIN</strong> (Administrador Geral)</span>
           </button>
-
-          <p className="text-[10px] text-slate-400 text-center pt-1 font-medium">
-            Senhas oficiais: <strong>Senha123</strong> (Regionais) • <strong>Solutions123</strong> (Administrador)
-          </p>
         </div>
       </div>
     </div>

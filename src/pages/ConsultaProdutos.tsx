@@ -12,6 +12,7 @@ import {
   X,
   Check,
   RotateCcw,
+  Clock,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -107,7 +108,8 @@ export const ConsultaProdutos: React.FC = () => {
       Observação: p.observacao,
       Auditor: p.usuario_cadastro,
       'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'ENVIADO' : 'PENDENTE',
-      'Data Sincronização': p.data_sincronizacao || '-',
+      'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
+      'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
       'Data Cadastro': p.data_cadastro,
     }));
 
@@ -289,13 +291,14 @@ export const ConsultaProdutos: React.FC = () => {
                 <th className="py-3.5 px-3 text-center">Marcas de Uso</th>
                 <th className="py-3.5 px-4">Observações</th>
                 <th className="py-3.5 px-3 text-center min-w-[95px]">Status Sync</th>
+                <th className="py-3.5 px-3 text-center min-w-[130px]">Horário Envio 🕒</th>
                 {isAdmin && <th className="py-3.5 px-4 text-center">Ações</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {produtos.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 13 : 12} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={isAdmin ? 14 : 13} className="py-12 text-center text-slate-400 font-bold">
                     Nenhum produto encontrado com os filtros aplicados.
                   </td>
                 </tr>
@@ -366,6 +369,22 @@ export const ConsultaProdutos: React.FC = () => {
                         />
                         {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
                       </span>
+                    </td>
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      {p.status_sincronizacao === 'ENVIADO' && p.data_sincronizacao ? (
+                        <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>
+                            {new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 font-bold text-xs">-</span>
+                      )}
                     </td>
 
                     {isAdmin && (

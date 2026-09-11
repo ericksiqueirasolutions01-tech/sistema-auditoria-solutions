@@ -895,7 +895,11 @@ class AuditoriaDatabase {
     const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
 
     // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE)
+    // NUNCA aceita reenviar seriais que já foram marcados como ENVIADO
     const pendentes = this.produtos.filter((p) => {
+      if (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO' || p.sync_status === 'SINCRONIZADO') {
+        return false;
+      }
       const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
       if (!isPendente) return false;
       if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
@@ -904,11 +908,11 @@ class AuditoriaDatabase {
 
     if (pendentes.length === 0) {
       return {
-        sucesso: true,
+        sucesso: false,
         totalSincronizados: 0,
         duplicadosEvitados: 0,
         timestamp: agora,
-        mensagem: 'Todos os produtos deste computador já foram enviados ao servidor online.',
+        mensagem: 'Não há novos seriais pendentes. Todos os produtos deste computador já foram enviados ao servidor online.',
       };
     }
 
@@ -927,7 +931,7 @@ class AuditoriaDatabase {
       const serialNorm = p.serial.trim().toUpperCase();
       const regionalNorm = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
 
-      // Validação Requisito 6: verificar se o mesmo serial já existe nesta regional no servidor
+      // Validação Estrita: verificar se o mesmo serial já existe nesta regional no servidor
       const jaExisteNoServidor = servidorProdutos.find(
         (sp) =>
           sp.serial.trim().toUpperCase() === serialNorm &&
@@ -935,15 +939,15 @@ class AuditoriaDatabase {
       );
 
       if (jaExisteNoServidor) {
-        // Produto já registrado nesta regional: evitar duplicidade!
+        // Bloqueio: NÃO aceitar reenviar serial já existente no servidor online
         countDuplicadosEvitados++;
         p.id_servidor = jaExisteNoServidor.id_servidor || `SRV-${jaExisteNoServidor.id}`;
         p.status_sincronizacao = 'ENVIADO';
         p.sync_status = 'ENVIADO';
-        p.data_sincronizacao = agora;
-        p.sync_data = agora;
+        p.data_sincronizacao = jaExisteNoServidor.data_sincronizacao || agora;
+        p.sync_data = jaExisteNoServidor.sync_data || agora;
       } else {
-        // Produto novo: gerar ID do servidor único e gravar na base central
+        // Serial novo: gerar ID do servidor único e gravar na base central
         const idServidorGerado = `SRV-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
         p.id_servidor = idServidorGerado;
         p.status_sincronizacao = 'ENVIADO';
@@ -959,49 +963,60 @@ class AuditoriaDatabase {
           data_sincronizacao: agora,
         });
         countSincronizados++;
+        idsSincronizados.push(p.id);
       }
-      idsSincronizados.push(p.id);
     }
 
     // Persistir base central do servidor e base local
     localStorage.setItem(STORAGE_KEY_SERVIDOR_CENTRAL, JSON.stringify(servidorProdutos));
-    localStorage.setItem('solutions_ultima_sincronizacao', agora);
+    if (countSincronizados > 0) {
+      localStorage.setItem('solutions_ultima_sincronizacao', agora);
+    }
     this.salvarTudo();
 
-    // 3. Requisito 8: Gravar Registro no Histórico de Envios
-    const totalEnviados = countSincronizados + countDuplicadosEvitados;
-    this.salvarRegistroEnvio({
-      data_envio: agoraFormatada,
-      regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-      computador_id: compAtual.id,
-      computador_nome: compAtual.nome,
-      quantidade_enviada: totalEnviados,
-      status: 'OK',
-      detalhes:
-        countDuplicadosEvitados > 0
-          ? `${countSincronizados} novos produtos sincronizados. ${countDuplicadosEvitados} duplicidade(s) prevenida(s).`
-          : `${countSincronizados} produtos novos sincronizados com sucesso.`,
-      produtos_ids: idsSincronizados,
-    });
+    // 3. Gravar Registro no Histórico de Envios apenas se houve novos seriais enviados
+    if (countSincronizados > 0) {
+      this.salvarRegistroEnvio({
+        data_envio: agoraFormatada,
+        regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+        computador_id: compAtual.id,
+        computador_nome: compAtual.nome,
+        quantidade_enviada: countSincronizados,
+        status: 'OK',
+        detalhes:
+          countDuplicadosEvitados > 0
+            ? `${countSincronizados} novos seriais enviados com sucesso. ${countDuplicadosEvitados} seriais já enviados anteriormente foram rejeitados.`
+            : `${countSincronizados} novos seriais enviados com sucesso para o servidor online.`,
+        produtos_ids: idsSincronizados,
+      });
 
-    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
-    this.registrarHistorico(
-      usuarioNome,
-      'ENVIAR_PARA_ONLINE',
-      `Envio incremental realizado pelo ${compAtual.id} (${compAtual.nome}): ${countSincronizados} novos produtos enviados ao servidor online.`,
-      compAtual.regional
-    );
+      const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+      this.registrarHistorico(
+        usuarioNome,
+        'ENVIAR_PARA_ONLINE',
+        `Envio incremental realizado pelo ${compAtual.id} (${compAtual.nome}): ${countSincronizados} novos seriais enviados ao servidor online.`,
+        compAtual.regional
+      );
 
-    return {
-      sucesso: true,
-      totalSincronizados: countSincronizados,
-      duplicadosEvitados: countDuplicadosEvitados,
-      timestamp: agora,
-      mensagem:
-        countDuplicadosEvitados > 0
-          ? `${countSincronizados} novos produtos enviados! (${countDuplicadosEvitados} seriais duplicados foram conciliados).`
-          : `${countSincronizados} produtos novos enviados com sucesso para o servidor online!`,
-    };
+      return {
+        sucesso: true,
+        totalSincronizados: countSincronizados,
+        duplicadosEvitados: countDuplicadosEvitados,
+        timestamp: agora,
+        mensagem:
+          countDuplicadosEvitados > 0
+            ? `${countSincronizados} novos seriais enviados com sucesso! (${countDuplicadosEvitados} já haviam sido enviados anteriormente e não foram duplicados).`
+            : `${countSincronizados} novos seriais enviados com sucesso para o servidor online!`,
+      };
+    } else {
+      return {
+        sucesso: false,
+        totalSincronizados: 0,
+        duplicadosEvitados: countDuplicadosEvitados,
+        timestamp: agora,
+        mensagem: `Nenhum serial novo enviado: todos os ${countDuplicadosEvitados} seriais selecionados já haviam sido enviados anteriormente para o servidor online.`,
+      };
+    }
   }
 
   obterStatusSincronizacao(): StatusSincronizacao {

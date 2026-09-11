@@ -28,6 +28,7 @@ import {
   RefreshCw,
   Laptop,
   Monitor,
+  Clock,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -152,7 +153,8 @@ export const PainelAdmin: React.FC = () => {
       Observações: p.observacao || '-',
       Auditor: p.usuario_cadastro,
       'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'ENVIADO' : 'PENDENTE',
-      'Data Sincronização': p.data_sincronizacao || '-',
+      'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
+      'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
       'ID Servidor': p.id_servidor || '-',
     }));
 
@@ -1050,13 +1052,14 @@ export const PainelAdmin: React.FC = () => {
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
-                    <th className="py-2.5 px-3 text-center min-w-[95px]">Status Sync</th>
+                    <th className="py-2.5 px-3 text-center border-r border-blue-600 min-w-[95px]">Status Sync</th>
+                    <th className="py-2.5 px-3 text-center min-w-[120px]">Horário Envio 🕒</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   {produtosPaginados.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-12 text-center text-slate-400 font-sans">
+                      <td colSpan={13} className="py-12 text-center text-slate-400 font-sans">
                         Nenhum registro encontrado com os filtros aplicados.
                       </td>
                     </tr>
@@ -1112,7 +1115,7 @@ export const PainelAdmin: React.FC = () => {
                         <td className="py-2 px-3 text-center font-sans text-slate-500 border-r border-slate-200">
                           {p.data_auditoria}
                         </td>
-                        <td className="py-2 px-3 text-center font-sans">
+                        <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
                           <span
                             className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full ${
                               p.status_sincronizacao === 'ENVIADO'
@@ -1129,6 +1132,22 @@ export const PainelAdmin: React.FC = () => {
                             />
                             {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
                           </span>
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans whitespace-nowrap">
+                          {p.status_sincronizacao === 'ENVIADO' && p.data_sincronizacao ? (
+                            <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>
+                                {new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                })}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-bold text-xs">-</span>
+                          )}
                         </td>
                       </tr>
                     ))

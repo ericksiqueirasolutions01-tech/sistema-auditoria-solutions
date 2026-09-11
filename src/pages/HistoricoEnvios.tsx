@@ -15,6 +15,8 @@ import {
   Layers,
   ArrowUpDown,
   Filter,
+  Clock,
+  Barcode,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -32,6 +34,11 @@ export const HistoricoEnvios: React.FC = () => {
   const historicoEnvios = db.listarHistoricoEnvios(regionalFiltro);
   const computadores = db.listarComputadoresCadastrados(regionalFiltro);
   const statusSync = db.obterStatusSincronizacao();
+
+  const produtosEnviados = db.listarProdutos({
+    regional: regionalFiltro !== 'TODAS' ? regionalFiltro : undefined,
+    status_sincronizacao: 'ENVIADO',
+  });
 
   // Filtragem
   const enviosFiltrados = historicoEnvios.filter((e) => {
@@ -260,6 +267,96 @@ export const HistoricoEnvios: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-slate-600 text-[11px] italic">
                       {envio.detalhes || 'Sincronização incremental concluída sem erros.'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Tabela de Produtos Enviados com Horário Individual */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden space-y-3 p-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Barcode className="w-5 h-5 text-blue-600" />
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                Produtos Sincronizados com Horário Individual
+              </h3>
+              <p className="text-[11px] text-slate-400 font-medium">
+                Lista de aparelhos gravados no servidor com carimbo exato de data e hora do envio
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            {produtosEnviados.length} seriais confirmados
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider">
+              <tr>
+                <th className="py-2.5 px-3 text-center w-12">Nº</th>
+                <th className="py-2.5 px-3 font-mono">Serial</th>
+                <th className="py-2.5 px-3">Modelo</th>
+                <th className="py-2.5 px-3">Caixa</th>
+                <th className="py-2.5 px-3">Regional</th>
+                <th className="py-2.5 px-3">Computador</th>
+                <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 text-center min-w-[140px]">Horário de Envio 🕒</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
+              {produtosEnviados.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
+                    Nenhum produto sincronizado ainda nesta regional.
+                  </td>
+                </tr>
+              ) : (
+                produtosEnviados.slice(0, 100).map((p, idx) => (
+                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2 px-3 text-center text-slate-400 font-sans">
+                      {idx + 1}
+                    </td>
+                    <td className="py-2 px-3 font-black text-slate-900 tracking-wider">
+                      {p.serial}
+                    </td>
+                    <td className="py-2 px-3 font-sans font-bold text-slate-800">
+                      {p.modelo_produto}
+                    </td>
+                    <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase">
+                      {p.numero_caixa}
+                    </td>
+                    <td className="py-2 px-3 font-sans">
+                      <span className="font-bold text-[10px] text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                        {p.regional}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 font-sans">
+                      <span className="bg-slate-100 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200">
+                        💻 {p.computador_id || 'PC-01'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-center font-sans">
+                      <span className="font-black text-emerald-700 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[10px] uppercase">
+                        🟢 Enviado
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-center font-sans whitespace-nowrap">
+                      {p.data_sincronizacao ? (
+                        <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>
+                            {new Date(p.data_sincronizacao).toLocaleString('pt-BR')}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">-</span>
+                      )}
                     </td>
                   </tr>
                 ))

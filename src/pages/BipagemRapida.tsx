@@ -110,7 +110,17 @@ export const BipagemRapida: React.FC = () => {
   const [mostrarModalLimparRegistros, setMostrarModalLimparRegistros] = useState(false);
   const [limpandoRegistros, setLimpandoRegistros] = useState(false);
 
-  // Estados de Validação e Bloqueio de Troca de Caixa (Requisito 8)
+  // Estados para Mudança de Caixa com Confirmação de Fotos (Pergunta e Motivo)
+  const [mostrarModalConfirmacaoFotos, setMostrarModalConfirmacaoFotos] = useState(false);
+  const [exibirCampoMotivoSemFotos, setExibirCampoMotivoSemFotos] = useState(false);
+  const [motivoSemFotosInput, setMotivoSemFotosInput] = useState('');
+  const [slotFotoSelecionado, setSlotFotoSelecionado] = useState(1);
+  const [acaoPendenteTrocaCaixa, setAcaoPendenteTrocaCaixa] = useState<{
+    tipo: 'mudar_caixa' | 'abrir_modal_alterar' | 'nova_caixa';
+    caixaDestino?: string;
+  } | null>(null);
+
+  // Estados de Troca de Caixa
   const [bloqueioTrocaModalAberto, setBloqueioTrocaModalAberto] = useState(false);
   const [gruposFaltantesBloqueio, setGruposFaltantesBloqueio] = useState<GrupoFotosInfo[]>([]);
   const [caixaDestinoTentativa, setCaixaDestinoTentativa] = useState<string | null>(null);
@@ -427,53 +437,104 @@ export const BipagemRapida: React.FC = () => {
   };
 
   // =========================================================================
-  // VALIDAÇÃO AO TROCAR DE CAIXA (REQUISITO 8 DO PROMPT)
-  // Ao clicar em: ALTERAR CAIXA ou tentar mudar a caixa ativa
-  // O sistema verifica: Existem produtos nesta caixa sem foto?
-  // Se SIM: Bloquear a alteração de caixa.
-  // Exibir: "Existem produtos da caixa atual sem evidência fotográfica. Anexe as fotos dos produtos antes de iniciar uma nova caixa."
   // =========================================================================
+  // MUDANÇA DE CAIXA COM PERGUNTA DE CONFIRMAÇÃO DE FOTOS (NÃO BLOQUEANTE)
+  // Pergunta: "As fotos dos produtos foram anexadas?"
+  // Botão SIM -> Libera mudança de numeração da caixa diretamente
+  // Botão NÃO -> Abre campo para informar o motivo de não ter colocado e libera
   // =========================================================================
-  // VALIDAÇÃO RIGOROSA DAS 10 FOTOS AO TROCAR DE CAIXA (REQUISITOS 4 E 5)
-  // Ao finalizar uma caixa e iniciar nova caixa: OBRIGATÓRIO 10 FOTOS.
-  // =========================================================================
+  const executarAcaoAposConfirmacaoFotos = () => {
+    setMostrarModalConfirmacaoFotos(false);
+    setExibirCampoMotivoSemFotos(false);
+    setMotivoSemFotosInput('');
+
+    if (!acaoPendenteTrocaCaixa) return;
+
+    if (acaoPendenteTrocaCaixa.tipo === 'mudar_caixa' && acaoPendenteTrocaCaixa.caixaDestino) {
+      const dest = acaoPendenteTrocaCaixa.caixaDestino;
+      setAcaoPendenteTrocaCaixa(null);
+      setCaixaAtiva(dest);
+      setFiltroCaixa(dest);
+      setCaixaPara10Fotos(dest);
+      recarregarDados(dest);
+      setSucessoNotif(`Caixa alterada para ${dest}.`);
+      setTimeout(() => setSucessoNotif(null), 2000);
+    } else if (acaoPendenteTrocaCaixa.tipo === 'abrir_modal_alterar') {
+      setAcaoPendenteTrocaCaixa(null);
+      setCaixaParaMudarInput(caixaAtiva);
+      setMostrarAlterarCaixaModal(true);
+    } else if (acaoPendenteTrocaCaixa.tipo === 'nova_caixa') {
+      setAcaoPendenteTrocaCaixa(null);
+      const match = caixaAtiva.match(/(\d+)/);
+      let sugestaoProxima = 'Caixa 01';
+      if (match) {
+        const num = parseInt(match[1], 10) + 1;
+        sugestaoProxima = `Caixa ${num < 10 ? '0' + num : num}`;
+      } else {
+        sugestaoProxima = `${caixaAtiva} Lote 2`;
+      }
+      setNovaCaixaNome(sugestaoProxima);
+      setMostrarNovaCaixaModal(true);
+    }
+  };
+
+  const handleRespostaFotosSim = () => {
+    executarAcaoAposConfirmacaoFotos();
+  };
+
+  const handleRespostaFotosNao = () => {
+    setExibirCampoMotivoSemFotos(true);
+  };
+
+  const handleConfirmarMotivoSemFotos = () => {
+    if (!motivoSemFotosInput.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Por favor, informe o motivo de não ter anexado as fotos para liberar a mudança de caixa.');
+      return;
+    }
+    db.registrarMotivoSemFotosCaixa(caixaAtiva, motivoSemFotosInput, regionalAtiva);
+    setSucessoNotif('Motivo registrado com sucesso! Mudança de caixa liberada.');
+    setTimeout(() => setSucessoNotif(null), 3000);
+    executarAcaoAposConfirmacaoFotos();
+  };
+
   const tentarMudarCaixa = (novaCaixa: string): boolean => {
     const cxDestino = novaCaixa.trim();
     if (!cxDestino || cxDestino === caixaAtiva) {
       return true;
     }
 
-    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
-    if (!check.permitida) {
-      sounds.playError();
-      setCaixaPara10Fotos(caixaAtiva);
-      setCaixaDestinoTentativa(cxDestino);
-      setAcaoApos10Fotos({ tipo: 'mudar_caixa', caixaDestino: cxDestino });
-      setModal10FotosAberto(true);
-      return false;
+    const prodsNaCaixa = produtos.filter((p) => p.numero_caixa === caixaAtiva).length;
+    if (prodsNaCaixa === 0) {
+      setCaixaAtiva(cxDestino);
+      setFiltroCaixa(cxDestino);
+      setCaixaPara10Fotos(cxDestino);
+      recarregarDados(cxDestino);
+      setSucessoNotif(`Caixa alterada para ${cxDestino}.`);
+      setTimeout(() => setSucessoNotif(null), 2000);
+      return true;
     }
 
-    setCaixaAtiva(cxDestino);
-    setFiltroCaixa(cxDestino);
-    setCaixaPara10Fotos(cxDestino);
-    recarregarDados(cxDestino);
-    setSucessoNotif(`Caixa alterada para ${cxDestino}.`);
-    setTimeout(() => setSucessoNotif(null), 2000);
-    return true;
+    // Gerar pergunta: "As fotos dos produtos foram anexadas?"
+    setAcaoPendenteTrocaCaixa({ tipo: 'mudar_caixa', caixaDestino: cxDestino });
+    setExibirCampoMotivoSemFotos(false);
+    setMotivoSemFotosInput('');
+    setMostrarModalConfirmacaoFotos(true);
+    return false;
   };
 
   const abrirModalAlterarCaixa = () => {
-    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
-    if (!check.permitida) {
-      sounds.playError();
-      setCaixaPara10Fotos(caixaAtiva);
-      setCaixaDestinoTentativa(null);
-      setAcaoApos10Fotos({ tipo: 'mudar_caixa' });
-      setModal10FotosAberto(true);
+    const prodsNaCaixa = produtos.filter((p) => p.numero_caixa === caixaAtiva).length;
+    if (prodsNaCaixa === 0) {
+      setCaixaParaMudarInput(caixaAtiva);
+      setMostrarAlterarCaixaModal(true);
       return;
     }
-    setCaixaParaMudarInput(caixaAtiva);
-    setMostrarAlterarCaixaModal(true);
+
+    setAcaoPendenteTrocaCaixa({ tipo: 'abrir_modal_alterar' });
+    setExibirCampoMotivoSemFotos(false);
+    setMotivoSemFotosInput('');
+    setMostrarModalConfirmacaoFotos(true);
   };
 
   const confirmarAlterarCaixaModal = () => {
@@ -500,15 +561,25 @@ export const BipagemRapida: React.FC = () => {
     setTimeout(() => setSucessoNotif(null), 3000);
   };
 
-  // Conclusão das 2 Fotos Obrigatórias da Caixa
+  // Conclusão das Fotos da Caixa
   const handle10FotosConcluidas = () => {
     setModal10FotosAberto(false);
     recarregarDados(filtroCaixa);
-    setSucessoNotif(`2 fotos comprobatórias da ${caixaPara10Fotos} salvas com sucesso!`);
+    setSucessoNotif(`Fotos da ${caixaPara10Fotos || caixaAtiva} salvas com sucesso!`);
     setTimeout(() => setSucessoNotif(null), 3000);
+  };
 
-    if (acaoApos10Fotos?.tipo === 'nova_caixa') {
-      setAcaoApos10Fotos(null);
+  const abrir10FotosCaixaAtiva = (slot: number | unknown = 1) => {
+    setCaixaPara10Fotos(caixaAtiva);
+    setSlotFotoSelecionado(typeof slot === 'number' ? slot : 1);
+    setAcaoApos10Fotos(null);
+    setModal10FotosAberto(true);
+  };
+
+  // Nova Auditoria / Próxima Caixa
+  const handleNovaAuditoria = () => {
+    const prodsNaCaixa = produtos.filter((p) => p.numero_caixa === caixaAtiva).length;
+    if (prodsNaCaixa === 0) {
       const match = caixaAtiva.match(/(\d+)/);
       let sugestaoProxima = 'Caixa 01';
       if (match) {
@@ -519,43 +590,13 @@ export const BipagemRapida: React.FC = () => {
       }
       setNovaCaixaNome(sugestaoProxima);
       setMostrarNovaCaixaModal(true);
-    } else if (acaoApos10Fotos?.tipo === 'mudar_caixa' && acaoApos10Fotos.caixaDestino) {
-      const dest = acaoApos10Fotos.caixaDestino;
-      setAcaoApos10Fotos(null);
-      setCaixaAtiva(dest);
-      setFiltroCaixa(dest);
-      setCaixaPara10Fotos(dest);
-      recarregarDados(dest);
-    }
-  };
-
-  const abrir10FotosCaixaAtiva = () => {
-    setCaixaPara10Fotos(caixaAtiva);
-    setAcaoApos10Fotos(null);
-    setModal10FotosAberto(true);
-  };
-
-  // Nova Auditoria / Próxima Caixa com Validação das 10 Fotos da Caixa Atual
-  const handleNovaAuditoria = () => {
-    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
-    if (!check.permitida) {
-      sounds.playError();
-      setCaixaPara10Fotos(caixaAtiva);
-      setAcaoApos10Fotos({ tipo: 'nova_caixa' });
-      setModal10FotosAberto(true);
       return;
     }
 
-    const match = caixaAtiva.match(/(\d+)/);
-    let sugestaoProxima = 'Caixa 01';
-    if (match) {
-      const num = parseInt(match[1], 10) + 1;
-      sugestaoProxima = `Caixa ${num < 10 ? '0' + num : num}`;
-    } else {
-      sugestaoProxima = `${caixaAtiva} Lote 2`;
-    }
-    setNovaCaixaNome(sugestaoProxima);
-    setMostrarNovaCaixaModal(true);
+    setAcaoPendenteTrocaCaixa({ tipo: 'nova_caixa' });
+    setExibirCampoMotivoSemFotos(false);
+    setMotivoSemFotosInput('');
+    setMostrarModalConfirmacaoFotos(true);
   };
 
   // Limpeza da Tela do Colaborador (Mantém Dados Salvos na Nuvem)
@@ -1155,57 +1196,71 @@ export const BipagemRapida: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 1.5: Evidências Fotográficas da Caixa (2 Fotos Obrigatórias) */}
+          {/* Card 1.5: Evidências Fotográficas da Caixa */}
           <div className="bg-slate-900 border-2 border-blue-600/50 rounded-2xl p-3.5 shadow-sm text-white space-y-3">
             <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-2.5">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 shrink-0">
                   <Camera className="w-4 h-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-black uppercase text-white">
+                    <span className="text-xs font-black uppercase text-white truncate">
                       Fotos da {caixaAtiva}
                     </span>
                     <span
                       className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                        totalFotos10CaixaAtiva === 2
+                        totalFotos10CaixaAtiva >= 2
                           ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
-                          : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
+                          : 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
                       }`}
                     >
-                      {totalFotos10CaixaAtiva} de 2 Fotos
+                      {totalFotos10CaixaAtiva} foto{totalFotos10CaixaAtiva !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <span className="text-[10px] text-slate-400">
-                    Obrigatórias para finalizar e trocar de caixa
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Foto dos produtos 1 e 2 (+ adicionar mais)
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={abrir10FotosCaixaAtiva}
-                className={`font-black text-xs uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
-                  totalFotos10CaixaAtiva === 2
-                    ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}
-              >
-                <Camera className="w-3.5 h-3.5" />
-                {totalFotos10CaixaAtiva === 2 ? 'Ver Fotos' : `Tirar Fotos (${totalFotos10CaixaAtiva}/2)`}
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
+                    recarregarDados(filtroCaixa);
+                    setSucessoNotif('Novo slot de foto adicionado!');
+                    setTimeout(() => setSucessoNotif(null), 2000);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-2.5 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer shadow-xs transition-colors"
+                  title="Adicionar mais um espaço de foto para esta caixa"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Foto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => abrir10FotosCaixaAtiva(1)}
+                  className={`font-black text-xs uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
+                    totalFotos10CaixaAtiva >= 2
+                      ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  {totalFotos10CaixaAtiva > 0 ? 'Ver' : 'Tirar'}
+                </button>
+              </div>
             </div>
 
-            {/* Os 2 Slots da Caixa Ativa */}
+            {/* Slots Dinâmicos da Caixa Ativa */}
             <div className="grid grid-cols-2 gap-2">
-              {ROTULOS_2_FOTOS_CAIXA.map((ref) => {
-                const fItem = registro10Atual?.fotos.find((f) => f.indice === ref.id);
+              {(registro10Atual?.fotos || []).map((fItem) => {
                 const temFoto = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
 
                 return (
                   <div
-                    key={ref.id}
-                    onClick={abrir10FotosCaixaAtiva}
+                    key={fItem.indice}
+                    onClick={() => abrir10FotosCaixaAtiva(fItem.indice)}
                     className={`p-2 rounded-xl border flex flex-col justify-between transition-all cursor-pointer ${
                       temFoto
                         ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
@@ -1213,23 +1268,39 @@ export const BipagemRapida: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] font-black uppercase text-slate-300">
-                        Foto #{ref.id}
+                      <span className="text-[10px] font-black uppercase text-slate-300 truncate">
+                        {fItem.rotulo || `Foto dos produtos ${fItem.indice}`}
                       </span>
-                      {temFoto ? (
-                        <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                          <Check className="w-2.5 h-2.5" /> OK
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full">
-                          Vazia
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {temFoto ? (
+                          <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                            <Check className="w-2.5 h-2.5" /> OK
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black uppercase bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full">
+                            Vazia
+                          </span>
+                        )}
+                        {fItem.indice > 2 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              db.removerSlotFotoCaixa(caixaAtiva, fItem.indice, regionalAtiva);
+                              recarregarDados(filtroCaixa);
+                            }}
+                            className="p-0.5 text-slate-400 hover:text-rose-400 rounded cursor-pointer"
+                            title="Remover foto adicional"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {temFoto ? (
                       <div className="w-full h-16 rounded-lg overflow-hidden bg-black/40 mb-1 border border-emerald-500/30 flex items-center justify-center">
-                        <img src={fItem?.fotoDataUri} alt={ref.rotulo} className="w-full h-full object-cover" />
+                        <img src={fItem?.fotoDataUri} alt={fItem.rotulo} className="w-full h-full object-cover" />
                       </div>
                     ) : (
                       <div className="w-full h-16 rounded-lg border border-dashed border-slate-700 bg-slate-900/50 mb-1 flex flex-col items-center justify-center text-slate-500">
@@ -1238,12 +1309,27 @@ export const BipagemRapida: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="text-[10px] font-bold text-white truncate leading-tight" title={ref.rotulo}>
-                      {ref.rotulo}
+                    <div className="text-[10px] font-bold text-white truncate leading-tight" title={fItem.rotulo}>
+                      {fItem.rotulo}
                     </div>
                   </div>
                 );
               })}
+
+              {/* Botão + Adicionar mais fotos */}
+              <button
+                type="button"
+                onClick={() => {
+                  db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
+                  recarregarDados(filtroCaixa);
+                  setSucessoNotif('Novo slot de foto adicionado!');
+                  setTimeout(() => setSucessoNotif(null), 2000);
+                }}
+                className="p-2 rounded-xl border-2 border-dashed border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/40 text-blue-300 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer min-h-[90px]"
+              >
+                <Plus className="w-5 h-5 text-blue-400" />
+                <span className="text-[10px] font-bold uppercase text-center leading-tight">Adicionar Foto (+)</span>
+              </button>
             </div>
           </div>
 
@@ -1754,19 +1840,19 @@ export const BipagemRapida: React.FC = () => {
           {/* BOTÕES DE AÇÃO: ESPELHO, FOTOS, RELATÓRIO GERAL E SEGURANÇA */}
           {/* ========================================================================= */}
           <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-            {/* 0. 2 Fotos Obrigatórias da Caixa */}
+            {/* 0. Fotos da Caixa */}
             <button
               type="button"
               onClick={abrir10FotosCaixaAtiva}
               className={`font-black text-xs uppercase px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer ${
-                totalFotos10CaixaAtiva === 2
+                totalFotos10CaixaAtiva >= 2
                   ? 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-500'
                   : 'bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600'
               }`}
-              title="2 Fotos Comprobatórias Obrigatórias da Caixa Atual"
+              title="Fotos dos produtos da caixa atual"
             >
               <Camera className="w-3.5 h-3.5 text-amber-300" />
-              2 Fotos ({totalFotos10CaixaAtiva}/2)
+              Fotos Caixa ({totalFotos10CaixaAtiva})
             </button>
 
             {/* 1. Nova Caixa */}
@@ -1855,7 +1941,7 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
 
-        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (2 FOTOS OBRIGATÓRIAS) */}
+        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl p-3 text-white border border-slate-700 space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-2">
             <div className="flex items-center gap-2">
@@ -1867,23 +1953,18 @@ export const BipagemRapida: React.FC = () => {
                   <span className="text-xs font-black uppercase tracking-wider text-white">
                     Evidências Fotográficas da {caixaAtiva}
                   </span>
-                  <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold">
-                    2 Fotos Obrigatórias
-                  </span>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                      totalFotos10CaixaAtiva === 2
+                      totalFotos10CaixaAtiva >= 2
                         ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
-                        : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
+                        : 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
                     }`}
                   >
-                    {totalFotos10CaixaAtiva} de 2 fotos capturadas
+                    {totalFotos10CaixaAtiva} foto{totalFotos10CaixaAtiva !== 1 ? 's' : ''} anexada{totalFotos10CaixaAtiva !== 1 ? 's' : ''}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-300 font-medium">
-                  {totalFotos10CaixaAtiva === 2
-                    ? '✓ As 2 fotos obrigatórias da caixa estão salvas. Liberação para trocar ou iniciar nova caixa habilitada.'
-                    : 'Atenção: Obrigatório anexar as 2 fotos completas da caixa para poder finalizar e trocar de caixa.'}
+                  Fotos dos produtos da caixa: Foto dos produtos 1 e Foto dos produtos 2 (clique em + para adicionar mais fotos se necessário).
                 </p>
               </div>
             </div>
@@ -1891,70 +1972,113 @@ export const BipagemRapida: React.FC = () => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={abrir10FotosCaixaAtiva}
+                onClick={() => {
+                  db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
+                  recarregarDados(filtroCaixa);
+                  setSucessoNotif('Novo slot de foto adicionado!');
+                  setTimeout(() => setSucessoNotif(null), 2000);
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Adicionar mais um slot de foto para esta caixa"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Adicionar Foto (+)
+              </button>
+              <button
+                type="button"
+                onClick={() => abrir10FotosCaixaAtiva(1)}
                 className={`font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer ${
-                  totalFotos10CaixaAtiva === 2
+                  totalFotos10CaixaAtiva >= 2
                     ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
                     : 'bg-blue-600 hover:bg-blue-700 text-white'
                 }`}
               >
                 <Camera className="w-3.5 h-3.5" />
-                {totalFotos10CaixaAtiva === 2 ? 'Visualizar / Editar Fotos' : `Capturar 2 Fotos (${totalFotos10CaixaAtiva}/2)`}
+                {totalFotos10CaixaAtiva > 0 ? 'Visualizar / Gerenciar Fotos' : 'Capturar Fotos'}
               </button>
             </div>
           </div>
 
-          {/* Slots das 2 Fotos da Caixa Ativa */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {ROTULOS_2_FOTOS_CAIXA.map((ref) => {
-              const fItem = registro10Atual?.fotos.find((f) => f.indice === ref.id);
+          {/* Slots Dinâmicos das Fotos da Caixa Ativa */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {(registro10Atual?.fotos || []).map((fItem) => {
               const temF = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
 
               return (
-                <button
-                  key={ref.id}
-                  type="button"
-                  onClick={abrir10FotosCaixaAtiva}
-                  className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                <div
+                  key={fItem.indice}
+                  onClick={() => abrir10FotosCaixaAtiva(fItem.indice)}
+                  className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer relative group ${
                     temF
                       ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/50'
                       : 'bg-slate-800/80 border-dashed border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-400'
                   }`}
-                  title={`${ref.rotulo} - ${temF ? 'Foto Registrada' : 'Espaço limpo - clique para fotografar'}`}
+                  title={`${fItem.rotulo} - ${temF ? 'Foto Registrada' : 'Espaço limpo - clique para fotografar'}`}
                 >
                   {temF ? (
                     <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 shrink-0 border border-emerald-500/40">
-                      <img src={fItem?.fotoDataUri} alt={ref.rotulo} className="w-full h-full object-cover" />
+                      <img src={fItem?.fotoDataUri} alt={fItem.rotulo} className="w-full h-full object-cover" />
                     </div>
                   ) : (
                     <div className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-600 bg-slate-900/50 flex flex-col items-center justify-center text-slate-400 shrink-0">
                       <Camera className="w-5 h-5 text-slate-400" />
-                      <span className="text-[9px] font-mono mt-0.5">#{ref.id}</span>
+                      <span className="text-[9px] font-mono mt-0.5">#{fItem.indice}</span>
                     </div>
                   )}
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
                       <span className="text-xs font-black uppercase text-white truncate">
-                        Foto {ref.id}: {ref.rotulo}
+                        {fItem.rotulo || `Foto dos produtos ${fItem.indice}`}
                       </span>
+                      {fItem.indice > 2 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            db.removerSlotFotoCaixa(caixaAtiva, fItem.indice, regionalAtiva);
+                            recarregarDados(filtroCaixa);
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-400 rounded cursor-pointer"
+                          title="Remover foto adicional"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
                       {temF ? (
                         <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
                           <Check className="w-3 h-3" /> OK
                         </span>
                       ) : (
-                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full shrink-0 animate-pulse">
-                          Espaço Limpo (Pendente)
+                        <span className="text-[9px] font-black uppercase bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full shrink-0">
+                          Espaço Limpo
                         </span>
                       )}
+                      <p className="text-[11px] text-slate-400 font-medium truncate">
+                        {temF ? 'Foto salva' : fItem.descricao || 'Clique para anexar'}
+                      </p>
                     </div>
-                    <p className="text-[11px] text-slate-400 font-medium truncate">
-                      {temF ? 'Foto salva com sucesso. Clique para ampliar ou alterar.' : ref.descricao}
-                    </p>
                   </div>
-                </button>
+                </div>
               );
             })}
+
+            {/* Card para Adicionar Mais Fotos */}
+            <button
+              type="button"
+              onClick={() => {
+                db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
+                recarregarDados(filtroCaixa);
+                setSucessoNotif('Novo slot de foto adicionado!');
+                setTimeout(() => setSucessoNotif(null), 2000);
+              }}
+              className="p-3 rounded-xl border-2 border-dashed border-blue-500/50 hover:border-blue-400 bg-blue-950/20 hover:bg-blue-900/30 text-blue-300 flex items-center justify-center gap-2 font-black text-xs uppercase transition-all cursor-pointer min-h-[76px]"
+            >
+              <Plus className="w-5 h-5 text-blue-400" />
+              Adicionar Mais Fotos (+)
+            </button>
           </div>
         </div>
 
@@ -2993,12 +3117,13 @@ export const BipagemRapida: React.FC = () => {
         </div>
       )}
 
-      {/* 10. MODAL: CAPTURA OBRIGATÓRIA DAS 2 FOTOS DA CAIXA */}
+      {/* 10. MODAL: CAPTURA DE FOTOS DA CAIXA */}
       <ModalCaptura10FotosCaixa
-        key={`${caixaPara10Fotos || caixaAtiva}-${modal10FotosAberto}`}
+        key={`${caixaPara10Fotos || caixaAtiva}-${modal10FotosAberto}-${slotFotoSelecionado}`}
         isOpen={modal10FotosAberto}
         caixa={caixaPara10Fotos || caixaAtiva}
         regional={regionalAtiva}
+        slotInicial={slotFotoSelecionado}
         onClose={() => {
           setModal10FotosAberto(false);
           setCaixaDestinoTentativa(null);
@@ -3006,6 +3131,113 @@ export const BipagemRapida: React.FC = () => {
         }}
         onConcluido={handle10FotosConcluidas}
       />
+
+      {/* 10.5. MODAL: CONFIRMAÇÃO DE FOTOS ANTES DE MUDAR DE CAIXA (SIM / NÃO COM MOTIVO) */}
+      {mostrarModalConfirmacaoFotos && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-100 border border-blue-300 flex items-center justify-center text-blue-700 shrink-0">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 uppercase">
+                    Fotos dos Produtos
+                  </h3>
+                  <span className="text-xs font-bold text-slate-500">
+                    Confirmação da {caixaAtiva}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarModalConfirmacaoFotos(false);
+                  setExibirCampoMotivoSemFotos(false);
+                  setMotivoSemFotosInput('');
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {!exibirCampoMotivoSemFotos ? (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md">
+                    <Camera className="w-6 h-6" />
+                  </div>
+                  <p className="text-base font-black text-slate-900">
+                    As fotos dos produtos foram anexadas?
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Se você já anexou as fotos da <strong>{caixaAtiva}</strong>, clique em <strong>SIM</strong> para liberar a mudança de caixa. Caso não tenha fotos, clique em <strong>NÃO</strong> para justificar o motivo.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleRespostaFotosSim}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Check className="w-5 h-5" />
+                    SIM (Liberar)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRespostaFotosNao}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                    NÃO
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 space-y-2">
+                  <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Informe o motivo de não ter colocado as fotos:
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Para liberar a mudança de caixa sem as fotos anexadas, informe uma breve justificativa abaixo:
+                  </p>
+                  <textarea
+                    value={motivoSemFotosInput}
+                    onChange={(e) => setMotivoSemFotosInput(e.target.value)}
+                    rows={3}
+                    placeholder="Ex: Câmera temporariamente indisponível, caixa lacrada de fábrica pelo fabricante, etc."
+                    className="w-full text-xs font-medium text-slate-900 border-2 border-amber-300 rounded-xl p-2.5 focus:outline-none focus:border-amber-600 bg-white"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setExibirCampoMotivoSemFotos(false)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarMotivoSemFotos}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Check className="w-4 h-4" />
+                    Confirmar Motivo e Liberar Caixa
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 11. MODAL: LIMPAR REGISTROS DA TELA */}
       {mostrarModalLimparRegistros && (

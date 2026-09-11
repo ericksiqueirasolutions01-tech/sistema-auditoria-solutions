@@ -1197,36 +1197,120 @@ class AuditoriaDatabase {
   // GESTÃO DAS 10 FOTOS OBRIGATÓRIAS DA CAIXA (REQUISITOS 4 E 5)
   // Ao finalizar / trocar de caixa: 10 fotos obrigatórias
   // =========================================================================
-  obter10FotosCaixa(caixa: string, regional?: string): Registro10FotosCaixa | null {
+  obter10FotosCaixa(caixa: string, regional?: string): Registro10FotosCaixa {
     const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
-    return (
-      this.registros10Fotos.find(
-        (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
-      ) || null
+    let reg = this.registros10Fotos.find(
+      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
     );
+    if (!reg) {
+      reg = {
+        id: `FOTOS-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${Date.now()}`,
+        regional: regAlvo,
+        caixa,
+        dataCriacao: new Date().toISOString(),
+        computador_id: this.obterComputadorAtual(regAlvo).id,
+        usuario: this.usuarioAtual?.nome || 'Operador',
+        fotos: [
+          { indice: 1, rotulo: 'Foto dos produtos 1', descricao: 'Primeira foto dos produtos da caixa', fotoDataUri: '' },
+          { indice: 2, rotulo: 'Foto dos produtos 2', descricao: 'Segunda foto dos produtos da caixa', fotoDataUri: '' },
+        ],
+        status_sincronizacao: 'PENDENTE',
+      };
+      this.registros10Fotos.push(reg);
+    } else {
+      // Garantir pelo menos 2 slots
+      if (!reg.fotos || reg.fotos.length < 2) {
+        const fotosNovas = reg.fotos ? [...reg.fotos] : [];
+        if (fotosNovas.length === 0) {
+          fotosNovas.push({ indice: 1, rotulo: 'Foto dos produtos 1', descricao: 'Primeira foto dos produtos da caixa', fotoDataUri: '' });
+        }
+        if (fotosNovas.length === 1) {
+          fotosNovas.push({ indice: 2, rotulo: 'Foto dos produtos 2', descricao: 'Segunda foto dos produtos da caixa', fotoDataUri: '' });
+        }
+        reg.fotos = fotosNovas;
+      }
+      // Atualizar nomes padrão para "Foto dos produtos 1" e "Foto dos produtos 2"
+      if (reg.fotos[0] && (!reg.fotos[0].rotulo || reg.fotos[0].rotulo.includes('organizados'))) {
+        reg.fotos[0].rotulo = 'Foto dos produtos 1';
+      }
+      if (reg.fotos[1] && (!reg.fotos[1].rotulo || reg.fotos[1].rotulo.includes('fechada'))) {
+        reg.fotos[1].rotulo = 'Foto dos produtos 2';
+      }
+    }
+    return reg;
+  }
+
+  adicionarSlotFotoCaixa(caixa: string, regional?: string): Registro10FotosCaixa {
+    const reg = this.obter10FotosCaixa(caixa, regional);
+    const novoIndice = reg.fotos.length + 1;
+    reg.fotos.push({
+      indice: novoIndice,
+      rotulo: `Foto dos produtos ${novoIndice}`,
+      descricao: `Foto adicional ${novoIndice} dos produtos da caixa`,
+      fotoDataUri: '',
+    });
+    this.salvarTudo();
+    this.notificarMudanca('fotos');
+    return reg;
+  }
+
+  removerSlotFotoCaixa(caixa: string, indice: number, regional?: string): Registro10FotosCaixa | null {
+    if (indice <= 2) return null; // Os dois primeiros slots são os padrões obrigatórios
+    const reg = this.obter10FotosCaixa(caixa, regional);
+    reg.fotos = reg.fotos.filter((f) => f.indice !== indice);
+    // Renumerar slots adicionais para manter sequencial
+    reg.fotos.forEach((f, idx) => {
+      f.indice = idx + 1;
+      f.rotulo = `Foto dos produtos ${idx + 1}`;
+    });
+    this.salvarTudo();
+    this.notificarMudanca('fotos');
+    return reg;
   }
 
   tem10FotosCompletas(caixa: string, regional?: string): boolean {
-    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
-    const reg = this.registros10Fotos.find(
-      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
+    const reg = this.obter10FotosCaixa(caixa, regional);
+    if (!reg || !reg.fotos || reg.fotos.length < 2) return false;
+    // Considera completo se pelo menos as 2 primeiras fotos foram anexadas
+    return (
+      !!reg.fotos[0]?.fotoDataUri &&
+      reg.fotos[0].fotoDataUri.length > 50 &&
+      !!reg.fotos[1]?.fotoDataUri &&
+      reg.fotos[1].fotoDataUri.length > 50
     );
-    if (!reg || !reg.fotos || reg.fotos.length !== 2) return false;
-    return reg.fotos.every((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50);
   }
 
   obterContadorFotos10(caixa: string, regional?: string): number {
-    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
-    const reg = this.registros10Fotos.find(
-      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
-    );
+    const reg = this.obter10FotosCaixa(caixa, regional);
     if (!reg || !reg.fotos) return 0;
     return reg.fotos.filter((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50).length;
   }
 
+  salvarFotoCaixaIndividual(
+    caixa: string,
+    indice: number,
+    fotoDataUri: string,
+    regional?: string
+  ): { sucesso: boolean; registro: Registro10FotosCaixa } {
+    const reg = this.obter10FotosCaixa(caixa, regional);
+    const item = reg.fotos.find((f) => f.indice === indice);
+    if (!item) {
+      reg.fotos.push({
+        indice,
+        rotulo: `Foto dos produtos ${indice}`,
+        descricao: '',
+        fotoDataUri,
+      });
+    } else {
+      item.fotoDataUri = fotoDataUri;
+    }
+
+    return this.salvar10FotosCaixa(caixa, reg.fotos, regional);
+  }
+
   salvar10FotosCaixa(
     caixa: string,
-    fotos: { indice: number; rotulo: string; descricao?: string; fotoDataUri: string }[],
+    fotos: { indice: number; rotulo?: string; descricao?: string; fotoDataUri: string }[],
     regional?: string
   ): { sucesso: boolean; registro: Registro10FotosCaixa } {
     const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
@@ -1234,49 +1318,40 @@ class AuditoriaDatabase {
     const usuarioNome = this.usuarioAtual?.nome || 'Operador';
     const agora = new Date().toISOString();
 
-    const fotosFormatadas: FotoCaixa10Item[] = ROTULOS_10_FOTOS_CAIXA.map((ref) => {
-      const encontrada = fotos.find((f) => f.indice === ref.id);
-      return {
-        indice: ref.id,
-        rotulo: ref.rotulo,
-        descricao: ref.descricao,
-        fotoDataUri: encontrada?.fotoDataUri || '',
-      };
-    });
+    const registro = this.obter10FotosCaixa(caixa, regAlvo);
+    registro.dataCriacao = agora;
+    registro.computador_id = compAtual.id;
+    registro.usuario = usuarioNome;
+    registro.status_sincronizacao = 'PENDENTE';
 
-    const registroNovo: Registro10FotosCaixa = {
-      id: `FOTOS2-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${Date.now()}`,
-      regional: regAlvo,
-      caixa,
-      dataCriacao: agora,
-      computador_id: compAtual.id,
-      usuario: usuarioNome,
-      fotos: fotosFormatadas,
-      status_sincronizacao: 'PENDENTE',
-      data_sincronizacao: null,
-    };
-
-    const idxExistente = this.registros10Fotos.findIndex(
-      (r) => r.caixa === caixa && (regAlvo === 'TODAS' || r.regional === regAlvo)
-    );
-    if (idxExistente >= 0) {
-      this.registros10Fotos[idxExistente] = registroNovo;
-    } else {
-      this.registros10Fotos.push(registroNovo);
+    for (const f of fotos) {
+      const idx = registro.fotos.findIndex((item) => item.indice === f.indice);
+      if (idx >= 0) {
+        registro.fotos[idx].fotoDataUri = f.fotoDataUri;
+        if (f.rotulo) registro.fotos[idx].rotulo = f.rotulo;
+        if (f.descricao !== undefined) registro.fotos[idx].descricao = f.descricao;
+      } else {
+        registro.fotos.push({
+          indice: f.indice,
+          rotulo: f.rotulo || `Foto dos produtos ${f.indice}`,
+          descricao: f.descricao || '',
+          fotoDataUri: f.fotoDataUri,
+        });
+      }
     }
 
     // Salvar também em fotosGrupos para visualização na galeria do Admin e sincronização com nuvem
-    for (const fotoItem of fotosFormatadas) {
+    for (const fotoItem of registro.fotos) {
       if (fotoItem.fotoDataUri) {
         const fotoGrupoItem: FotoGrupoAuditoria = {
-          id: `FOTO2-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${fotoItem.indice}-${Date.now()}`,
+          id: `FOTO-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${caixa.replace(/[^A-Z0-9]/g, '')}-${fotoItem.indice}-${Date.now()}`,
           regional: regAlvo,
           caixa,
           grupoNumero: fotoItem.indice,
-          grupoRotulo: `${fotoItem.indice}. ${fotoItem.rotulo}`,
+          grupoRotulo: fotoItem.rotulo,
           rangeInicio: 1,
-          rangeFim: 2,
-          totalNoGrupo: 2,
+          rangeFim: registro.fotos.length,
+          totalNoGrupo: registro.fotos.length,
           seriais: [],
           fotoDataUri: fotoItem.fotoDataUri,
           dataCriacao: agora,
@@ -1300,14 +1375,31 @@ class AuditoriaDatabase {
     this.notificarMudanca('fotos');
     this.notificarMudanca('sync');
 
+    const totalAnexadas = registro.fotos.filter((f) => !!f.fotoDataUri).length;
     this.registrarHistorico(
       usuarioNome,
-      'ANEXO_2_FOTOS_CAIXA',
-      `Registradas as 2 fotos comprobatórias obrigatórias da ${caixa}.`,
+      'FOTOS_PRODUTOS_CAIXA',
+      `Registradas fotos dos produtos da ${caixa} (${totalAnexadas} foto(s) salvas).`,
       regAlvo
     );
 
-    return { sucesso: true, registro: registroNovo };
+    return { sucesso: true, registro };
+  }
+
+  registrarMotivoSemFotosCaixa(caixa: string, motivo: string, regional?: string) {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const reg = this.obter10FotosCaixa(caixa, regAlvo);
+    reg.motivoSemFotos = motivo.trim();
+    this.salvarTudo();
+    this.notificarMudanca('fotos');
+
+    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+    this.registrarHistorico(
+      usuarioNome,
+      'MOTIVO_SEM_FOTOS',
+      `Mudança da ${caixa} sem fotos. Justificativa informada: "${motivo.trim()}".`,
+      regAlvo
+    );
   }
 
   validarTrocaCaixa(
@@ -1315,49 +1407,34 @@ class AuditoriaDatabase {
     regional?: string
   ): {
     permitida: boolean;
-    mensagem?: string;
-    gruposFaltantes: GrupoFotosInfo[];
-    totalGrupos: number;
-    gruposComFoto: number;
-    precisa10Fotos: boolean;
+    precisaConfirmarFotos: boolean;
+    temFotos: boolean;
+    totalFotos: number;
+    motivoInformado?: string | null;
   } {
     const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
     const prodsCaixa = this.produtos.filter(
       (p) => p.numero_caixa === caixaAtual && (regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo)
     );
 
-    // Se a caixa atual não tem produtos cadastrados, pode trocar livremente
     if (prodsCaixa.length === 0) {
       return {
         permitida: true,
-        gruposFaltantes: [],
-        totalGrupos: 0,
-        gruposComFoto: 0,
-        precisa10Fotos: false,
+        precisaConfirmarFotos: false,
+        temFotos: false,
+        totalFotos: 0,
       };
     }
 
-    // Se a caixa tem produtos, é OBRIGATÓRIO ter as 2 fotos da caixa
-    const completas = this.tem10FotosCompletas(caixaAtual, regAlvo);
-    const contagem = this.obterContadorFotos10(caixaAtual, regAlvo);
-
-    if (!completas) {
-      return {
-        permitida: false,
-        mensagem: `É obrigatório registrar as 2 fotos comprobatórias da ${caixaAtual} antes de iniciar uma nova caixa ou trocar de caixa. (${contagem} de 2 capturadas)`,
-        gruposFaltantes: [],
-        totalGrupos: 2,
-        gruposComFoto: contagem,
-        precisa10Fotos: true,
-      };
-    }
+    const reg = this.obter10FotosCaixa(caixaAtual, regAlvo);
+    const contagem = reg.fotos.filter((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50).length;
 
     return {
       permitida: true,
-      gruposFaltantes: [],
-      totalGrupos: 2,
-      gruposComFoto: 2,
-      precisa10Fotos: false,
+      precisaConfirmarFotos: true,
+      temFotos: contagem >= 2,
+      totalFotos: contagem,
+      motivoInformado: reg.motivoSemFotos,
     };
   }
 

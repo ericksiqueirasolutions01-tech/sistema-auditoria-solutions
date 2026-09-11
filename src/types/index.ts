@@ -173,16 +173,16 @@ export interface GrupoFotosInfo {
   temFoto: boolean;
 }
 
-// 2 FOTOS OBRIGATÓRIAS AO FINALIZAR / TROCAR DE CAIXA
+// FOTOS DOS PRODUTOS DA CAIXA (INICIAL: FOTO 1 E FOTO 2 + ADICIONAIS)
 export const ROTULOS_2_FOTOS_CAIXA = [
-  { id: 1, rotulo: 'Produtos organizados dentro da caixa', descricao: 'Vista superior/interna com os aparelhos organizados' },
-  { id: 2, rotulo: 'Caixa fechada com lacre e etiqueta', descricao: 'Vista externa com fechamento, lacre de segurança e etiqueta' },
+  { id: 1, rotulo: 'Foto dos produtos 1', descricao: 'Primeira foto dos produtos da caixa' },
+  { id: 2, rotulo: 'Foto dos produtos 2', descricao: 'Segunda foto dos produtos da caixa' },
 ] as const;
 
 export const ROTULOS_10_FOTOS_CAIXA = ROTULOS_2_FOTOS_CAIXA;
 
 export interface FotoCaixa10Item {
-  indice: number; // 1 a 10
+  indice: number; // 1, 2, 3, etc.
   rotulo: string;
   descricao: string;
   fotoDataUri: string;
@@ -196,6 +196,7 @@ export interface Registro10FotosCaixa {
   computador_id: string;
   usuario: string;
   fotos: FotoCaixa10Item[];
+  motivoSemFotos?: string | null;
   status_sincronizacao: 'PENDENTE' | 'ENVIADO';
   data_sincronizacao?: string | null;
 }

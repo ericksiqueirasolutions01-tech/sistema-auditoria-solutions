@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db } from '../db/storage';
-import { ROTULOS_2_FOTOS_CAIXA, FotoCaixa10Item } from '../types';
+import { FotoCaixa10Item } from '../types';
 import {
   Camera,
   Upload,
@@ -12,12 +12,15 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 
 interface ModalCaptura10FotosCaixaProps {
   isOpen: boolean;
   caixa: string;
   regional?: string;
+  slotInicial?: number;
   onClose: () => void;
   onConcluido: () => void;
 }
@@ -26,21 +29,14 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
   isOpen,
   caixa,
   regional,
+  slotInicial = 1,
   onClose,
   onConcluido,
 }) => {
-  const [indiceAtual, setIndiceAtual] = useState<number>(1); // 1 ou 2
+  const [indiceAtual, setIndiceAtual] = useState<number>(slotInicial);
   const [fotos, setFotos] = useState<FotoCaixa10Item[]>(() => {
     const reg = db.obter10FotosCaixa(caixa, regional);
-    if (reg && reg.fotos && reg.fotos.length === 2) {
-      return reg.fotos;
-    }
-    return ROTULOS_2_FOTOS_CAIXA.map((ref) => ({
-      indice: ref.id,
-      rotulo: ref.rotulo,
-      descricao: ref.descricao,
-      fotoDataUri: '',
-    }));
+    return reg.fotos;
   });
 
   const [cameraAtiva, setCameraAtiva] = useState(false);
@@ -56,19 +52,8 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
   useEffect(() => {
     if (isOpen) {
       const reg = db.obter10FotosCaixa(caixa, regional);
-      if (reg && reg.fotos && reg.fotos.length === 2) {
-        setFotos(reg.fotos);
-      } else {
-        setFotos(
-          ROTULOS_2_FOTOS_CAIXA.map((ref) => ({
-            indice: ref.id,
-            rotulo: ref.rotulo,
-            descricao: ref.descricao,
-            fotoDataUri: '',
-          }))
-        );
-      }
-      setIndiceAtual(1);
+      setFotos(reg.fotos);
+      setIndiceAtual(slotInicial || 1);
       iniciarCamera();
     } else {
       pararCamera();
@@ -77,7 +62,36 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
     return () => {
       pararCamera();
     };
-  }, [isOpen, caixa, regional]);
+  }, [isOpen, caixa, regional, slotInicial]);
+
+  const handleAdicionarMaisFoto = () => {
+    const novoIndice = fotos.length + 1;
+    const novoItem: FotoCaixa10Item = {
+      indice: novoIndice,
+      rotulo: `Foto dos produtos ${novoIndice}`,
+      descricao: `Foto adicional ${novoIndice} dos produtos da caixa`,
+      fotoDataUri: '',
+    };
+    const novas = [...fotos, novoItem];
+    setFotos(novas);
+    setIndiceAtual(novoIndice);
+    db.salvar10FotosCaixa(caixa, novas, regional);
+  };
+
+  const handleRemoverFotoSlot = (indice: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (indice <= 2) return;
+    const filtradas = fotos.filter((f) => f.indice !== indice).map((f, i) => ({
+      ...f,
+      indice: i + 1,
+      rotulo: `Foto dos produtos ${i + 1}`,
+    }));
+    setFotos(filtradas);
+    if (indiceAtual >= indice) {
+      setIndiceAtual(Math.max(1, indiceAtual - 1));
+    }
+    db.salvar10FotosCaixa(caixa, filtradas, regional);
+  };
 
   const iniciarCamera = async () => {
     setErroCamera(null);
@@ -201,22 +215,21 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
   };
 
   const totalComFoto = fotos.filter((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50).length;
-  const todasCompletas = totalComFoto === 2;
-  const fotoAtualRef = ROTULOS_2_FOTOS_CAIXA[indiceAtual - 1] || ROTULOS_2_FOTOS_CAIXA[0];
-  const fotoAtualData = fotos.find((f) => f.indice === indiceAtual);
+  const fotoAtualRef = fotos.find((f) => f.indice === indiceAtual) || fotos[0] || {
+    indice: 1,
+    rotulo: 'Foto dos produtos 1',
+    descricao: '',
+    fotoDataUri: '',
+  };
+  const fotoAtualData = fotoAtualRef;
 
   const handleSalvarTodas = () => {
-    if (!todasCompletas) {
-      alert(`É obrigatório registrar as 2 fotos completas da caixa. Faltam ${2 - totalComFoto} foto(s).`);
-      return;
-    }
-
     try {
       db.salvar10FotosCaixa(caixa, fotos, regional);
       pararCamera();
       onConcluido();
     } catch (err: any) {
-      alert('Erro ao salvar evidências: ' + (err.message || 'Erro desconhecido'));
+      alert('Erro ao salvar fotos: ' + (err.message || 'Erro desconhecido'));
     }
   };
 
@@ -237,14 +250,14 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
-                  Fotos Obrigatórias da Caixa
+                  Fotos dos Produtos da Caixa
                 </span>
                 <span className="bg-amber-500 text-slate-950 font-black text-xs px-2.5 py-0.5 rounded-full uppercase">
                   {caixa}
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 mt-0.5">
-                Requisito Operacional: 2 fotos obrigatórias (Interior dos Aparelhos e Lacre/Fechamento) para concluir e trocar de caixa.
+                Anexe as fotos dos produtos da caixa (Foto dos produtos 1, Foto dos produtos 2 e fotos adicionais).
               </p>
             </div>
           </div>
@@ -259,46 +272,48 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
           </button>
         </div>
 
-        {/* Barra de Progresso das 2 Fotos */}
+        {/* Barra de Progresso das Fotos */}
         <div className="bg-slate-100 px-4 sm:px-6 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-black uppercase text-slate-700">Progresso:</span>
+            <span className="text-xs font-black uppercase text-slate-700">Fotos Registradas:</span>
             <span
               className={`text-xs font-mono font-black px-2.5 py-0.5 rounded-full ${
-                todasCompletas
+                totalComFoto >= 2
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                  : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  : 'bg-blue-100 text-blue-800 border border-blue-300'
               }`}
             >
-              {totalComFoto} de 2 fotos registradas
+              {totalComFoto} foto(s) anexada(s)
             </span>
           </div>
 
-          <span className="text-[11px] text-slate-600 font-bold">
-            {todasCompletas
-              ? '✓ Ambas as 2 fotos capturadas! Liberado para concluir.'
-              : `Falta ${2 - totalComFoto} foto para permitir a troca de caixa.`}
-          </span>
+          <button
+            type="button"
+            onClick={handleAdicionarMaisFoto}
+            className="text-[11px] font-black uppercase text-blue-700 hover:text-blue-900 bg-blue-100/80 hover:bg-blue-200 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+            title="Adicionar mais um espaço de foto para esta caixa"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Adicionar Mais Fotos
+          </button>
         </div>
 
-        {/* Corpo com Seleção das 2 Fotos e Área de Captura */}
+        {/* Corpo com Seleção das Fotos e Área de Captura */}
         <div className="p-3 sm:p-5 overflow-y-auto space-y-4 flex-1">
-          {/* Seletor das 2 Fotos em Cards Grandes e Claros */}
+          {/* Seletor de Fotos em Cards Grandes */}
           <div>
             <span className="text-[11px] font-black uppercase text-slate-600 block mb-2">
-              Selecione o ângulo para capturar (Foto 1 ou Foto 2):
+              Selecione o espaço para capturar ou clique em + para adicionar mais fotos:
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {ROTULOS_2_FOTOS_CAIXA.map((item) => {
-                const fotoItem = fotos.find((f) => f.indice === item.id);
-                const temFoto = !!fotoItem?.fotoDataUri;
-                const isSelected = indiceAtual === item.id;
+              {fotos.map((item) => {
+                const temFoto = !!item?.fotoDataUri;
+                const isSelected = indiceAtual === item.indice;
 
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setIndiceAtual(item.id)}
+                  <div
+                    key={item.indice}
+                    onClick={() => setIndiceAtual(item.indice)}
                     className={`p-3 rounded-xl border-2 text-left flex items-center justify-between gap-3 transition-all cursor-pointer ${
                       isSelected
                         ? 'ring-2 ring-blue-600 bg-blue-50 border-blue-500 shadow-sm'
@@ -307,7 +322,7 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
                         : 'bg-slate-50 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <div
                         className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${
                           temFoto
@@ -317,32 +332,53 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
                             : 'bg-slate-200 text-slate-700'
                         }`}
                       >
-                        #{item.id}
+                        #{item.indice}
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className="text-xs font-black uppercase block text-slate-900 truncate">
                           {item.rotulo}
                         </span>
                         <span className="text-[10px] text-slate-500 block truncate">
-                          {item.descricao}
+                          {temFoto ? 'Foto carregada e pronta' : 'Espaço limpo para foto'}
                         </span>
                       </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {temFoto ? (
                         <span className="bg-emerald-600 text-white font-black text-[10px] uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" /> OK
                         </span>
                       ) : (
-                        <span className="bg-amber-100 text-amber-800 font-bold text-[10px] uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3 text-amber-600" /> Pendente
+                        <span className="bg-slate-200 text-slate-600 font-bold text-[10px] uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
+                          Vazia
                         </span>
                       )}
+
+                      {item.indice > 2 && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoverFotoSlot(item.indice, e)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100/60 cursor-pointer"
+                          title="Remover foto adicional"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
+
+              {/* Botão de Adicionar Mais Fotos no Grid */}
+              <button
+                type="button"
+                onClick={handleAdicionarMaisFoto}
+                className="p-3 rounded-xl border-2 border-dashed border-blue-400 bg-blue-50/50 hover:bg-blue-100/70 text-blue-800 flex items-center justify-center gap-2 font-black text-xs uppercase transition-all cursor-pointer min-h-[58px]"
+              >
+                <Plus className="w-4 h-4 text-blue-600" />
+                Adicionar Mais Fotos (+)
+              </button>
             </div>
           </div>
 
@@ -351,7 +387,7 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <div>
                 <span className="text-xs font-black uppercase text-blue-400 block">
-                  Capturando Foto {indiceAtual} de 2:
+                  Foto {indiceAtual} de {fotos.length}:
                 </span>
                 <span className="text-sm font-bold text-white">
                   {fotoAtualRef.rotulo}
@@ -364,8 +400,8 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  disabled={indiceAtual === 1}
-                  onClick={() => setIndiceAtual(1)}
+                  disabled={indiceAtual <= 1}
+                  onClick={() => setIndiceAtual((prev) => Math.max(1, prev - 1))}
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white cursor-pointer"
                   title="Foto anterior"
                 >
@@ -373,8 +409,8 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
                 </button>
                 <button
                   type="button"
-                  disabled={indiceAtual === 2}
-                  onClick={() => setIndiceAtual(2)}
+                  disabled={indiceAtual >= fotos.length}
+                  onClick={() => setIndiceAtual((prev) => Math.min(fotos.length, prev + 1))}
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white cursor-pointer"
                   title="Próxima foto"
                 >
@@ -479,12 +515,14 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
           </div>
         </div>
 
-        {/* Rodapé com Validação Rigorosa e Botão Salvar */}
+        {/* Rodapé com Botão Salvar */}
         <div className="bg-slate-100 border-t border-slate-300 px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
-            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
-              Regra: Salvar somente após as <strong>2 fotos completas</strong> da caixa.
+              {totalComFoto > 0
+                ? `${totalComFoto} foto(s) registrada(s) para a ${caixa}.`
+                : 'Nenhuma foto anexada ainda.'}
             </span>
           </div>
 
@@ -494,23 +532,16 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-200 border border-slate-300 uppercase transition-colors cursor-pointer"
             >
-              Cancelar
+              Fechar
             </button>
 
             <button
               type="button"
-              disabled={!todasCompletas}
               onClick={handleSalvarTodas}
-              className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer ${
-                todasCompletas
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md scale-100 hover:scale-[1.02]'
-                  : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-75'
-              }`}
+              className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
             >
               <Check className="w-4 h-4" />
-              {todasCompletas
-                ? 'Salvar 2 Fotos e Liberar Caixa'
-                : `Salvar 2 Fotos (${totalComFoto}/2 completas)`}
+              Salvar Fotos da Caixa
             </button>
           </div>
         </div>

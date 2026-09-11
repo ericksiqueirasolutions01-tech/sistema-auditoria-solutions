@@ -28,6 +28,8 @@ import {
   Building2,
   MapPin,
   Laptop,
+  Smartphone,
+  RefreshCw,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -98,15 +100,55 @@ export const BipagemRapida: React.FC = () => {
     db.obterContadoresCaixa(caixaAtiva)
   );
 
+  // Responsividade: modo celular ou planilha Excel
+  const [modoVisualizacao, setModoVisualizacao] = useState<'celular' | 'excel'>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'celular';
+    }
+    return 'excel';
+  });
+  const [syncMobileLoading, setSyncMobileLoading] = useState(false);
+
+  const handleSyncMobile = async () => {
+    setSyncMobileLoading(true);
+    try {
+      const res = await db.sincronizarOnline();
+      setSucessoNotif(res.mensagem);
+      recarregarDados(filtroCaixa);
+    } catch {
+      setAlertaValidacao('Erro ao sincronizar com o servidor central.');
+    } finally {
+      setSyncMobileLoading(false);
+      setTimeout(() => setSucessoNotif(null), 4000);
+    }
+  };
+
   const serialInputRef = useRef<HTMLInputElement>(null);
+  const serialMobileInputRef = useRef<HTMLInputElement>(null);
   const tableBottomRef = useRef<HTMLDivElement>(null);
   const kitSelectRef = useRef<HTMLSelectElement>(null);
   const marcasSelectRef = useRef<HTMLSelectElement>(null);
 
+  const focarInputSerial = () => {
+    if (modoVisualizacao === 'celular') {
+      serialMobileInputRef.current?.focus();
+    } else {
+      serialInputRef.current?.focus();
+    }
+  };
+
+  const selecionarInputSerial = () => {
+    if (modoVisualizacao === 'celular') {
+      serialMobileInputRef.current?.select();
+    } else {
+      serialInputRef.current?.select();
+    }
+  };
+
   // Auto-focus on the Serial input cell
   useEffect(() => {
-    serialInputRef.current?.focus();
-  }, [caixaAtiva, produtos.length, lacreAtivo]);
+    focarInputSerial();
+  }, [caixaAtiva, produtos.length, lacreAtivo, modoVisualizacao]);
 
   const recarregarDados = (filtro: string) => {
     setProdutos(db.listarProdutos(filtro === 'TODAS' ? undefined : { caixa: filtro }));
@@ -166,7 +208,7 @@ export const BipagemRapida: React.FC = () => {
     if (!serialLimpo) {
       setAlertaValidacao('Posicione o cursor na coluna SERIAL e bipe o produto.');
       sounds.playError();
-      serialInputRef.current?.focus();
+      focarInputSerial();
       return;
     }
 
@@ -184,7 +226,7 @@ export const BipagemRapida: React.FC = () => {
       setErroDuplicado(
         `SERIAL DUPLICADO: O serial ${serialLimpo} já foi auditado na ${check.produto.numero_caixa} em ${check.produto.data_auditoria}.`
       );
-      serialInputRef.current?.select();
+      selecionarInputSerial();
       return;
     }
 
@@ -239,12 +281,12 @@ export const BipagemRapida: React.FC = () => {
 
       setTimeout(() => {
         tableBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-        serialInputRef.current?.focus();
+        focarInputSerial();
       }, 50);
     } else {
       sounds.playError();
       setAlertaValidacao(res.erro || 'Erro ao registrar linha de auditoria.');
-      serialInputRef.current?.focus();
+      focarInputSerial();
     }
   };
 
@@ -317,12 +359,12 @@ export const BipagemRapida: React.FC = () => {
 
     setLinhaEditandoId(null);
     recarregarDados(filtroCaixa);
-    serialInputRef.current?.focus();
+    focarInputSerial();
   };
 
   const cancelarEdicaoLinha = () => {
     setLinhaEditandoId(null);
-    serialInputRef.current?.focus();
+    focarInputSerial();
   };
 
   // Excluir linha
@@ -330,7 +372,7 @@ export const BipagemRapida: React.FC = () => {
     if (window.confirm(`Deseja remover o serial ${serial}?`)) {
       db.excluirProduto(id);
       recarregarDados(filtroCaixa);
-      serialInputRef.current?.focus();
+      focarInputSerial();
     }
   };
 
@@ -720,6 +762,7 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const espelhoCaixaAtual = obterDadosEspelhoCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
+  const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
 
   return (
     <div className="space-y-4">
@@ -739,9 +782,518 @@ export const BipagemRapida: React.FC = () => {
       </datalist>
 
       {/* ========================================================================= */}
-      {/* 1. BARRA DE FERRAMENTAS SUPERIOR (ESTILO EXCEL OPERACIONAL) */}
+      {/* BARRA DE ALTERNAÇÃO DE VISUALIZAÇÃO: MODO CELULAR VS PLANILHA EXCEL */}
       {/* ========================================================================= */}
-      <div className={`space-y-4 ${mostrarEspelhoModal ? 'no-print' : ''}`}>
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border-2 border-slate-300 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-300 w-full sm:w-auto justify-center">
+          <button
+            type="button"
+            onClick={() => {
+              setModoVisualizacao('celular');
+              setTimeout(() => focarInputSerial(), 80);
+            }}
+            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              modoVisualizacao === 'celular'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Smartphone className="w-4 h-4" />
+            Modo Celular (Bipagem Ágil)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setModoVisualizacao('excel');
+              setTimeout(() => focarInputSerial(), 80);
+            }}
+            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              modoVisualizacao === 'excel'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Modo Planilha (Grid Completo)
+          </button>
+        </div>
+
+        {/* Botão de Envio para Online / Servidor Central */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button
+            type="button"
+            onClick={handleSyncMobile}
+            disabled={syncMobileLoading}
+            className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
+              produtosPendentesCount > 0
+                ? 'bg-amber-600 hover:bg-amber-700 text-white animate-pulse'
+                : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+            }`}
+          >
+            <Upload className={`w-4 h-4 ${syncMobileLoading ? 'animate-spin' : ''}`} />
+            {syncMobileLoading
+              ? 'Sincronizando com PC Central...'
+              : produtosPendentesCount > 0
+              ? `Enviar para o Online (${produtosPendentesCount} pendente${produtosPendentesCount > 1 ? 's' : ''})`
+              : 'Online Sincronizado ✓'}
+          </button>
+        </div>
+      </div>
+
+      {/* Alertas globais (visíveis em ambos os modos) */}
+      {erroDuplicado && (
+        <div className="bg-rose-100 border-2 border-rose-500 text-rose-900 rounded-xl p-3.5 flex items-center gap-3 shadow-md animate-bounce">
+          <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
+          <span className="text-xs font-black">{erroDuplicado}</span>
+        </div>
+      )}
+
+      {alertaValidacao && (
+        <div className="bg-amber-100 border border-amber-500 text-amber-900 rounded-xl p-3 flex items-center gap-2 shadow-xs">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span className="text-xs font-bold">{alertaValidacao}</span>
+        </div>
+      )}
+
+      {sucessoNotif && (
+        <div className="bg-emerald-100 border border-emerald-500 text-emerald-900 rounded-xl p-2.5 flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="text-xs font-bold">{sucessoNotif}</span>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* RENDERIZAÇÃO CONDICIONAL: MODO CELULAR VS PLANILHA */}
+      {/* ========================================================================= */}
+      {modoVisualizacao === 'celular' ? (
+        <div className="space-y-4">
+          {/* Card 1: Caixa e Status de Auditoria */}
+          <div className="bg-white rounded-2xl p-4 border-2 border-slate-300 shadow-sm space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2">
+                <Boxes className="w-5 h-5 text-blue-600 shrink-0" />
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Caixa Atual:</span>
+                  <input
+                    list="lista-caixas-existentes"
+                    type="text"
+                    value={caixaAtiva}
+                    onChange={(e) => {
+                      setCaixaAtiva(e.target.value);
+                      setFiltroCaixa(e.target.value);
+                    }}
+                    placeholder="Ex: Caixa 01"
+                    className="text-base font-black text-blue-900 uppercase bg-blue-50 border-2 border-blue-400 rounded-lg px-2.5 py-1 focus:outline-none w-36"
+                  />
+                </div>
+              </div>
+              
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">Total na Caixa:</span>
+                <span className="text-2xl font-black text-slate-900">{contadores.totalAuditados}</span>
+                <span className="text-[10px] text-emerald-700 font-bold block">
+                  {contadores.produtosLacrados} lacrados • {contadores.produtosNaoLacrados} abertos
+                </span>
+              </div>
+            </div>
+
+            {/* Badges de Regional e Estação */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="bg-blue-950 text-amber-300 px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 border border-blue-800">
+                <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                {regionalAtiva}
+              </span>
+              <span className="bg-indigo-950 text-white px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] flex items-center gap-1 border border-indigo-800">
+                <Laptop className="w-3.5 h-3.5 text-indigo-400" />
+                {computadorAtual.id}
+              </span>
+              <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-black text-[11px] flex items-center gap-1 border border-emerald-300">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                SAMSUNG
+              </span>
+            </div>
+
+            {/* Seletor Rápido de Caixas Existentes */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">Trocar Caixa:</span>
+              {caixasExistentes.map((cx) => (
+                <button
+                  key={cx}
+                  type="button"
+                  onClick={() => {
+                    setCaixaAtiva(cx);
+                    setFiltroCaixa(cx);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition-colors cursor-pointer ${
+                    caixaAtiva === cx
+                      ? 'bg-blue-600 text-white font-black'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {cx} ({db.obterContadoresCaixa(cx).totalAuditados})
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleNovaAuditoria}
+                className="px-2.5 py-1 rounded-lg font-bold text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 whitespace-nowrap flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3 h-3" /> Nova
+              </button>
+            </div>
+          </div>
+
+          {/* Card 2: Seleção de Modelo Samsung & EAN */}
+          <div className="bg-white rounded-2xl p-4 border-2 border-slate-300 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Building2 className="w-4 h-4 text-blue-600" />
+                Modelo Samsung & Código EAN
+              </label>
+              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                FABRICANTE: SAMSUNG
+              </span>
+            </div>
+
+            {/* Atalhos Rápidos dos Modelos mais Frequentes */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+              {SAMSUNG_MODELOS_PRESET.slice(0, 6).map((m) => (
+                <button
+                  key={m.modelo}
+                  type="button"
+                  onClick={() => {
+                    setModeloAtivo(m.modelo);
+                    setEanAtivo(m.ean);
+                    focarInputSerial();
+                  }}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${
+                    modeloAtivo.toLowerCase() === m.modelo.toLowerCase()
+                      ? 'bg-blue-900 text-white shadow-xs font-black ring-2 ring-blue-500'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {m.modelo}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Modelo Selecionado:</span>
+                <input
+                  list="lista-modelos-samsung"
+                  type="text"
+                  value={modeloAtivo}
+                  onChange={(e) => handleModeloChange(e.target.value)}
+                  placeholder="Digite ou escolha o modelo..."
+                  className="w-full text-sm font-black text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-xl px-3 py-2 focus:border-blue-600 focus:bg-white focus:outline-none"
+                />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Código EAN:</span>
+                <input
+                  type="text"
+                  value={eanAtivo}
+                  onChange={(e) => setEanAtivo(e.target.value)}
+                  placeholder="Código EAN 789..."
+                  className="w-full font-mono text-sm font-bold text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-xl px-3 py-2 focus:border-blue-600 focus:bg-white focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: BIPAGEM PRINCIPAL - NÚMERO DE SÉRIE (SERIAL) */}
+          <div className="bg-blue-50 border-2 border-blue-500 rounded-2xl p-4 sm:p-5 shadow-md space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-black text-blue-950 uppercase flex items-center gap-2">
+                <CornerDownLeft className="w-4 h-4 text-blue-600" />
+                Bipagem de Serial (Código de Barras)
+              </label>
+              <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                Posicione o leitor ou digite
+              </span>
+            </div>
+
+            {/* Input de Serial Gigante */}
+            <div className="relative">
+              <input
+                ref={serialMobileInputRef}
+                type="text"
+                value={serialInput}
+                onChange={(e) => setSerialInput(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processarBipagemLinha();
+                  }
+                }}
+                placeholder="BIPAR SERIAL AQUI..."
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck="false"
+                className="w-full font-mono font-black text-xl sm:text-2xl text-slate-950 bg-white border-3 border-blue-600 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 focus:ring-blue-300 placeholder:text-slate-300 uppercase shadow-inner"
+              />
+              {serialInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSerialInput('');
+                    focarInputSerial();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            {/* Condição Física / Lacre (Botões Touch Grandes) */}
+            <div className="space-y-3 bg-white p-3.5 rounded-xl border border-blue-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-800 uppercase">
+                  Produto Lacrado?
+                </span>
+                <span className="text-[10px] text-slate-500 font-bold">
+                  {lacreAtivo === 'SIM' ? 'LACRADO DE FÁBRICA' : 'ABERTO / SEM LACRE'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLacreAtivo('SIM');
+                    setKitAtivo('');
+                    setMarcasAtivo('');
+                    focarInputSerial();
+                  }}
+                  className={`py-3 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    lacreAtivo === 'SIM'
+                      ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  SIM (Lacrado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLacreAtivo('NÃO');
+                  }}
+                  className={`py-3 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    lacreAtivo === 'NÃO'
+                      ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  NÃO (Aberto)
+                </button>
+              </div>
+
+              {/* Campos extras obrigatórios se produto NÃO for lacrado */}
+              {lacreAtivo === 'NÃO' && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 space-y-3 animate-in fade-in">
+                  <div className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Produto aberto: Obrigatório conferir Kit e Marcas de Uso!
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                        Kit Completo:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setKitAtivo('SIM')}
+                          className={`py-2 px-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                            kitAtivo === 'SIM'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          SIM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setKitAtivo('NÃO')}
+                          className={`py-2 px-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                            kitAtivo === 'NÃO'
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          NÃO
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                        Marcas de Uso:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setMarcasAtivo('NÃO')}
+                          className={`py-2 px-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                            marcasAtivo === 'NÃO'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          NÃO
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMarcasAtivo('SIM')}
+                          className={`py-2 px-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                            marcasAtivo === 'SIM'
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          SIM
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                      Observações de Avaria ou Faltas:
+                    </span>
+                    <input
+                      type="text"
+                      value={obsAtivo}
+                      onChange={(e) => setObsAtivo(e.target.value)}
+                      placeholder="Ex: Falta cabo, marcas na carcaça..."
+                      className="w-full text-xs text-slate-900 bg-white border border-amber-400 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Botão de Gravação Touch Grande */}
+            <button
+              type="button"
+              onClick={processarBipagemLinha}
+              className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-base uppercase py-3.5 px-4 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-[0.98] cursor-pointer"
+            >
+              <CornerDownLeft className="w-5 h-5" />
+              ⚡ Registrar e Bipar Próximo (Enter)
+            </button>
+          </div>
+
+          {/* Card 4: Lista dos Últimos Itens Bipados na Caixa Atual */}
+          <div className="bg-white rounded-2xl p-4 border-2 border-slate-300 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-slate-800 uppercase flex items-center gap-1.5">
+                <Boxes className="w-4 h-4 text-blue-600" />
+                Aparelhos na {caixaAtiva} ({produtos.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setModoVisualizacao('excel')}
+                className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                Ver tabela completa ({produtos.length}) →
+              </button>
+            </div>
+
+            {produtos.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs font-bold">
+                Nenhum aparelho bipado nesta caixa ainda. Bipar acima para começar!
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1">
+                {produtos.slice().reverse().map((item, idx) => (
+                  <div key={item.id} className="py-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-mono font-black text-slate-900 truncate">
+                          {item.serial}
+                        </span>
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                            item.produto_lacrado === 'SIM'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {item.produto_lacrado === 'SIM' ? 'LACRADO' : 'ABERTO'}
+                        </span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            item.status_sincronizacao === 'ENVIADO'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {item.status_sincronizacao === 'ENVIADO' ? '✓ Online' : 'Pendente'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-bold truncate">
+                        {item.modelo_produto} • EAN {item.ean} • #{produtos.length - idx}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleExcluirLinha(item.id, item.serial)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 cursor-pointer shrink-0"
+                      title="Excluir item"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ações Rápidas Mobile: Espelho e Relatórios */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setIncluirSeriaisEspelho(false);
+                setMostrarEspelhoModal(true);
+              }}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <FileText className="w-4 h-4" />
+              Espelho da Caixa
+            </button>
+
+            <button
+              type="button"
+              onClick={() => exportarRelatorioExcel(false)}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Excel da Caixa
+            </button>
+
+            <button
+              type="button"
+              onClick={() => exportarRelatorioExcel(true)}
+              className="col-span-2 sm:col-span-1 bg-teal-700 hover:bg-teal-800 text-white font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Files className="w-4 h-4" />
+              Relatório Geral
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* MODO PLANILHA EXCEL OPERACIONAL */
+        /* ========================================================================= */
+        <div className={`space-y-4 ${mostrarEspelhoModal ? 'no-print' : ''}`}>
         <div className="bg-white rounded-2xl p-4 sm:p-5 border-2 border-slate-300 shadow-sm space-y-4">
         {/* Linha 1: Controles de Caixa e Botões Principais */}
         <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -978,28 +1530,6 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Alertas */}
-      {erroDuplicado && (
-        <div className="bg-rose-100 border-2 border-rose-500 text-rose-900 rounded-xl p-3.5 flex items-center gap-3 shadow-md animate-bounce">
-          <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
-          <span className="text-xs font-black">{erroDuplicado}</span>
-        </div>
-      )}
-
-      {alertaValidacao && (
-        <div className="bg-amber-100 border border-amber-500 text-amber-900 rounded-xl p-3 flex items-center gap-2 shadow-xs">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span className="text-xs font-bold">{alertaValidacao}</span>
-        </div>
-      )}
-
-      {sucessoNotif && (
-        <div className="bg-emerald-100 border border-emerald-500 text-emerald-900 rounded-xl p-2.5 flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span className="text-xs font-bold">{sucessoNotif}</span>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* 2. TABELA OPERACIONAL EM FORMATO PLANILHA EXCEL */}
@@ -1504,6 +2034,7 @@ export const BipagemRapida: React.FC = () => {
         </div>
       </div>
       </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. MODAL: GERADOR DE ESPELHO DA CAIXA (COM LOGOS SOLUTIONS E SAMSUNG) */}

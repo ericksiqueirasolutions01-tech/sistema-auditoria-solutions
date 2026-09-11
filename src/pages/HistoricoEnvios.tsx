@@ -70,14 +70,17 @@ export const HistoricoEnvios: React.FC = () => {
   );
   const pcsDistintos = new Set(enviosFiltrados.map((e) => e.computador_id)).size;
 
-  const handleSincronizarAgora = () => {
+  const handleSincronizarAgora = async () => {
     setSyncLoading(true);
-    setTimeout(() => {
-      const res = db.sincronizarOnline();
-      setSyncLoading(false);
+    try {
+      const res = await db.sincronizarOnline();
       setNotificacao(res.mensagem);
+    } catch {
+      setNotificacao('Erro ao conectar ao servidor central.');
+    } finally {
+      setSyncLoading(false);
       setTimeout(() => setNotificacao(null), 4000);
-    }, 600);
+    }
   };
 
   const exportarExcel = () => {

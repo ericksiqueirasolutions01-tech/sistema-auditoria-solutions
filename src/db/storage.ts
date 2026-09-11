@@ -190,6 +190,18 @@ class AuditoriaDatabase {
   constructor() {
     this.carregarDados();
     this.verificarRecuperacaoIndexedDB();
+    this.iniciarSincronizacaoAutomatica();
+  }
+
+  iniciarSincronizacaoAutomatica() {
+    if (typeof window === 'undefined') return;
+    this.puxarAtualizacoesServidor();
+    setInterval(() => {
+      this.puxarAtualizacoesServidor();
+    }, 5000);
+    window.addEventListener('focus', () => {
+      this.puxarAtualizacoesServidor();
+    });
   }
 
   private carregarDados() {
@@ -915,20 +927,72 @@ class AuditoriaDatabase {
   // Requisito 6: Tratamento de duplicidade antes de gravar no servidor.
   // Requisito 8: Registra carimbo no Histórico de Envios.
   // =========================================================================
-  sincronizarOnline(): {
+  async puxarAtualizacoesServidor(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/central/produtos');
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data && Array.isArray(data.produtos)) {
+        const alterou = this.mesclarProdutosCentral(data.produtos);
+        if (alterou) {
+          this.salvarTudo();
+          this.notificarMudanca('produtos');
+          this.notificarMudanca('sync');
+        }
+        return true;
+      }
+    } catch {
+      // Servidor localmente inacessível (offline temporário)
+    }
+    return false;
+  }
+
+  mesclarProdutosCentral(produtosCentral: ProdutoAuditoria[]): boolean {
+    let alterou = false;
+    const locaisMap = new Map<string, ProdutoAuditoria>();
+    for (const p of this.produtos) {
+      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
+      locaisMap.set(chave, p);
+    }
+
+    for (const cp of produtosCentral) {
+      const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
+      const local = locaisMap.get(chave);
+      if (!local) {
+        // Produto novo vindo de outro celular ou computador
+        const novo: ProdutoAuditoria = {
+          ...cp,
+          status_sincronizacao: 'ENVIADO',
+          sync_status: 'ENVIADO',
+        };
+        this.produtos.unshift(novo);
+        this.serialMap.set(cp.serial.trim().toUpperCase(), novo);
+        locaisMap.set(chave, novo);
+        alterou = true;
+      } else if (local.status_sincronizacao !== 'ENVIADO') {
+        // Já existe no servidor central, então marca como ENVIADO localmente também
+        local.status_sincronizacao = 'ENVIADO';
+        local.sync_status = 'ENVIADO';
+        local.data_sincronizacao = cp.data_sincronizacao || new Date().toISOString();
+        alterou = true;
+      }
+    }
+    return alterou;
+  }
+
+  async sincronizarOnline(): Promise<{
     sucesso: boolean;
     totalSincronizados: number;
     duplicadosEvitados: number;
     timestamp: string;
     mensagem: string;
-  } {
+  }> {
     const agora = new Date().toISOString();
     const agoraFormatada = new Date().toLocaleString('pt-BR');
     const compAtual = this.obterComputadorAtual();
     const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
 
     // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE)
-    // NUNCA aceita reenviar seriais que já foram marcados como ENVIADO
     const pendentes = this.produtos.filter((p) => {
       if (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO' || p.sync_status === 'SINCRONIZADO') {
         return false;
@@ -940,117 +1004,92 @@ class AuditoriaDatabase {
     });
 
     if (pendentes.length === 0) {
+      await this.puxarAtualizacoesServidor();
       return {
         sucesso: false,
         totalSincronizados: 0,
         duplicadosEvitados: 0,
         timestamp: agora,
-        mensagem: 'Não há novos seriais pendentes. Todos os produtos deste computador já foram enviados ao servidor online.',
+        mensagem: 'Não há novos seriais pendentes neste dispositivo. Base sincronizada com o servidor central.',
       };
     }
 
-    // 2. Carregar repositório central do servidor para validação de duplicidade
-    let servidorProdutos: ProdutoAuditoria[] = [];
+    // 2. ENVIAR PARA O SERVIDOR CENTRAL VIA HTTP REAL (REDE / NUVEM)
     try {
-      const rawServidor = localStorage.getItem(STORAGE_KEY_SERVIDOR_CENTRAL);
-      if (rawServidor) servidorProdutos = JSON.parse(rawServidor);
-    } catch {}
-
-    let countSincronizados = 0;
-    let countDuplicadosEvitados = 0;
-    const idsSincronizados: number[] = [];
-
-    for (const p of pendentes) {
-      const serialNorm = p.serial.trim().toUpperCase();
-      const regionalNorm = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
-
-      // Validação Estrita: verificar se o mesmo serial já existe nesta regional no servidor
-      const jaExisteNoServidor = servidorProdutos.find(
-        (sp) =>
-          sp.serial.trim().toUpperCase() === serialNorm &&
-          (sp.regional || 'VIA VAREJO RJ').trim().toUpperCase() === regionalNorm
-      );
-
-      if (jaExisteNoServidor) {
-        // Bloqueio: NÃO aceitar reenviar serial já existente no servidor online
-        countDuplicadosEvitados++;
-        p.id_servidor = jaExisteNoServidor.id_servidor || `SRV-${jaExisteNoServidor.id}`;
-        p.status_sincronizacao = 'ENVIADO';
-        p.sync_status = 'ENVIADO';
-        p.data_sincronizacao = jaExisteNoServidor.data_sincronizacao || agora;
-        p.sync_data = jaExisteNoServidor.sync_data || agora;
-      } else {
-        // Serial novo: gerar ID do servidor único e gravar na base central
-        const idServidorGerado = `SRV-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-        p.id_servidor = idServidorGerado;
-        p.status_sincronizacao = 'ENVIADO';
-        p.sync_status = 'ENVIADO';
-        p.data_sincronizacao = agora;
-        p.sync_data = agora;
-
-        servidorProdutos.unshift({
-          ...p,
-          id_servidor: idServidorGerado,
-          status_sincronizacao: 'ENVIADO',
-          sync_status: 'ENVIADO',
-          data_sincronizacao: agora,
-        });
-        countSincronizados++;
-        idsSincronizados.push(p.id);
-      }
-    }
-
-    // Persistir base central do servidor e base local
-    localStorage.setItem(STORAGE_KEY_SERVIDOR_CENTRAL, JSON.stringify(servidorProdutos));
-    if (countSincronizados > 0) {
-      localStorage.setItem('solutions_ultima_sincronizacao', agora);
-    }
-    this.salvarTudo();
-    this.notificarMudanca('sync');
-
-    // 3. Gravar Registro no Histórico de Envios apenas se houve novos seriais enviados
-    if (countSincronizados > 0) {
-      this.salvarRegistroEnvio({
-        data_envio: agoraFormatada,
-        regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-        computador_id: compAtual.id,
-        computador_nome: compAtual.nome,
-        quantidade_enviada: countSincronizados,
-        status: 'OK',
-        detalhes:
-          countDuplicadosEvitados > 0
-            ? `${countSincronizados} novos seriais enviados com sucesso. ${countDuplicadosEvitados} seriais já enviados anteriormente foram rejeitados.`
-            : `${countSincronizados} novos seriais enviados com sucesso para o servidor online.`,
-        produtos_ids: idsSincronizados,
+      const response = await fetch('/api/central/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produtos: pendentes,
+          computador: compAtual,
+          usuario: this.usuarioAtual?.nome || 'Operador',
+          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+        }),
       });
 
-      const usuarioNome = this.usuarioAtual?.nome || 'Operador';
-      this.registrarHistorico(
-        usuarioNome,
-        'ENVIAR_PARA_ONLINE',
-        `Envio incremental realizado pelo ${compAtual.id} (${compAtual.nome}): ${countSincronizados} novos seriais enviados ao servidor online.`,
-        compAtual.regional
-      );
+      if (response.ok) {
+        const data = await response.json();
+        const pendentesSeriais = new Set(pendentes.map((p) => p.serial.trim().toUpperCase()));
+        const idsSincronizados: number[] = [];
 
-      return {
-        sucesso: true,
-        totalSincronizados: countSincronizados,
-        duplicadosEvitados: countDuplicadosEvitados,
-        timestamp: agora,
-        mensagem:
-          countDuplicadosEvitados > 0
-            ? `${countSincronizados} novos seriais enviados com sucesso! (${countDuplicadosEvitados} já haviam sido enviados anteriormente e não foram duplicados).`
-            : `${countSincronizados} novos seriais enviados com sucesso para o servidor online!`,
-      };
-    } else {
-      return {
-        sucesso: false,
-        totalSincronizados: 0,
-        duplicadosEvitados: countDuplicadosEvitados,
-        timestamp: agora,
-        mensagem: `Nenhum serial novo enviado: todos os ${countDuplicadosEvitados} seriais selecionados já haviam sido enviados anteriormente para o servidor online.`,
-      };
+        for (const p of this.produtos) {
+          if (pendentesSeriais.has(p.serial.trim().toUpperCase())) {
+            p.status_sincronizacao = 'ENVIADO';
+            p.sync_status = 'ENVIADO';
+            p.data_sincronizacao = agora;
+            p.sync_data = agora;
+            idsSincronizados.push(p.id);
+          }
+        }
+
+        // Ingerir e mesclar todos os produtos do servidor central
+        if (Array.isArray(data.produtosCentral)) {
+          this.mesclarProdutosCentral(data.produtosCentral);
+        }
+
+        this.salvarTudo();
+        this.notificarMudanca('sync');
+        this.notificarMudanca('produtos');
+
+        this.salvarRegistroEnvio({
+          data_envio: agoraFormatada,
+          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          computador_id: compAtual.id,
+          computador_nome: compAtual.nome,
+          quantidade_enviada: data.sincronizados,
+          status: 'OK',
+          detalhes: data.mensagem,
+          produtos_ids: idsSincronizados,
+        });
+
+        const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+        this.registrarHistorico(
+          usuarioNome,
+          'ENVIAR_PARA_ONLINE',
+          `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${data.sincronizados} novos seriais sincronizados no servidor central.`,
+          compAtual.regional
+        );
+
+        return {
+          sucesso: true,
+          totalSincronizados: data.sincronizados,
+          duplicadosEvitados: data.duplicadosEvitados,
+          timestamp: agora,
+          mensagem: data.mensagem,
+        };
+      }
+    } catch (err) {
+      console.warn('[Storage] Erro ao enviar para servidor central via HTTP:', err);
     }
+
+    // Fallback Offline: se o servidor estiver temporariamente inacessível
+    return {
+      sucesso: false,
+      totalSincronizados: 0,
+      duplicadosEvitados: 0,
+      timestamp: agora,
+      mensagem: 'Sem conexão com o servidor central no momento. Seus registros estão salvos localmente e serão sincronizados assim que a conexão for restabelecida.',
+    };
   }
 
   obterStatusSincronizacao(): StatusSincronizacao {

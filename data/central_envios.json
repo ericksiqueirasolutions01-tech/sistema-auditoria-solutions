@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1789142560266,
+    "data_envio": "11/09/2026, 13:02:40",
+    "regional": "VIA VAREJO RJ",
+    "computador_id": "DISPOSITIVO-REMOTO",
+    "computador_nome": "Aparelho Conectado",
+    "quantidade_enviada": 1,
+    "duplicados_rejeitados": 0,
+    "status": "OK",
+    "detalhes": "1 novos seriais sincronizados na base central com sucesso pelo Aparelho Conectado.",
+    "produtos_ids": [
+      999999
+    ]
+  }
+]

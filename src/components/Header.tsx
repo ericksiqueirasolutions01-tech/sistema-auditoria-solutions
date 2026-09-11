@@ -39,28 +39,31 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
     });
   }, []);
 
-  const handleSincronizar = () => {
+  const handleSincronizar = async () => {
     setSyncLoading(true);
-    setTimeout(() => {
-      const res = db.sincronizarOnline();
+    try {
+      const res = await db.sincronizarOnline();
+      setSyncFeedback(res.mensagem);
+    } catch {
+      setSyncFeedback('Erro ao conectar com o servidor central.');
+    } finally {
       setSyncLoading(false);
       setStatusSync(db.obterStatusSincronizacao());
-      setSyncFeedback(res.mensagem);
       setTimeout(() => setSyncFeedback(null), 4000);
-    }, 600);
+    }
   };
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-xs sticky top-0 z-40 no-print">
-      {/* Top Corporate Branding Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20 gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        {/* DESKTOP HEADER (MD e superior) */}
+        <div className="hidden md:flex items-center justify-between h-20 gap-4">
           {/* Brand Logos Duo */}
           <div className="flex items-center gap-5 shrink-0">
             <SolutionsLogo height={40} />
-            <div className="h-9 w-px bg-slate-200 hidden sm:block" />
+            <div className="h-9 w-px bg-slate-200" />
             <div className="flex items-center gap-2.5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden md:inline">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                 Parceiro Oficial:
               </span>
               <div className="bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200 flex items-center">
@@ -70,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
           </div>
 
           {/* Regional & Computador Indicators (Enquadrados) */}
-          <div className="hidden md:flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {/* Regional Card */}
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0 h-10 shadow-2xs">
               <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
@@ -98,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             </button>
           </div>
 
-          {/* Status, Sync Engine & User Actions (Todos Enquadrados) */}
+          {/* Status, Sync Engine & User Actions */}
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             {/* Sync Status Box */}
             <div
@@ -107,11 +110,6 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                   : 'bg-amber-50 text-amber-900 border-amber-300'
               }`}
-              title={
-                statusSync.ultimaSincronizacao
-                  ? `Último envio: ${new Date(statusSync.ultimaSincronizacao).toLocaleString('pt-BR')}`
-                  : 'Nenhum envio recente realizado'
-              }
             >
               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
               <div className="flex flex-col text-left">
@@ -126,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             <button
               onClick={handleSincronizar}
               disabled={syncLoading}
-              className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:opacity-60 text-white px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 h-10 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+              className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:opacity-60 text-white px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 h-10 shadow-xs transition-all cursor-pointer whitespace-nowrap"
               title="Enviar novos registros deste computador para a base online central"
             >
               {syncLoading ? (
@@ -141,8 +139,8 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             <div className="hidden xl:flex items-center gap-2 bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl border border-slate-200 shrink-0 h-10 text-xs font-bold shadow-2xs whitespace-nowrap">
               <WifiOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Modo</span>
-                <span className="text-xs font-bold text-slate-700">Offline Ativo</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Rede</span>
+                <span className="text-xs font-bold text-slate-700">Central Ativo</span>
               </div>
             </div>
 
@@ -155,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   <UserIcon className="w-4 h-4 text-blue-600" />
                 )}
               </div>
-              <div className="hidden sm:flex flex-col text-left pr-1">
+              <div className="flex flex-col text-left pr-1">
                 <span className="text-xs font-black text-slate-900 leading-none whitespace-nowrap">
                   {usuario?.nome || 'Operador'}
                 </span>
@@ -175,6 +173,67 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* MOBILE HEADER (Totalmente responsivo para celulares e coletores) */}
+        <div className="flex md:hidden flex-col py-2.5 space-y-2.5">
+          {/* Linha Superior: Logos + Estação + Usuário/Sair */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <SolutionsLogo height={28} />
+              <div className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                <SamsungLogo height={14} variant="blue" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Estação Badge */}
+              <button
+                onClick={() => setMostrarModalComputador(true)}
+                className="bg-slate-900 text-amber-300 text-[10px] font-mono font-bold px-2 py-1 rounded-lg flex items-center gap-1"
+              >
+                <Monitor className="w-3 h-3" />
+                {computadorAtual.id.split('-').slice(-2).join('-')}
+              </button>
+
+              <button
+                onClick={onLogout}
+                title="Sair"
+                className="p-1 text-slate-500 hover:text-red-600 rounded"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Linha Inferior Mobile: Status + Botão Enviar para Online em destaque */}
+          <div className="grid grid-cols-12 gap-2 items-center">
+            <div
+              className={`col-span-4 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl border text-[11px] font-bold ${
+                statusSync.pendentes === 0
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-amber-50 text-amber-900 border-amber-300'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+              <span className="truncate">
+                {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pend.`}
+              </span>
+            </div>
+
+            <button
+              onClick={handleSincronizar}
+              disabled={syncLoading}
+              className="col-span-8 bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+            >
+              {syncLoading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CloudUpload className="w-3.5 h-3.5" />
+              )}
+              <span>Enviar para Online</span>
+            </button>
           </div>
         </div>
       </div>

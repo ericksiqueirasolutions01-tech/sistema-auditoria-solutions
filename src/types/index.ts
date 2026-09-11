@@ -144,3 +144,32 @@ export interface FiltroConsulta {
   kitCompleto?: 'TODOS' | SimNao;
 }
 
+export interface FotoGrupoAuditoria {
+  id: string;
+  regional: string;
+  caixa: string;
+  grupoNumero: number;
+  grupoRotulo: string;
+  rangeInicio: number;
+  rangeFim: number;
+  totalNoGrupo: number;
+  seriais: string[];
+  fotoDataUri: string;
+  dataCriacao: string;
+  computador_id: string;
+  usuario: string;
+  status_sincronizacao: 'PENDENTE' | 'ENVIADO';
+  data_sincronizacao?: string | null;
+}
+
+export interface GrupoFotosInfo {
+  grupoNumero: number;
+  grupoRotulo: string;
+  rangeInicio: number;
+  rangeFim: number;
+  totalNoGrupo: number;
+  seriais: string[];
+  foto?: FotoGrupoAuditoria;
+  temFoto: boolean;
+}
+

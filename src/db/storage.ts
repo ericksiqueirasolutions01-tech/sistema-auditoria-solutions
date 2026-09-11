@@ -12,6 +12,8 @@ import {
   RegistroSincronizacaoEnvio,
   DetalhamentoComputador,
   SimNao,
+  FotoGrupoAuditoria,
+  GrupoFotosInfo,
 } from '../types';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
@@ -22,6 +24,7 @@ const STORAGE_KEY_COMPUTADOR = 'solutions_computador_atual_v1';
 const STORAGE_KEY_COMPUTADORES = 'solutions_computadores_lista_v1';
 const STORAGE_KEY_HISTORICO_ENVIOS = 'solutions_historico_envios_online_v1';
 const STORAGE_KEY_SERVIDOR_CENTRAL = 'solutions_servidor_central_produtos_v1';
+const STORAGE_KEY_FOTOS = 'solutions_auditoria_fotos_grupos_v1';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -184,6 +187,7 @@ class AuditoriaDatabase {
   private produtos: ProdutoAuditoria[] = [];
   private usuarios: Usuario[] = [];
   private historico: HistoricoAuditoria[] = [];
+  private fotosGrupos: FotoGrupoAuditoria[] = [];
   private usuarioAtual: Usuario | null = null;
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
 
@@ -278,6 +282,9 @@ class AuditoriaDatabase {
       const histRaw = localStorage.getItem(STORAGE_KEY_HISTORICO);
       this.historico = histRaw ? JSON.parse(histRaw) : [];
 
+      const fotosRaw = localStorage.getItem(STORAGE_KEY_FOTOS);
+      this.fotosGrupos = fotosRaw ? JSON.parse(fotosRaw) : [];
+
       // Rebuild high-speed serial index (O(1) lookups)
       this.serialMap.clear();
       for (const p of this.produtos) {
@@ -289,6 +296,7 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_PRODUTOS, this.produtos);
         salvarIndexedDB(STORAGE_KEY_USUARIOS, this.usuarios);
         salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
+        salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
       }
 
       // Limpeza de sessão legada no localStorage para garantir que entrar no sistema sempre exija login
@@ -364,11 +372,13 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
       localStorage.setItem(STORAGE_KEY_USUARIOS, JSON.stringify(this.usuarios));
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
+      localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify(this.fotosGrupos));
 
       // 2. Gravação redundante no IndexedDB (Zero Data Loss)
       salvarIndexedDB(STORAGE_KEY_PRODUTOS, this.produtos);
       salvarIndexedDB(STORAGE_KEY_USUARIOS, this.usuarios);
       salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
+      salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
     } catch (e) {
       console.error('Erro ao salvar no storage:', e);
     }
@@ -962,6 +972,251 @@ class AuditoriaDatabase {
   }
 
   // =========================================================================
+  // GESTÃO DE EVIDÊNCIAS FOTOGRÁFICAS (REQUISITOS 6, 7, 8, 9, 10, 11)
+  // Fotos dos produtos agrupadas de 10 em 10 produtos dentro da caixa
+  // =========================================================================
+  obterGruposFotosCaixa(caixa: string, regional?: string): GrupoFotosInfo[] {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const prodsCaixa = this.produtos
+      .filter((p) => p.numero_caixa === caixa && (regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo))
+      .sort((a, b) => (a.id || 0) - (b.id || 0));
+
+    const totalProdutos = prodsCaixa.length;
+    if (totalProdutos === 0) return [];
+
+    const totalGrupos = Math.ceil(totalProdutos / 10);
+    const grupos: GrupoFotosInfo[] = [];
+
+    for (let g = 1; g <= totalGrupos; g++) {
+      const rangeInicio = (g - 1) * 10 + 1;
+      const rangeFim = Math.min(g * 10, totalProdutos);
+      const sliceProds = prodsCaixa.slice((g - 1) * 10, rangeFim);
+      const seriais = sliceProds.map((p) => p.serial);
+      const grupoRotulo = `Produtos ${String(rangeInicio).padStart(2, '0')} até ${String(rangeFim).padStart(2, '0')}`;
+
+      const fotoExistente = this.fotosGrupos.find(
+        (f) =>
+          f.caixa === caixa &&
+          f.grupoNumero === g &&
+          (regAlvo === 'TODAS' || (f.regional || 'VIA VAREJO RJ') === regAlvo)
+      );
+
+      grupos.push({
+        grupoNumero: g,
+        grupoRotulo,
+        rangeInicio,
+        rangeFim,
+        totalNoGrupo: seriais.length,
+        seriais,
+        foto: fotoExistente,
+        temFoto: !!fotoExistente && !!fotoExistente.fotoDataUri,
+      });
+    }
+
+    return grupos;
+  }
+
+  salvarFotoGrupo(dados: {
+    caixa: string;
+    regional?: string;
+    grupoNumero: number;
+    grupoRotulo: string;
+    rangeInicio: number;
+    rangeFim: number;
+    totalNoGrupo: number;
+    seriais: string[];
+    fotoDataUri: string;
+  }): { sucesso: boolean; foto: FotoGrupoAuditoria } {
+    const regAlvo = dados.regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const compAtual = this.obterComputadorAtual(regAlvo);
+    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+    const agora = new Date().toISOString();
+
+    const fotoNova: FotoGrupoAuditoria = {
+      id: `FOTO-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${dados.caixa.replace(/[^A-Z0-9]/g, '')}-G${dados.grupoNumero}-${Date.now()}`,
+      regional: regAlvo,
+      caixa: dados.caixa,
+      grupoNumero: dados.grupoNumero,
+      grupoRotulo: dados.grupoRotulo,
+      rangeInicio: dados.rangeInicio,
+      rangeFim: dados.rangeFim,
+      totalNoGrupo: dados.totalNoGrupo,
+      seriais: dados.seriais,
+      fotoDataUri: dados.fotoDataUri,
+      dataCriacao: agora,
+      computador_id: compAtual.id,
+      usuario: usuarioNome,
+      status_sincronizacao: 'PENDENTE',
+      data_sincronizacao: null,
+    };
+
+    const idx = this.fotosGrupos.findIndex(
+      (f) => f.caixa === dados.caixa && f.grupoNumero === dados.grupoNumero && f.regional === regAlvo
+    );
+
+    if (idx >= 0) {
+      this.fotosGrupos[idx] = fotoNova;
+    } else {
+      this.fotosGrupos.push(fotoNova);
+    }
+
+    this.salvarTudo();
+    this.notificarMudanca('fotos');
+    this.notificarMudanca('sync');
+
+    this.registrarHistorico(
+      usuarioNome,
+      'ANEXO_FOTO_EVIDENCIA',
+      `Evidência fotográfica registrada para ${dados.caixa} - ${dados.grupoRotulo} (${dados.seriais.length} produtos).`,
+      regAlvo
+    );
+
+    return { sucesso: true, foto: fotoNova };
+  }
+
+  removerFotoGrupo(caixa: string, grupoNumero: number, regional?: string): boolean {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const inicial = this.fotosGrupos.length;
+    this.fotosGrupos = this.fotosGrupos.filter(
+      (f) => !(f.caixa === caixa && f.grupoNumero === grupoNumero && f.regional === regAlvo)
+    );
+    if (this.fotosGrupos.length !== inicial) {
+      this.salvarTudo();
+      this.notificarMudanca('fotos');
+      this.notificarMudanca('sync');
+      return true;
+    }
+    return false;
+  }
+
+  validarTrocaCaixa(
+    caixaAtual: string,
+    regional?: string
+  ): {
+    permitida: boolean;
+    mensagem?: string;
+    gruposFaltantes: GrupoFotosInfo[];
+    totalGrupos: number;
+    gruposComFoto: number;
+  } {
+    const grupos = this.obterGruposFotosCaixa(caixaAtual, regional);
+    if (grupos.length === 0) {
+      return { permitida: true, gruposFaltantes: [], totalGrupos: 0, gruposComFoto: 0 };
+    }
+
+    const gruposFaltantes = grupos.filter((g) => !g.temFoto);
+    const gruposComFoto = grupos.filter((g) => g.temFoto).length;
+
+    if (gruposFaltantes.length > 0) {
+      return {
+        permitida: false,
+        mensagem: 'Existem produtos da caixa atual sem evidência fotográfica.',
+        gruposFaltantes,
+        totalGrupos: grupos.length,
+        gruposComFoto,
+      };
+    }
+
+    return {
+      permitida: true,
+      gruposFaltantes: [],
+      totalGrupos: grupos.length,
+      gruposComFoto: grupos.length,
+    };
+  }
+
+  listarFotosCaixa(caixa: string, regional?: string): FotoGrupoAuditoria[] {
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    return this.fotosGrupos.filter(
+      (f) => f.caixa === caixa && (regAlvo === 'TODAS' || f.regional === regAlvo)
+    );
+  }
+
+  listarTodasFotos(regional?: string): FotoGrupoAuditoria[] {
+    if (!regional || regional === 'TODAS') return [...this.fotosGrupos];
+    return this.fotosGrupos.filter((f) => f.regional === regional);
+  }
+
+  obterArvoreFotosPorRegional(): {
+    regional: string;
+    caixas: {
+      caixa: string;
+      totalProdutos: number;
+      fotos: FotoGrupoAuditoria[];
+    }[];
+  }[] {
+    const regionais = ['VIA VAREJO RJ', 'VIA VAREJO SP', 'VIA VAREJO MG', 'VIA VAREJO BA'];
+    return regionais.map((reg) => {
+      const prodsReg = this.produtos.filter((p) => (p.regional || 'VIA VAREJO RJ') === reg);
+      const caixasSet = new Set(prodsReg.map((p) => p.numero_caixa));
+      const caixas = Array.from(caixasSet).sort().map((cx) => {
+        const totalProdutos = prodsReg.filter((p) => p.numero_caixa === cx).length;
+        const fotos = this.fotosGrupos
+          .filter((f) => f.regional === reg && f.caixa === cx)
+          .sort((a, b) => a.grupoNumero - b.grupoNumero);
+        return {
+          caixa: cx,
+          totalProdutos,
+          fotos,
+        };
+      });
+      return {
+        regional: reg,
+        caixas,
+      };
+    });
+  }
+
+  // =========================================================================
+  // LIMPEZA DA BASE DE TESTES (REQUISITO 2)
+  // Zera produtos, caixas, fotos e sincronizações. Mantém usuários e regionais.
+  // =========================================================================
+  async limparBaseOperacional(): Promise<{ sucesso: boolean; mensagem: string }> {
+    this.produtos = [];
+    this.serialMap.clear();
+    this.fotosGrupos = [];
+    this.historico = [];
+
+    localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
+    localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
+    localStorage.removeItem('solutions_ultima_sincronizacao');
+
+    salvarIndexedDB(STORAGE_KEY_PRODUTOS, []);
+    salvarIndexedDB(STORAGE_KEY_FOTOS, []);
+    salvarIndexedDB(STORAGE_KEY_HISTORICO, []);
+    salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
+
+    try {
+      await fetch('https://extendsclass.com/api/json-storage/bin/dcccfea', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+          produtos: [],
+          fotos: [],
+          historico_envios: [],
+          ultimaAtualizacao: new Date().toISOString(),
+        }),
+      });
+    } catch (e) {
+      console.warn('Erro ao zerar nuvem central:', e);
+    }
+
+    this.salvarTudo();
+    this.notificarMudanca('produtos');
+    this.notificarMudanca('fotos');
+    this.notificarMudanca('sync');
+
+    return {
+      sucesso: true,
+      mensagem: 'Base de dados resetada com sucesso para início dos testes: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.',
+    };
+  }
+
+  // =========================================================================
   // MOTOR DE SINCRONIZAÇÃO INCREMENTAL INTELIGENTE (OFFLINE-FIRST)
   // Requisito 4: Envia APENAS registros novos (PENDENTE). Nunca reenvia antigos.
   // Requisito 6: Tratamento de duplicidade antes de gravar no servidor.
@@ -971,6 +1226,7 @@ class AuditoriaDatabase {
     try {
       // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware)
       let produtosRemotos: ProdutoAuditoria[] | null = null;
+      let fotosRemotas: FotoGrupoAuditoria[] | null = null;
       try {
         const res = await fetch('/api/central/produtos');
         if (res.ok) {
@@ -979,6 +1235,9 @@ class AuditoriaDatabase {
             const data = await res.json();
             if (data && Array.isArray(data.produtos)) {
               produtosRemotos = data.produtos;
+            }
+            if (data && Array.isArray(data.fotos)) {
+              fotosRemotas = data.fotos;
             }
           }
         }
@@ -995,17 +1254,28 @@ class AuditoriaDatabase {
             if (cloudData && Array.isArray(cloudData.produtos)) {
               produtosRemotos = cloudData.produtos;
             }
+            if (cloudData && Array.isArray(cloudData.fotos)) {
+              fotosRemotas = cloudData.fotos;
+            }
           }
         } catch {}
       }
 
+      let alterou = false;
       if (produtosRemotos && produtosRemotos.length > 0) {
-        const alterou = this.mesclarProdutosCentral(produtosRemotos);
-        if (alterou) {
-          this.salvarTudo();
-          this.notificarMudanca('produtos');
-          this.notificarMudanca('sync');
-        }
+        const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
+        if (alterouProds) alterou = true;
+      }
+      if (fotosRemotas && fotosRemotas.length > 0) {
+        const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
+        if (alterouFotos) alterou = true;
+      }
+
+      if (alterou) {
+        this.salvarTudo();
+        this.notificarMudanca('produtos');
+        this.notificarMudanca('fotos');
+        this.notificarMudanca('sync');
         return true;
       }
     } catch (e) {
@@ -1047,6 +1317,28 @@ class AuditoriaDatabase {
     return alterou;
   }
 
+  mesclarFotosCentral(fotosCentral: FotoGrupoAuditoria[]): boolean {
+    let alterou = false;
+    for (const cf of fotosCentral) {
+      const idx = this.fotosGrupos.findIndex(
+        (f) =>
+          f.id === cf.id ||
+          (f.regional === cf.regional && f.caixa === cf.caixa && f.grupoNumero === cf.grupoNumero)
+      );
+      if (idx === -1) {
+        this.fotosGrupos.push({
+          ...cf,
+          status_sincronizacao: 'ENVIADO',
+        });
+        alterou = true;
+      } else if (this.fotosGrupos[idx].status_sincronizacao !== 'ENVIADO') {
+        this.fotosGrupos[idx].status_sincronizacao = 'ENVIADO';
+        alterou = true;
+      }
+    }
+    return alterou;
+  }
+
   async sincronizarOnline(): Promise<{
     sucesso: boolean;
     totalSincronizados: number;
@@ -1070,14 +1362,20 @@ class AuditoriaDatabase {
       return true;
     });
 
-    if (pendentes.length === 0) {
+    const pendentesFotos = this.fotosGrupos.filter((f) => {
+      if (f.status_sincronizacao === 'ENVIADO') return false;
+      if (regAlvo) return f.regional === regAlvo;
+      return true;
+    });
+
+    if (pendentes.length === 0 && pendentesFotos.length === 0) {
       await this.puxarAtualizacoesServidor();
       return {
         sucesso: false,
         totalSincronizados: 0,
         duplicadosEvitados: 0,
         timestamp: agora,
-        mensagem: 'Não há novos seriais pendentes neste dispositivo. Base sincronizada com o servidor central.',
+        mensagem: 'Não há novos seriais ou fotos pendentes neste dispositivo. Base sincronizada com o servidor central.',
       };
     }
 
@@ -1088,6 +1386,7 @@ class AuditoriaDatabase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           produtos: pendentes,
+          fotos: pendentesFotos,
           computador: compAtual,
           usuario: this.usuarioAtual?.nome || 'Operador',
           regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
@@ -1109,14 +1408,26 @@ class AuditoriaDatabase {
           }
         }
 
+        // Marcar fotos enviadas
+        for (const f of this.fotosGrupos) {
+          if (pendentesFotos.some((pf) => pf.id === f.id)) {
+            f.status_sincronizacao = 'ENVIADO';
+            f.data_sincronizacao = agora;
+          }
+        }
+
         // Ingerir e mesclar todos os produtos do servidor central
         if (Array.isArray(data.produtosCentral)) {
           this.mesclarProdutosCentral(data.produtosCentral);
+        }
+        if (Array.isArray(data.fotosCentral)) {
+          this.mesclarFotosCentral(data.fotosCentral);
         }
 
         this.salvarTudo();
         this.notificarMudanca('sync');
         this.notificarMudanca('produtos');
+        this.notificarMudanca('fotos');
 
         this.salvarRegistroEnvio({
           data_envio: agoraFormatada,

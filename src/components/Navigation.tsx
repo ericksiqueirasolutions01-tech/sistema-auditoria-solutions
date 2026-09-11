@@ -41,7 +41,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
 
   return (
     <nav className="bg-white border-b border-slate-200 sticky top-24 md:top-20 z-30 shadow-2xs no-print">
-      <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+      <div className="w-full px-2 sm:px-4 lg:px-6">
         <div className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar touch-scroll py-2">
           {menuItems.map((item) => {
             const Icon = item.icon;

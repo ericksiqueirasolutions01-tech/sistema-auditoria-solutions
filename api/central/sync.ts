@@ -1,4 +1,4 @@
-﻿const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,14 +20,15 @@ export default async function handler(req: any, res: any) {
         body = JSON.parse(body);
       } catch {}
     }
-    const { produtos, computador, usuario, regional } = body || {};
-    if (!Array.isArray(produtos) || produtos.length === 0) {
-      return res.status(400).json({ erro: 'Nenhum produto enviado para sincronizacao.' });
+    const { produtos, computador, usuario, regional, fotos } = body || {};
+    if ((!Array.isArray(produtos) || produtos.length === 0) && (!Array.isArray(fotos) || fotos.length === 0)) {
+      return res.status(400).json({ erro: 'Nenhum produto ou foto enviado para sincronizacao.' });
     }
 
-    let cloudData: { system?: string; produtos: any[]; historico_envios: any[] } = {
+    let cloudData: { system?: string; produtos: any[]; fotos?: any[]; historico_envios: any[] } = {
       system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
       produtos: [],
+      fotos: [],
       historico_envios: [],
     };
 
@@ -82,6 +83,24 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    let fotosCount = 0;
+    if (Array.isArray(fotos) && fotos.length > 0) {
+      if (!Array.isArray(cloudData.fotos)) {
+        cloudData.fotos = [];
+      }
+      const mapFotos = new Map<string, any>();
+      for (const f of cloudData.fotos) {
+        if (f && f.id) mapFotos.set(f.id, f);
+      }
+      for (const f of fotos) {
+        if (f && f.id) {
+          if (!mapFotos.has(f.id)) fotosCount++;
+          mapFotos.set(f.id, { ...f, status_sincronizacao: 'ENVIADO' });
+        }
+      }
+      cloudData.fotos = Array.from(mapFotos.values());
+    }
+
     const logEnvio = {
       id: Date.now(),
       data_envio: new Date().toLocaleString('pt-BR'),
@@ -91,7 +110,7 @@ export default async function handler(req: any, res: any) {
       usuario: usuario || 'Operador',
       quantidade_enviada: novosCount,
       status: 'OK',
-      detalhes: `${novosCount} novos seriais sincronizados na nuvem central (${duplicadosCount} ja existentes mantidos).`,
+      detalhes: `${novosCount} novos seriais e ${fotosCount} fotos sincronizados na nuvem central (${duplicadosCount} duplicados evitados).`,
       timestamp: agora,
     };
 
@@ -112,10 +131,12 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       sucesso: true,
       sincronizados: novosCount,
+      fotosSincronizadas: fotosCount,
       duplicadosEvitados: duplicadosCount,
       totalNaBaseCentral: cloudData.produtos.length,
       produtosCentral: cloudData.produtos,
-      mensagem: `${novosCount} novo(s) serial(is) salvo(s) na base online com sucesso!`,
+      fotosCentral: cloudData.fotos,
+      mensagem: `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
       timestamp: agora,
     });
   } catch (err: any) {

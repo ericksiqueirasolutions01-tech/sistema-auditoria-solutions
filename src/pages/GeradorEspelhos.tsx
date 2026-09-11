@@ -4,6 +4,7 @@ import { ProdutoAuditoria } from '../types';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
+import { ModalVisualizarFotosCaixa } from '../components/ModalVisualizarFotosCaixa';
 import {
   FileText,
   Printer,
@@ -13,6 +14,8 @@ import {
   Layers,
   Files,
   HardDrive,
+  Camera,
+  Eye,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -24,10 +27,16 @@ export const GeradorEspelhos: React.FC = () => {
     caixas.length > 0 ? caixas[0] : 'Caixa 01'
   );
   const [incluirSeriaisEspelho, setIncluirSeriaisEspelho] = useState<boolean>(false);
+  const [modalVisualizarFotosAberto, setModalVisualizarFotosAberto] = useState(false);
 
   const produtosCaixa = db.listarProdutos({ caixa: caixaSelecionada });
   const usuarioAtual = db.getUsuarioAtual();
   const regionalAtiva = usuarioAtual?.regional || (usuarioAtual?.perfil === 'ADMINISTRADOR' ? 'TODAS AS REGIONAIS (ADMIN)' : 'VIA VAREJO RJ');
+
+  // Evidências Fotográficas da Caixa Selecionada (10 em 10)
+  const gruposFotos = db.obterGruposFotosCaixa(caixaSelecionada, regionalAtiva);
+  const totalFotosAnexadas = gruposFotos.filter((g) => g.temFoto).length;
+  const totalGrupos = gruposFotos.length;
 
   // Agrupamento estrito por Modelo e EAN conforme exigência:
   // "espelho deve informar o modelo, o EAN e a quantidade. exemplo mesmo modelo e mesmo ean o espelho só informa a quantidade ex 10,
@@ -114,6 +123,7 @@ export const GeradorEspelhos: React.FC = () => {
 
     doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 57);
     doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 64);
+    doc.text(`EVIDÊNCIAS FOTOGRÁFICAS: ${totalFotosAnexadas} FOTO(S) (${totalGrupos} GRUPO(S))`, 105, 71);
 
     // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
     // Exatamente como solicitado:
@@ -399,6 +409,17 @@ export const GeradorEspelhos: React.FC = () => {
               </button>
             </div>
 
+            {/* VISUALIZAR FOTOS DA CAIXA (Requisito 11 do Prompt) */}
+            <button
+              type="button"
+              onClick={() => setModalVisualizarFotosAberto(true)}
+              className="bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600 font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Visualizar evidências fotográficas dos produtos desta caixa"
+            >
+              <Camera className="w-4 h-4 text-blue-300" />
+              VISUALIZAR FOTOS DA CAIXA ({totalFotosAnexadas}/{totalGrupos})
+            </button>
+
             {/* Baixar Espelho PDF */}
             <button
               onClick={exportarEspelhoPDF}
@@ -501,7 +522,7 @@ export const GeradorEspelhos: React.FC = () => {
 
         {/* Informações da Caixa */}
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 items-center">
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
               <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
@@ -525,6 +546,20 @@ export const GeradorEspelhos: React.FC = () => {
               <span className="text-xl font-black text-slate-800">
                 {listaModelosEan.length}
               </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Fotos da Caixa:</span>
+              <span className="text-sm font-black text-blue-900 block">
+                {totalFotosAnexadas} de {totalGrupos} foto(s)
+              </span>
+              <button
+                type="button"
+                onClick={() => setModalVisualizarFotosAberto(true)}
+                className="mt-1 text-[11px] font-black uppercase text-blue-700 hover:text-blue-900 underline flex items-center gap-1 cursor-pointer no-print"
+                title="Visualizar evidências fotográficas anexadas"
+              >
+                <Camera className="w-3 h-3" /> Visualizar Fotos
+              </button>
             </div>
           </div>
         </div>
@@ -699,6 +734,14 @@ export const GeradorEspelhos: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Modal de Visualização de Fotos da Caixa (Item 11 do Prompt) */}
+      <ModalVisualizarFotosCaixa
+        isOpen={modalVisualizarFotosAberto}
+        onClose={() => setModalVisualizarFotosAberto(false)}
+        caixa={caixaSelecionada}
+        regional={regionalAtiva}
+      />
     </div>
   );
 };

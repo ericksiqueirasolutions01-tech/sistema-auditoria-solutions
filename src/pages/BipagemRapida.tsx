@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao } from '../types';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
+import { ModalCapturaFotoGrupo } from '../components/ModalCapturaFotoGrupo';
+import { ModalVisualizarFotosCaixa } from '../components/ModalVisualizarFotosCaixa';
 import {
   FileSpreadsheet,
   Plus,
@@ -30,6 +32,11 @@ import {
   Laptop,
   Smartphone,
   RefreshCw,
+  Camera,
+  Image as ImageIcon,
+  Lock,
+  Unlock,
+  Eye,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -86,6 +93,20 @@ export const BipagemRapida: React.FC = () => {
   const [mostrarImportModal, setMostrarImportModal] = useState(false);
   const [mostrarNovaCaixaModal, setMostrarNovaCaixaModal] = useState(false);
   const [novaCaixaNome, setNovaCaixaNome] = useState('');
+
+  // Estados para Fotos de Evidência dos Grupos (10 em 10)
+  const [modalFotoGrupoAberto, setModalFotoGrupoAberto] = useState(false);
+  const [grupoFotoAtivo, setGrupoFotoAtivo] = useState<GrupoFotosInfo | null>(null);
+  const [modalVisualizarFotosAberto, setModalVisualizarFotosAberto] = useState(false);
+
+  // Estados de Validação e Bloqueio de Troca de Caixa (Requisito 8)
+  const [bloqueioTrocaModalAberto, setBloqueioTrocaModalAberto] = useState(false);
+  const [gruposFaltantesBloqueio, setGruposFaltantesBloqueio] = useState<GrupoFotosInfo[]>([]);
+  const [caixaDestinoTentativa, setCaixaDestinoTentativa] = useState<string | null>(null);
+
+  // Modal Alterar Caixa
+  const [mostrarAlterarCaixaModal, setMostrarAlterarCaixaModal] = useState(false);
+  const [caixaParaMudarInput, setCaixaParaMudarInput] = useState('');
 
   // Feedback notifications
   const [erroDuplicado, setErroDuplicado] = useState<string | null>(null);
@@ -376,8 +397,93 @@ export const BipagemRapida: React.FC = () => {
     }
   };
 
-  // Nova Auditoria / Próxima Caixa
+  // =========================================================================
+  // VALIDAÇÃO AO TROCAR DE CAIXA (REQUISITO 8 DO PROMPT)
+  // Ao clicar em: ALTERAR CAIXA ou tentar mudar a caixa ativa
+  // O sistema verifica: Existem produtos nesta caixa sem foto?
+  // Se SIM: Bloquear a alteração de caixa.
+  // Exibir: "Existem produtos da caixa atual sem evidência fotográfica. Anexe as fotos dos produtos antes de iniciar uma nova caixa."
+  // =========================================================================
+  const tentarMudarCaixa = (novaCaixa: string): boolean => {
+    const cxDestino = novaCaixa.trim();
+    if (!cxDestino || cxDestino === caixaAtiva) {
+      return true;
+    }
+
+    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
+    if (!check.permitida) {
+      sounds.playError();
+      setGruposFaltantesBloqueio(check.gruposFaltantes);
+      setCaixaDestinoTentativa(cxDestino);
+      setBloqueioTrocaModalAberto(true);
+      return false;
+    }
+
+    setCaixaAtiva(cxDestino);
+    setFiltroCaixa(cxDestino);
+    setSucessoNotif(`Caixa alterada para ${cxDestino}.`);
+    setTimeout(() => setSucessoNotif(null), 2000);
+    return true;
+  };
+
+  const abrirModalAlterarCaixa = () => {
+    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
+    if (!check.permitida) {
+      sounds.playError();
+      setGruposFaltantesBloqueio(check.gruposFaltantes);
+      setCaixaDestinoTentativa(null);
+      setBloqueioTrocaModalAberto(true);
+      return;
+    }
+    setCaixaParaMudarInput(caixaAtiva);
+    setMostrarAlterarCaixaModal(true);
+  };
+
+  const confirmarAlterarCaixaModal = () => {
+    const cx = caixaParaMudarInput.trim();
+    if (cx) {
+      const ok = tentarMudarCaixa(cx);
+      if (ok) {
+        setMostrarAlterarCaixaModal(false);
+      }
+    }
+  };
+
+  const abrirCapturaGrupo = (grupo: GrupoFotosInfo) => {
+    setGrupoFotoAtivo(grupo);
+    setModalFotoGrupoAberto(true);
+  };
+
+  const lidarComFotoSalva = () => {
+    setModalFotoGrupoAberto(false);
+    recarregarDados(filtroCaixa);
+    setSucessoNotif('Evidência fotográfica registrada e salva com sucesso!');
+    setTimeout(() => setSucessoNotif(null), 3000);
+
+    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
+    if (!check.permitida) {
+      setGruposFaltantesBloqueio(check.gruposFaltantes);
+    } else {
+      setBloqueioTrocaModalAberto(false);
+      if (caixaDestinoTentativa) {
+        setCaixaAtiva(caixaDestinoTentativa);
+        setFiltroCaixa(caixaDestinoTentativa);
+        setCaixaDestinoTentativa(null);
+      }
+    }
+  };
+
+  // Nova Auditoria / Próxima Caixa com Validação de Foto da Caixa Atual
   const handleNovaAuditoria = () => {
+    const check = db.validarTrocaCaixa(caixaAtiva, regionalAtiva);
+    if (!check.permitida) {
+      sounds.playError();
+      setGruposFaltantesBloqueio(check.gruposFaltantes);
+      setCaixaDestinoTentativa(null);
+      setBloqueioTrocaModalAberto(true);
+      return;
+    }
+
     const match = caixaAtiva.match(/(\d+)/);
     let sugestaoProxima = 'Caixa 01';
     if (match) {
@@ -763,6 +869,8 @@ export const BipagemRapida: React.FC = () => {
 
   const espelhoCaixaAtual = obterDadosEspelhoCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
   const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
+  const gruposFotosCaixaAtiva = db.obterGruposFotosCaixa(caixaAtiva, regionalAtiva);
+  const totalFotosCaixaAtiva = gruposFotosCaixaAtiva.filter((g) => g.temFoto).length;
 
   return (
     <div className="space-y-4">
@@ -872,19 +980,38 @@ export const BipagemRapida: React.FC = () => {
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
                 <Boxes className="w-5 h-5 text-blue-600 shrink-0" />
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Caixa Atual:</span>
-                  <input
-                    list="lista-caixas-existentes"
-                    type="text"
-                    value={caixaAtiva}
-                    onChange={(e) => {
-                      setCaixaAtiva(e.target.value);
-                      setFiltroCaixa(e.target.value);
-                    }}
-                    placeholder="Ex: Caixa 01"
-                    className="text-base font-black text-blue-900 uppercase bg-blue-50 border-2 border-blue-400 rounded-lg px-2.5 py-1 focus:outline-none w-36"
-                  />
+                <div className="flex items-center gap-1.5">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase block">Caixa Atual:</span>
+                    <input
+                      list="lista-caixas-existentes"
+                      type="text"
+                      defaultValue={caixaAtiva}
+                      key={caixaAtiva}
+                      onBlur={(e) => {
+                        const val = e.target.value.trim();
+                        if (val && val !== caixaAtiva) {
+                          tentarMudarCaixa(val);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      placeholder="Ex: Caixa 01"
+                      className="text-base font-black text-blue-900 uppercase bg-blue-50 border-2 border-blue-400 rounded-lg px-2.5 py-1 focus:outline-none w-32"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={abrirModalAlterarCaixa}
+                    className="mt-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-[11px] uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer"
+                    title="Trocar Caixa (Valida Fotos)"
+                  >
+                    <Boxes className="w-3.5 h-3.5" />
+                    Alterar
+                  </button>
                 </div>
               </div>
               
@@ -920,10 +1047,7 @@ export const BipagemRapida: React.FC = () => {
                 <button
                   key={cx}
                   type="button"
-                  onClick={() => {
-                    setCaixaAtiva(cx);
-                    setFiltroCaixa(cx);
-                  }}
+                  onClick={() => tentarMudarCaixa(cx)}
                   className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition-colors cursor-pointer ${
                     caixaAtiva === cx
                       ? 'bg-blue-600 text-white font-black'
@@ -941,6 +1065,79 @@ export const BipagemRapida: React.FC = () => {
                 <Plus className="w-3 h-3" /> Nova
               </button>
             </div>
+          </div>
+
+          {/* Card 1.5: Evidências Fotográficas dos Produtos da Caixa (10 em 10) */}
+          <div className="bg-slate-900 border-2 border-blue-600/40 rounded-2xl p-4 shadow-sm text-white space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-blue-400" />
+                <div>
+                  <span className="text-xs font-black uppercase text-white block">
+                    Fotos dos Produtos ({caixaAtiva})
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Aparelhos na caixa • 10 em 10 produtos
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalVisualizarFotosAberto(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[11px] uppercase px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
+              >
+                <Eye className="w-3 h-3" /> Ver Todas ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+              </button>
+            </div>
+
+            {gruposFotosCaixaAtiva.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic">
+                Bipe os produtos desta caixa para habilitar as fotos (a cada 10 unidades).
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {gruposFotosCaixaAtiva.map((grupo) => (
+                  <div
+                    key={grupo.grupoNumero}
+                    className={`p-2.5 rounded-xl border ${
+                      grupo.temFoto
+                        ? 'bg-emerald-950/60 border-emerald-500/60'
+                        : 'bg-amber-950/60 border-amber-500/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black uppercase text-slate-200">
+                        Foto {grupo.grupoNumero}
+                      </span>
+                      {grupo.temFoto ? (
+                        <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                          <CheckCircle2 className="w-2.5 h-2.5" /> OK
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black uppercase bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 animate-pulse">
+                          <AlertTriangle className="w-2.5 h-2.5" /> Foto
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-300 truncate mb-2 font-medium">
+                      {grupo.grupoRotulo} ({grupo.totalNoGrupo} un)
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => abrirCapturaGrupo(grupo)}
+                      className={`w-full py-1 rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-1 cursor-pointer ${
+                        grupo.temFoto
+                          ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                          : 'bg-amber-600 hover:bg-amber-500 text-white'
+                      }`}
+                    >
+                      <Camera className="w-3 h-3" />
+                      {grupo.temFoto ? 'Substituir' : 'Fotografar'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Card 2: Seleção de Modelo Samsung & EAN */}
@@ -1335,9 +1532,10 @@ export const BipagemRapida: React.FC = () => {
               <select
                 value={filtroCaixa}
                 onChange={(e) => {
-                  setFiltroCaixa(e.target.value);
-                  if (e.target.value !== 'TODAS') {
-                    setCaixaAtiva(e.target.value);
+                  if (e.target.value === 'TODAS') {
+                    setFiltroCaixa('TODAS');
+                  } else {
+                    tentarMudarCaixa(e.target.value);
                   }
                 }}
                 className="bg-transparent font-black text-sm text-white focus:outline-none cursor-pointer pr-1"
@@ -1364,13 +1562,32 @@ export const BipagemRapida: React.FC = () => {
               <input
                 list="lista-caixas-existentes"
                 type="text"
-                value={caixaAtiva}
-                onChange={(e) => setCaixaAtiva(e.target.value)}
+                defaultValue={caixaAtiva}
+                key={caixaAtiva}
+                onBlur={(e) => {
+                  const val = e.target.value.trim();
+                  if (val && val !== caixaAtiva) {
+                    tentarMudarCaixa(val);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
                 placeholder="Ex: Caixa 01"
                 className="w-28 bg-white font-black text-xs text-blue-800 border border-blue-400 rounded px-2 py-0.5 focus:outline-none uppercase"
-                title="Caixa editável. Cada caixa suporta quantos produtos você decidir!"
+                title="Caixa editável. Valida evidências fotográficas antes de trocar."
               />
-              <span className="text-[10px] text-blue-600 font-bold hidden sm:inline">(Sem limite)</span>
+              <button
+                type="button"
+                onClick={abrirModalAlterarCaixa}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-black text-[11px] uppercase px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-xs transition-transform active:scale-95 cursor-pointer"
+                title="Trocar Caixa (Validação de Evidências Fotográficas)"
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                Alterar Caixa
+              </button>
             </div>
 
             {/* Alternador Rápido de Lacre Padrão */}
@@ -1408,9 +1625,19 @@ export const BipagemRapida: React.FC = () => {
           </div>
 
           {/* ========================================================================= */}
-          {/* BOTÕES DE AÇÃO: ESPELHO, RELATÓRIO GERAL E SEGURANÇA */}
+          {/* BOTÕES DE AÇÃO: ESPELHO, FOTOS, RELATÓRIO GERAL E SEGURANÇA */}
           {/* ========================================================================= */}
           <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+            {/* 0. Fotos da Caixa */}
+            <button
+              type="button"
+              onClick={() => setModalVisualizarFotosAberto(true)}
+              className="bg-blue-900 hover:bg-blue-800 text-blue-100 border border-blue-600 font-black text-xs uppercase px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Visualizar Fotos Comprovatórias da Caixa Atual"
+            >
+              <Camera className="w-3.5 h-3.5 text-blue-300" />
+              Fotos ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+            </button>
             {/* 1. Nova Auditoria */}
             <button
               onClick={handleNovaAuditoria}
@@ -1484,6 +1711,96 @@ export const BipagemRapida: React.FC = () => {
               Importar
             </button>
           </div>
+        </div>
+
+        {/* WIDGET OPERACIONAL DE EVIDÊNCIAS FOTOGRÁFICAS (GRUPOS DE 10 EM 10) */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl p-3 text-white border border-slate-700 space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 shrink-0">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    Evidências Fotográficas dos Produtos da {caixaAtiva}
+                  </span>
+                  <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold">
+                    10 em 10 produtos
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
+                    gruposFotosCaixaAtiva.length > 0 && totalFotosCaixaAtiva === gruposFotosCaixaAtiva.length
+                      ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
+                      : 'bg-amber-500/30 text-amber-300 border border-amber-500/50 animate-pulse'
+                  }`}>
+                    {totalFotosCaixaAtiva} de {gruposFotosCaixaAtiva.length} grupos fotografados
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 font-medium">
+                  A foto deve comprovar visualmente os <strong>aparelhos dentro da caixa</strong> (agrupados a cada 10 produtos auditados).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setModalVisualizarFotosAberto(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Ver Fotos da Caixa ({totalFotosCaixaAtiva}/{gruposFotosCaixaAtiva.length})
+              </button>
+            </div>
+          </div>
+
+          {/* Linha dos Grupos */}
+          {gruposFotosCaixaAtiva.length === 0 ? (
+            <div className="text-xs text-slate-400 italic py-1">
+              Nenhum produto auditado nesta caixa ainda. Conforme os seriais forem bipados, os grupos de fotos serão gerados aqui a cada 10 produtos.
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {gruposFotosCaixaAtiva.map((grupo) => (
+                <div
+                  key={grupo.grupoNumero}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border shrink-0 transition-all ${
+                    grupo.temFoto
+                      ? 'bg-emerald-950/70 border-emerald-500/60'
+                      : 'bg-amber-950/70 border-amber-500/60'
+                  }`}
+                >
+                  <div className="w-7 h-7 rounded-lg bg-black/30 flex items-center justify-center shrink-0">
+                    {grupo.temFoto ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
+                    )}
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-black uppercase text-white whitespace-nowrap">
+                      Foto {grupo.grupoNumero}: {grupo.grupoRotulo}
+                    </div>
+                    <div className="text-[10px] text-slate-300">
+                      {grupo.totalNoGrupo} aparelhos {grupo.temFoto ? '• Registrada' : '• Sem foto'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => abrirCapturaGrupo(grupo)}
+                    className={`ml-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                      grupo.temFoto
+                        ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                        : 'bg-amber-600 hover:bg-amber-500 text-white shadow-xs'
+                    }`}
+                  >
+                    <Camera className="w-3 h-3" />
+                    {grupo.temFoto ? 'Ver / Trocar' : 'Tirar Foto'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Linha 2: Indicadores em Tempo Real e Status de Proteção */}
@@ -2420,6 +2737,190 @@ export const BipagemRapida: React.FC = () => {
                   className="hidden"
                 />
               </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. MODAL: CAPTURA DE FOTO DE EVIDÊNCIA DO GRUPO (10 EM 10) */}
+      <ModalCapturaFotoGrupo
+        isOpen={modalFotoGrupoAberto}
+        onClose={() => setModalFotoGrupoAberto(false)}
+        grupoInfo={grupoFotoAtivo}
+        caixa={caixaAtiva}
+        regional={regionalAtiva}
+        onFotoSalva={lidarComFotoSalva}
+      />
+
+      {/* 7. MODAL: VISUALIZAR TODAS AS FOTOS DA CAIXA */}
+      <ModalVisualizarFotosCaixa
+        isOpen={modalVisualizarFotosAberto}
+        onClose={() => setModalVisualizarFotosAberto(false)}
+        caixa={caixaAtiva}
+        regional={regionalAtiva}
+        onAbrirCapturaGrupo={(g) => {
+          setGrupoFotoAtivo(g);
+          setModalVisualizarFotosAberto(false);
+          setModalFotoGrupoAberto(true);
+        }}
+      />
+
+      {/* 8. MODAL: BLOQUEIO DE ALTERAÇÃO DE CAIXA (REQUISITO 8 DO PROMPT) */}
+      {bloqueioTrocaModalAberto && (
+        <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border-2 border-rose-500 space-y-4">
+            <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-600 shrink-0">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-rose-950 uppercase tracking-tight">
+                    Alteração de Caixa Bloqueada
+                  </h3>
+                  <span className="text-xs font-bold text-rose-600">
+                    {caixaAtiva} ({regionalAtiva})
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBloqueioTrocaModalAberto(false);
+                  setCaixaDestinoTentativa(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-rose-950 text-xs font-black leading-relaxed flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                Existem produtos da caixa atual sem evidência fotográfica. Anexe as fotos dos produtos antes de iniciar uma nova caixa.
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 block">
+                Grupos sem evidência fotográfica ({gruposFaltantesBloqueio.length} pendente{gruposFaltantesBloqueio.length > 1 ? 's' : ''}):
+              </span>
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {gruposFaltantesBloqueio.map((g) => (
+                  <div
+                    key={g.grupoNumero}
+                    className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200"
+                  >
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block">
+                        Foto {g.grupoNumero}: {g.grupoRotulo}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        Contém {g.totalNoGrupo} aparelhos auditados
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGrupoFotoAtivo(g);
+                        setModalFotoGrupoAberto(true);
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Camera className="w-3.5 h-3.5" /> Anexar Foto
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setBloqueioTrocaModalAberto(false);
+                  setCaixaDestinoTentativa(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Voltar e Fotografar Produtos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 9. MODAL: ALTERAR CAIXA OPERACIONAL */}
+      {mostrarAlterarCaixaModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-black text-slate-900 uppercase flex items-center gap-2">
+                <Boxes className="w-5 h-5 text-blue-600" />
+                Alterar Caixa Operacional
+              </h3>
+              <button
+                onClick={() => setMostrarAlterarCaixaModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">
+              Todas as fotos da caixa atual <strong>{caixaAtiva}</strong> estão validadas. Escolha a próxima caixa para continuar:
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 uppercase">Caixa Alvo:</label>
+              <input
+                list="lista-caixas-existentes"
+                type="text"
+                value={caixaParaMudarInput}
+                onChange={(e) => setCaixaParaMudarInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    confirmarAlterarCaixaModal();
+                  }
+                }}
+                placeholder="Ex: Caixa 02"
+                className="w-full text-sm font-black text-slate-900 border-2 border-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-600 uppercase"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <span className="text-[11px] font-bold text-slate-400 block w-full">Caixas Existentes:</span>
+              {caixasExistentes.map((cx) => (
+                <button
+                  key={cx}
+                  type="button"
+                  onClick={() => setCaixaParaMudarInput(cx)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    caixaParaMudarInput === cx
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {cx}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setMostrarAlterarCaixaModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarAlterarCaixaModal}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-4 py-2 rounded-xl shadow-xs cursor-pointer"
+              >
+                Confirmar Troca
+              </button>
             </div>
           </div>
         </div>

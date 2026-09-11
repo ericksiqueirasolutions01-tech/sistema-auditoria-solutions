@@ -1,4 +1,4 @@
-﻿const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
+const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,11 +18,12 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       sucesso: true,
       produtos: data.produtos || [],
+      fotos: data.fotos || [],
       historico_envios: data.historico_envios || [],
       ultimaAtualizacao: data.ultimaAtualizacao || new Date().toISOString(),
     });
   } catch (err: any) {
     console.error('Erro ao buscar produtos da nuvem:', err);
-    return res.status(200).json({ produtos: [], historico_envios: [] });
+    return res.status(200).json({ produtos: [], fotos: [], historico_envios: [] });
   }
 }

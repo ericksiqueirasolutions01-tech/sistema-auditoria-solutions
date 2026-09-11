@@ -103,8 +103,8 @@ export const App: React.FC = () => {
       {/* Navigation Bar */}
       <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main Content Area (100% da Largura do Monitor) */}
+      <main className="flex-1 w-full px-2 sm:px-3 lg:px-4 py-2">
         {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === 'admin-regionais' && <PainelAdmin />}
         {activeTab === 'relatorios' && <ConsultaProdutos />}

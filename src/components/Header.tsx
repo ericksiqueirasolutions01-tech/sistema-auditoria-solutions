@@ -57,7 +57,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
 
   return (
     <header className="bg-white border-b border-slate-200 shadow-xs sticky top-0 z-40 no-print">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+      <div className="w-full px-3 sm:px-4 lg:px-6">
         {/* DESKTOP HEADER (MD e superior) */}
         <div className="hidden md:flex items-center justify-between h-20 gap-4">
           {/* Brand Logos Duo */}

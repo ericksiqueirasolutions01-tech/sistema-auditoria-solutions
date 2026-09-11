@@ -9,6 +9,7 @@ const LOGS_FILE = path.join(DATA_DIR, 'central_envios.json');
 // Interface for Central Store
 interface CentralData {
   produtos: any[];
+  fotos?: any[];
   ultimaAtualizacao: string;
 }
 
@@ -19,6 +20,7 @@ function ensureDataFiles() {
   if (!fs.existsSync(DB_FILE)) {
     const initial: CentralData = {
       produtos: [],
+      fotos: [],
       ultimaAtualizacao: new Date().toISOString(),
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
@@ -32,10 +34,14 @@ function readCentralDb(): CentralData {
   ensureDataFiles();
   try {
     const content = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed.fotos)) {
+      parsed.fotos = [];
+    }
+    return parsed;
   } catch (e) {
     console.error('[CentralServer] Erro ao ler banco central:', e);
-    return { produtos: [], ultimaAtualizacao: new Date().toISOString() };
+    return { produtos: [], fotos: [], ultimaAtualizacao: new Date().toISOString() };
   }
 }
 
@@ -52,6 +58,7 @@ function writeCentralDb(data: CentralData) {
       body: JSON.stringify({
         system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
         produtos: data.produtos,
+        fotos: data.fotos || [],
         historico_envios: readCentralLogs(),
       }),
     }).catch(() => {});
@@ -129,6 +136,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
         sucesso: true,
         total: db.produtos.length,
         produtos: db.produtos,
+        fotos: db.fotos || [],
         ultimaAtualizacao: db.ultimaAtualizacao,
       })
     );
@@ -199,11 +207,29 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
           idsGravados.push(registroCentral.id || registroCentral.id_servidor);
         }
 
+        // Processa fotos de evidência enviadas (10 em 10 produtos)
+        const novasFotos = Array.isArray(payload.fotos) ? payload.fotos : [];
+        if (!Array.isArray(db.fotos)) {
+          db.fotos = [];
+        }
+        let fotosAdicionadas = 0;
+        const fotosMap = new Map<string, any>();
+        for (const f of db.fotos) {
+          if (f && f.id) fotosMap.set(f.id, f);
+        }
+        for (const f of novasFotos) {
+          if (f && f.id) {
+            if (!fotosMap.has(f.id)) fotosAdicionadas++;
+            fotosMap.set(f.id, { ...f, status_sincronizacao: 'ENVIADO', data_sincronizacao: agora });
+          }
+        }
+        db.fotos = Array.from(fotosMap.values());
+
         // Grava no disco da máquina hospedeira
         writeCentralDb(db);
 
         // Registra o envio no log central
-        if (adicionados > 0 || duplicados > 0) {
+        if (adicionados > 0 || fotosAdicionadas > 0 || duplicados > 0) {
           appendCentralLog({
             id: Date.now(),
             data_envio: agoraFormatada,
@@ -211,18 +237,19 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
             computador_id: computador.id,
             computador_nome: computador.nome,
             quantidade_enviada: adicionados,
+            fotos_enviadas: fotosAdicionadas,
             duplicados_rejeitados: duplicados,
             status: 'OK',
             detalhes:
               duplicados > 0
-                ? `${adicionados} novos seriais sincronizados na base central. ${duplicados} seriais rejeitados por duplicidade.`
-                : `${adicionados} novos seriais sincronizados na base central com sucesso pelo ${computador.nome}.`,
+                ? `${adicionados} novos seriais e ${fotosAdicionadas} fotos sincronizados na base central. ${duplicados} seriais rejeitados por duplicidade.`
+                : `${adicionados} novos seriais e ${fotosAdicionadas} fotos sincronizados na base central com sucesso pelo ${computador.nome}.`,
             produtos_ids: idsGravados,
           });
         }
 
         console.log(
-          `[CentralServer] Sync recebido de ${computador.nome} (${computador.id}): ${adicionados} adicionados, ${duplicados} duplicados. Total central: ${db.produtos.length}`
+          `[CentralServer] Sync recebido de ${computador.nome} (${computador.id}): ${adicionados} adicionados, ${fotosAdicionadas} fotos, ${duplicados} duplicados. Total central: ${db.produtos.length} produtos, ${db.fotos.length} fotos.`
         );
 
         res.statusCode = 200;
@@ -230,14 +257,16 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
           JSON.stringify({
             sucesso: true,
             sincronizados: adicionados,
+            fotosSincronizadas: fotosAdicionadas,
             duplicadosEvitados: duplicados,
             totalCentral: db.produtos.length,
             produtosCentral: db.produtos,
+            fotosCentral: db.fotos,
             timestamp: agora,
             mensagem:
               duplicados > 0
-                ? `${adicionados} novos seriais gravados no servidor central! (${duplicados} rejeitados por já constarem no banco).`
-                : `${adicionados} novos seriais gravados no servidor central com sucesso!`,
+                ? `${adicionados} novos seriais e ${fotosAdicionadas} foto(s) gravados no servidor central! (${duplicados} rejeitados por já constarem no banco).`
+                : `${adicionados} novos seriais e ${fotosAdicionadas} foto(s) gravados no servidor central com sucesso!`,
           })
         );
       } catch (err: any) {
@@ -251,9 +280,12 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
 
   // 5. POST /api/central/limpar (Apenas para testes/reset se admin)
   if (endpoint === '/api/central/limpar' && req.method === 'POST') {
-    writeCentralDb({ produtos: [], ultimaAtualizacao: new Date().toISOString() });
+    writeCentralDb({ produtos: [], fotos: [], ultimaAtualizacao: new Date().toISOString() });
+    try {
+      fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+    } catch {}
     res.statusCode = 200;
-    res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso.' }));
+    res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso: 0 produtos, 0 fotos, 0 sincronizações.' }));
     return;
   }
 

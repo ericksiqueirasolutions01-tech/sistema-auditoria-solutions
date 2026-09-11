@@ -5,11 +5,10 @@ import {
   Barcode,
   Search,
   FileText,
-  FileSpreadsheet,
   HardDrive,
   Users,
   Building2,
-  Globe,
+  BarChart3,
   SendHorizontal,
 } from 'lucide-react';
 
@@ -22,17 +21,23 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
   const usuario = db.getUsuarioAtual();
   const isAdmin = usuario?.perfil === 'ADMINISTRADOR';
 
-  const menuItems = [
-    ...(isAdmin ? [{ id: 'admin-regionais', label: 'Painel Admin (Regionais)', icon: Building2, badge: 'Multi' }] : []),
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'bipagem', label: 'Auditoria Rápida', icon: Barcode, badge: 'Planilha' },
-    { id: 'historico-envios', label: 'Histórico de Envios', icon: SendHorizontal, badge: 'Online' },
-    { id: 'consulta', label: 'Consulta & Filtros', icon: Search },
-    { id: 'espelhos', label: 'Gerador de Espelhos', icon: FileText },
-    { id: 'importar', label: 'Importar Planilha', icon: FileSpreadsheet },
-    { id: 'backup', label: 'Backup do Sistema', icon: HardDrive },
-    ...(isAdmin ? [{ id: 'usuarios', label: 'Usuários & Logs', icon: Users }] : []),
-  ];
+  // 6. MENU DINÂMICO POR PERFIL CONFORME ESPECIFICAÇÃO
+  const menuItems = isAdmin
+    ? [
+        { id: 'dashboard', label: 'Dashboard Geral', icon: LayoutDashboard },
+        { id: 'admin-regionais', label: 'Regionais', icon: Building2, badge: 'Multi' },
+        { id: 'relatorios', label: 'Relatórios', icon: Search },
+        { id: 'graficos', label: 'Gráficos', icon: BarChart3 },
+        { id: 'exportacoes', label: 'Exportações', icon: HardDrive },
+        { id: 'usuarios', label: 'Usuários', icon: Users },
+      ]
+    : [
+        { id: 'dashboard', label: 'Dashboard Regional', icon: LayoutDashboard },
+        { id: 'bipagem', label: 'Bipagem / Auditoria', icon: Barcode, badge: 'Planilha' },
+        { id: 'consulta', label: 'Consulta', icon: Search },
+        { id: 'espelhos', label: 'Espelhos', icon: FileText },
+        { id: 'sincronizacao', label: 'Sincronização', icon: SendHorizontal, badge: 'Online' },
+      ];
 
   return (
     <nav className="bg-white border-b border-slate-200 sticky top-20 z-30 shadow-2xs no-print">
@@ -46,7 +51,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${
+                className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'

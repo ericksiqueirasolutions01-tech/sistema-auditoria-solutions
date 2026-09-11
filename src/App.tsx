@@ -16,16 +16,46 @@ import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('bipagem'); // Core screen first
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
-  const [mostrarLogin, setMostrarLogin] = useState(false);
+  const [activeTab, setActiveTab] = useState(() =>
+    usuario?.perfil === 'ADMINISTRADOR' ? 'dashboard' : 'bipagem'
+  );
+  const [mostrarLogin, setMostrarLogin] = useState(!usuario);
+
+  // Route Guard: impedir acesso de operador a áreas administrativas
+  useEffect(() => {
+    if (!usuario) {
+      setMostrarLogin(true);
+      return;
+    }
+    if (usuario.perfil === 'OPERADOR') {
+      const forbiddenForOperator = [
+        'admin-regionais',
+        'relatorios',
+        'graficos',
+        'exportacoes',
+        'usuarios',
+        'backup',
+        'importar',
+      ];
+      if (forbiddenForOperator.includes(activeTab)) {
+        setActiveTab('bipagem');
+      }
+    }
+  }, [usuario, activeTab]);
 
   // Keyboard navigation shortcuts for factory/industrial operators
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't intercept if typing in an input
       const target = e.target as HTMLElement;
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) && e.key !== 'F1' && e.key !== 'F2' && e.key !== 'F3' && e.key !== 'F4') {
+      if (
+        ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) &&
+        e.key !== 'F1' &&
+        e.key !== 'F2' &&
+        e.key !== 'F3' &&
+        e.key !== 'F4'
+      ) {
         return;
       }
 
@@ -49,12 +79,21 @@ export const App: React.FC = () => {
   }, []);
 
   const handleLogout = () => {
+    db.setUsuarioAtual(null);
+    setUsuario(null);
     setMostrarLogin(true);
+    setActiveTab('bipagem');
   };
 
   const handleLoginSucesso = () => {
-    setUsuario(db.getUsuarioAtual());
+    const u = db.getUsuarioAtual();
+    setUsuario(u);
     setMostrarLogin(false);
+    if (u?.perfil === 'ADMINISTRADOR') {
+      setActiveTab('dashboard');
+    } else {
+      setActiveTab('bipagem');
+    }
   };
 
   return (
@@ -69,7 +108,11 @@ export const App: React.FC = () => {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === 'admin-regionais' && <PainelAdmin />}
+        {activeTab === 'relatorios' && <ConsultaProdutos />}
+        {activeTab === 'graficos' && <PainelAdmin />}
+        {activeTab === 'exportacoes' && <BackupSistema />}
         {activeTab === 'bipagem' && <BipagemRapida />}
+        {activeTab === 'sincronizacao' && <HistoricoEnvios />}
         {activeTab === 'historico-envios' && <HistoricoEnvios />}
         {activeTab === 'consulta' && <ConsultaProdutos />}
         {activeTab === 'espelhos' && <GeradorEspelhos />}

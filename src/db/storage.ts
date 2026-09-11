@@ -93,18 +93,18 @@ if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.p
   }).catch(() => {});
 }
 
-// Usuários Iniciais Obrigatórios conforme especificação:
-// 1. VIA VAREJO RJ / senha123
-// 2. VIA VAREJO SP / senha123
-// 3. VIA VAREJO MG / senha123
-// 4. VIA VAREJO BA / senha123
-// 5. ADMINISTRADOR / senha123 (Acesso completo a todas as regionais)
+// Usuários Iniciais Oficiais conforme especificação:
+// 1. VIA VAREJO RJ / Senha123
+// 2. VIA VAREJO SP / Senha123
+// 3. VIA VAREJO MG / Senha123
+// 4. VIA VAREJO BA / Senha123
+// 5. ADMIN / Solutions123 (Administrador Geral com acesso total)
 export const DEFAULT_USUARIOS: Usuario[] = [
   {
     id: 1,
-    nome: 'ADMINISTRADOR',
-    login: 'ADMINISTRADOR',
-    senha: 'senha123',
+    nome: 'ADMIN',
+    login: 'ADMIN',
+    senha: 'Solutions123',
     perfil: 'ADMINISTRADOR',
     regional: null,
     ativo: true,
@@ -112,61 +112,51 @@ export const DEFAULT_USUARIOS: Usuario[] = [
   },
   {
     id: 2,
-    nome: 'VIA VAREJO RJ',
-    login: 'VIA VAREJO RJ',
-    senha: 'senha123',
-    perfil: 'OPERADOR',
-    regional: 'VIA VAREJO RJ',
-    ativo: true,
-    criado_em: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    nome: 'VIA VAREJO SP',
-    login: 'VIA VAREJO SP',
-    senha: 'senha123',
-    perfil: 'OPERADOR',
-    regional: 'VIA VAREJO SP',
-    ativo: true,
-    criado_em: new Date().toISOString(),
-  },
-  {
-    id: 4,
-    nome: 'VIA VAREJO MG',
-    login: 'VIA VAREJO MG',
-    senha: 'senha123',
-    perfil: 'OPERADOR',
-    regional: 'VIA VAREJO MG',
-    ativo: true,
-    criado_em: new Date().toISOString(),
-  },
-  {
-    id: 5,
-    nome: 'VIA VAREJO BA',
-    login: 'VIA VAREJO BA',
-    senha: 'senha123',
-    perfil: 'OPERADOR',
-    regional: 'VIA VAREJO BA',
-    ativo: true,
-    criado_em: new Date().toISOString(),
-  },
-  {
-    id: 6,
-    nome: 'Administrador Solutions',
-    login: 'admin',
-    senha: 'admin123',
+    nome: 'ADMINISTRADOR',
+    login: 'ADMINISTRADOR',
+    senha: 'Solutions123',
     perfil: 'ADMINISTRADOR',
     regional: null,
     ativo: true,
     criado_em: new Date().toISOString(),
   },
   {
-    id: 7,
-    nome: 'Operador Geral',
-    login: 'operador',
-    senha: 'operador123',
+    id: 3,
+    nome: 'VIA VAREJO RJ',
+    login: 'VIA VAREJO RJ',
+    senha: 'Senha123',
     perfil: 'OPERADOR',
     regional: 'VIA VAREJO RJ',
+    ativo: true,
+    criado_em: new Date().toISOString(),
+  },
+  {
+    id: 4,
+    nome: 'VIA VAREJO SP',
+    login: 'VIA VAREJO SP',
+    senha: 'Senha123',
+    perfil: 'OPERADOR',
+    regional: 'VIA VAREJO SP',
+    ativo: true,
+    criado_em: new Date().toISOString(),
+  },
+  {
+    id: 5,
+    nome: 'VIA VAREJO MG',
+    login: 'VIA VAREJO MG',
+    senha: 'Senha123',
+    perfil: 'OPERADOR',
+    regional: 'VIA VAREJO MG',
+    ativo: true,
+    criado_em: new Date().toISOString(),
+  },
+  {
+    id: 6,
+    nome: 'VIA VAREJO BA',
+    login: 'VIA VAREJO BA',
+    senha: 'Senha123',
+    perfil: 'OPERADOR',
+    regional: 'VIA VAREJO BA',
     ativo: true,
     criado_em: new Date().toISOString(),
   },
@@ -210,17 +200,18 @@ class AuditoriaDatabase {
       const userRaw = localStorage.getItem(STORAGE_KEY_USUARIOS);
       this.usuarios = userRaw ? JSON.parse(userRaw) : [...DEFAULT_USUARIOS];
 
-      // Migração: garantir que todos os usuários regionais obrigatórios existam
+      // Migração: garantir que todos os usuários regionais e admin obrigatórios existam com senhas atualizadas
       for (const defUser of DEFAULT_USUARIOS) {
         const idx = this.usuarios.findIndex(
           (u) => u.login.trim().toUpperCase() === defUser.login.toUpperCase()
         );
         if (idx === -1) {
-          this.usuarios.push(defUser);
+          this.usuarios.push({ ...defUser });
         } else {
-          if (!this.usuarios[idx].regional && defUser.regional) {
-            this.usuarios[idx].regional = defUser.regional;
-          }
+          this.usuarios[idx].senha = defUser.senha;
+          this.usuarios[idx].perfil = defUser.perfil;
+          this.usuarios[idx].regional = defUser.regional;
+          this.usuarios[idx].ativo = true;
         }
       }
 
@@ -285,16 +276,16 @@ class AuditoriaDatabase {
         const match = this.usuarios.find(
           (u) => u.login.toUpperCase() === parsed.login?.toUpperCase()
         );
-        this.usuarioAtual = match || parsed;
+        this.usuarioAtual = (match && match.ativo) ? match : null;
       } else {
-        this.usuarioAtual = this.usuarios[0]; // default admin
+        this.usuarioAtual = null; // Exigir login se não houver sessão ativa
       }
     } catch (e) {
       console.error('Erro ao carregar banco local:', e);
       this.produtos = [];
       this.usuarios = [...DEFAULT_USUARIOS];
       this.historico = [];
-      this.usuarioAtual = this.usuarios[0];
+      this.usuarioAtual = null;
     }
   }
 
@@ -436,16 +427,8 @@ class AuditoriaDatabase {
 
     const user = this.usuarios.find((u) => {
       const uLogin = u.login.trim().toUpperCase();
-      const loginMatches =
-        uLogin === loginNorm ||
-        (loginNorm === 'ADMIN' && u.perfil === 'ADMINISTRADOR') ||
-        (loginNorm === 'OPERADOR' && u.perfil === 'OPERADOR');
-
-      const passMatches =
-        u.senha === passTrim ||
-        (passTrim === 'admin123' && u.perfil === 'ADMINISTRADOR') ||
-        (passTrim === 'operador123' && u.perfil === 'OPERADOR') ||
-        (passTrim === 'senha123');
+      const loginMatches = uLogin === loginNorm;
+      const passMatches = u.senha === passTrim;
 
       return loginMatches && passMatches && u.ativo;
     });
@@ -552,8 +535,9 @@ class AuditoriaDatabase {
     const agora = new Date();
     const usuarioNome = this.usuarioAtual?.nome || 'Operador';
     const regionalFinal =
-      item.regional?.trim() ||
-      (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ');
+      this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional
+        ? this.usuarioAtual.regional
+        : (item.regional?.trim() || (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
 
     const compAtual = this.obterComputadorAtual(regionalFinal);
     const idLocal = Date.now();
@@ -860,7 +844,10 @@ class AuditoriaDatabase {
 
   // Estatísticas comparativas de todas as regionais para o Painel Admin
   obterEstatisticasRegionais(): EstatisticasRegional[] {
-    const regionais = this.listarRegionais();
+    let regionais = this.listarRegionais();
+    if (this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional) {
+      regionais = [this.usuarioAtual.regional];
+    }
     return regionais.map((reg) => {
       const produtosReg = this.produtos.filter((p) => (p.regional || 'VIA VAREJO RJ') === reg);
       const totalProdutos = produtosReg.length;
@@ -905,11 +892,15 @@ class AuditoriaDatabase {
     const agora = new Date().toISOString();
     const agoraFormatada = new Date().toLocaleString('pt-BR');
     const compAtual = this.obterComputadorAtual();
+    const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
 
     // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE)
-    const pendentes = this.produtos.filter(
-      (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
-    );
+    const pendentes = this.produtos.filter((p) => {
+      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
+      if (!isPendente) return false;
+      if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      return true;
+    });
 
     if (pendentes.length === 0) {
       return {
@@ -1014,10 +1005,14 @@ class AuditoriaDatabase {
   }
 
   obterStatusSincronizacao(): StatusSincronizacao {
-    const pendentes = this.produtos.filter(
+    let prods = this.produtos;
+    if (this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional) {
+      prods = prods.filter((p) => (p.regional || 'VIA VAREJO RJ') === this.usuarioAtual?.regional);
+    }
+    const pendentes = prods.filter(
       (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
     ).length;
-    const enviados = this.produtos.filter(
+    const enviados = prods.filter(
       (p) =>
         p.status_sincronizacao === 'ENVIADO' ||
         p.sync_status === 'SINCRONIZADO' ||
@@ -1029,7 +1024,7 @@ class AuditoriaDatabase {
       pendentes,
       sincronizados: enviados,
       enviados,
-      total: this.produtos.length,
+      total: prods.length,
       ultimaSincronizacao,
     };
   }
@@ -1093,8 +1088,9 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify(lista));
     }
 
-    if (regional && regional !== 'TODAS') {
-      return lista.filter((e) => e.regional === regional);
+    const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : regional;
+    if (regAlvo && regAlvo !== 'TODAS') {
+      return lista.filter((e) => e.regional === regAlvo);
     }
     return lista;
   }

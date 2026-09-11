@@ -323,21 +323,23 @@ export const PainelAdmin: React.FC = () => {
 
         {/* Barra de Navegação entre Regionais (Botões / Abas Rápidas) */}
         <div className="flex items-center gap-2 mt-4 pt-2 overflow-x-auto pb-1">
-          <span className="text-xs font-black text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1.5 mr-1">
-            <Layers className="w-4 h-4 text-purple-600" />
-            Regionais:
-          </span>
-
+          {/* Botão com Destaque: REGIONAIS (Item 8 do Prompt) */}
           <button
             onClick={() => { setRegionalAtiva('CONSOLIDADO'); setPaginaAtual(1); }}
-            className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
+            className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 flex items-center gap-2 cursor-pointer border-2 ${
               regionalAtiva === 'CONSOLIDADO'
-                ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-400'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                ? 'bg-purple-700 text-white border-purple-500 shadow-md ring-2 ring-purple-300'
+                : 'bg-purple-50 hover:bg-purple-100 text-purple-900 border-purple-300'
             }`}
           >
-            🏢 Consolidado Geral (Todas)
+            <Building2 className="w-4 h-4 text-purple-300" />
+            <span>REGIONAIS</span>
+            <span className="bg-white/20 text-white text-[10px] px-2 py-0.5 rounded-full font-black">
+              4 Polos
+            </span>
           </button>
+
+          <div className="h-6 w-px bg-slate-200 shrink-0 mx-1" />
 
           {REGIONAIS_PADRAO.map((reg) => {
             const stats = estatisticasRegionais.find((e) => e.regional === reg);
@@ -348,10 +350,10 @@ export const PainelAdmin: React.FC = () => {
               <button
                 key={reg}
                 onClick={() => { setRegionalAtiva(reg); setPaginaAtual(1); }}
-                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 flex items-center gap-2 cursor-pointer ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 flex items-center gap-2 cursor-pointer border ${
                   isAtivo
-                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    ? 'bg-blue-600 text-white border-blue-700 shadow-sm ring-2 ring-blue-400'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                 }`}
               >
                 <span>📍 {reg}</span>
@@ -373,12 +375,12 @@ export const PainelAdmin: React.FC = () => {
       {/* ======================================================================= */}
       {regionalAtiva === 'CONSOLIDADO' && (
         <div className="space-y-6">
-          {/* CARDS DAS REGIONAIS CONFORME ITEM 5 */}
+          {/* CARDS DAS REGIONAIS CONFORME ITEM 8 */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-purple-600" />
-                Regionais Cadastradas (Clique para abrir a regional):
+                REGIONAIS ATIVAS (Clique em uma regional para abrir suas informações detalhadas):
               </h3>
               <span className="text-xs font-bold text-slate-400">
                 {REGIONAIS_PADRAO.length} polos regionais

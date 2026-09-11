@@ -8,7 +8,9 @@ import {
   FileSpreadsheet,
   HardDrive,
   Users,
-  ShieldAlert,
+  Building2,
+  Globe,
+  SendHorizontal,
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -21,8 +23,10 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
   const isAdmin = usuario?.perfil === 'ADMINISTRADOR';
 
   const menuItems = [
+    ...(isAdmin ? [{ id: 'admin-regionais', label: 'Painel Admin (Regionais)', icon: Building2, badge: 'Multi' }] : []),
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'bipagem', label: 'Bipagem Rápida', icon: Barcode, badge: 'Principal' },
+    { id: 'bipagem', label: 'Auditoria Rápida', icon: Barcode, badge: 'Planilha' },
+    { id: 'historico-envios', label: 'Histórico de Envios', icon: SendHorizontal, badge: 'Online' },
     { id: 'consulta', label: 'Consulta & Filtros', icon: Search },
     { id: 'espelhos', label: 'Gerador de Espelhos', icon: FileText },
     { id: 'importar', label: 'Importar Planilha', icon: FileSpreadsheet },

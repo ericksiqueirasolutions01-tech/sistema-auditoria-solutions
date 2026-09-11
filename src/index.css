@@ -9,7 +9,6 @@
   }
 }
 
-/* Custom styles for printing and barcode inspection mirrors */
 @media print {
   body {
     background-color: white !important;
@@ -23,6 +22,24 @@
   }
   .page-break {
     page-break-after: always;
+  }
+  .no-print-backdrop {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    backdrop-filter: none !important;
+    inset: auto !important;
+  }
+  .print-container {
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }
 

@@ -10,6 +10,8 @@ import { GeradorEspelhos } from './pages/GeradorEspelhos';
 import { ImportacaoExcel } from './pages/ImportacaoExcel';
 import { BackupSistema } from './pages/BackupSistema';
 import { GestaoUsuarios } from './pages/GestaoUsuarios';
+import { PainelAdmin } from './pages/PainelAdmin';
+import { HistoricoEnvios } from './pages/HistoricoEnvios';
 import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 
@@ -66,7 +68,9 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
+        {activeTab === 'admin-regionais' && <PainelAdmin />}
         {activeTab === 'bipagem' && <BipagemRapida />}
+        {activeTab === 'historico-envios' && <HistoricoEnvios />}
         {activeTab === 'consulta' && <ConsultaProdutos />}
         {activeTab === 'espelhos' && <GeradorEspelhos />}
         {activeTab === 'importar' && <ImportacaoExcel />}

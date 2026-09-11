@@ -3,6 +3,7 @@ import { db } from '../db/storage';
 import { ProdutoAuditoria } from '../types';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
+import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import {
   FileText,
   Printer,
@@ -10,9 +11,8 @@ import {
   Download,
   Box,
   Layers,
-  CheckCircle2,
-  Calendar,
-  User,
+  Files,
+  HardDrive,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -21,117 +21,228 @@ import * as XLSX from 'xlsx';
 export const GeradorEspelhos: React.FC = () => {
   const caixas = db.listarCaixas();
   const [caixaSelecionada, setCaixaSelecionada] = useState<string>(
-    caixas.length > 0 ? caixas[0] : 'CAIXA 01'
+    caixas.length > 0 ? caixas[0] : 'Caixa 01'
   );
+  const [incluirSeriaisEspelho, setIncluirSeriaisEspelho] = useState<boolean>(false);
 
   const produtosCaixa = db.listarProdutos({ caixa: caixaSelecionada });
   const usuarioAtual = db.getUsuarioAtual();
+  const regionalAtiva = usuarioAtual?.regional || (usuarioAtual?.perfil === 'ADMINISTRADOR' ? 'TODAS AS REGIONAIS (ADMIN)' : 'VIA VAREJO RJ');
 
-  // Primary model and EAN for this box
-  const modeloPrincipal =
-    produtosCaixa.length > 0 ? produtosCaixa[0].modelo_produto : 'Galaxy A55 5G';
-  const eanPrincipal = produtosCaixa.length > 0 ? produtosCaixa[0].ean : '7891234567890';
-  const dataAuditoria =
-    produtosCaixa.length > 0 ? produtosCaixa[0].data_auditoria : new Date().toISOString().split('T')[0];
+  // Agrupamento estrito por Modelo e EAN conforme exigência:
+  // "espelho deve informar o modelo, o EAN e a quantidade. exemplo mesmo modelo e mesmo ean o espelho só informa a quantidade ex 10,
+  // mudou o ean e o modelo ai vem embaixo o modelo e o ean e quantidade"
+  const agrupamentoModelos = new Map<
+    string,
+    { item: number; modelo: string; ean: string; total: number; seriais: string[] }
+  >();
 
-  // Statistics
-  const totalProdutos = produtosCaixa.length;
-  const lacradosCount = produtosCaixa.filter((p) => p.produto_lacrado === 'SIM').length;
-  const naoLacradosCount = produtosCaixa.filter((p) => p.produto_lacrado === 'NÃO').length;
-  const marcasUsoCount = produtosCaixa.filter((p) => p.aparelho_marcas_uso === 'SIM').length;
+  for (const p of produtosCaixa) {
+    const modelo = p.modelo_produto?.trim() || 'SAMSUNG';
+    const ean = p.ean?.trim() || 'SEM EAN';
+    const chave = `${modelo}___${ean}`;
+    const ex = agrupamentoModelos.get(chave);
+    if (ex) {
+      ex.total++;
+      ex.seriais.push(p.serial);
+    } else {
+      agrupamentoModelos.set(chave, {
+        item: agrupamentoModelos.size + 1,
+        modelo,
+        ean,
+        total: 1,
+        seriais: [p.serial],
+      });
+    }
+  }
+  const listaModelosEan = Array.from(agrupamentoModelos.values()).map((r, idx) => ({
+    ...r,
+    item: idx + 1,
+  }));
 
-  // 1. EXPORT TO PDF
-  const exportarPDF = () => {
+  const getDataFormatada = (): string => {
+    const hoje = new Date();
+    const dia = String(hoje.getDate()).padStart(2, '0');
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const ano = hoje.getFullYear();
+    return `${dia}/${mes}/${ano}`;
+  };
+
+  // =========================================================================
+  // 1. EXPORTAR PDF DO ESPELHO DA CAIXA (COM LOGOS SOLUTIONS E SAMSUNG)
+  // Modelo, EAN e Quantidade desse modelo representando esse EAN.
+  // SEM colunas de lacrado, kit ou marcas (conforme instrução oficial).
+  // =========================================================================
+  const exportarEspelhoPDF = () => {
     const doc = new jsPDF();
 
-    // Corporate Header
+    // 1. Logos Oficiais anexadas no cabeçalho do documento
+    try {
+      doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);
+      doc.addImage(LOGO_SAMSUNG_BASE64, 'PNG', 160, 9, 36, 15.4);
+    } catch {
+      // Fallback
+    }
+
+    // 2. Título Oficial do Espelho
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text('GRUPO SOLUTIONS - SETOR DE AUDITORIA & QUALIDADE', 14, 18);
+    doc.text('GRUPO SOLUTIONS - CONTROLE, CONFERÊNCIA E QUALIDADE', 14, 28);
 
     doc.setFontSize(11);
-    doc.setTextColor(12, 77, 162); // Samsung Blue
-    doc.text('ESPELHO DE AUDITORIA SAMSUNG', 14, 25);
+    doc.setTextColor(12, 77, 162); // Azul Samsung
+    doc.text('ESPELHO DE AUDITORIA SAMSUNG', 14, 34);
 
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 31);
-    doc.text(`Auditor Responsável: ${usuarioAtual?.nome || 'Operador'}`, 14, 36);
+    doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
+    doc.text(`Auditor Responsável: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Box Summary Box
+    // 3. Informações da Caixa
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 42, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 49, 182, 28, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`CAIXA: ${caixaSelecionada}`, 18, 50);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 56);
-    doc.text(`MODELO: ${modeloPrincipal}`, 18, 62);
+    doc.text(`CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 57);
+    doc.text(`FABRICANTE: SAMSUNG`, 18, 64);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 71);
 
-    doc.text(`EAN: ${eanPrincipal}`, 105, 50);
-    doc.text(`QUANTIDADE TOTAL: ${totalProdutos} produtos`, 105, 56);
-    doc.text(`STATUS: ${lacradosCount} Lacrados | ${naoLacradosCount} Abertos`, 105, 62);
+    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 57);
+    doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 64);
 
-    // Products Table
-    const tableData = produtosCaixa.map((p, idx) => [
-      (idx + 1).toString(),
-      p.serial,
-      p.produto_lacrado,
-      p.kit_completo || '-',
-      p.aparelho_marcas_uso || '-',
-      p.observacao || '-',
+    // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
+    // Exatamente como solicitado:
+    // "espelho deve informar o modelo, o EAN e a quantidade. exemplo mesmo modelo e mesmo ean o espelho só informa a quantidade ex 10,
+    // mudou o ean e o modelo ai vem embaixo o modelo e o ean e quantidade"
+    const tableData = listaModelosEan.map((item) => [
+      item.item.toString().padStart(2, '0'),
+      item.modelo,
+      item.ean,
+      `${item.total} ${item.total === 1 ? 'unidade' : 'unidades'}`,
     ]);
 
     autoTable(doc, {
-      startY: 75,
-      head: [['Nº', 'Serial', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação']],
-      body: tableData,
+      startY: 81,
+      head: [['Item', 'Modelo Produto', 'Código EAN', 'Quantidade']],
+      body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-', '-']],
+      foot: [
+        ['', 'TOTAL GERAL DE PRODUTOS NA CAIXA', '', `${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'unidade' : 'unidades'}`],
+      ],
       theme: 'grid',
       headStyles: {
-        fillColor: [12, 77, 162], // Samsung blue
+        fillColor: [12, 77, 162],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 9,
+        fontSize: 9.5,
+      },
+      footStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [15, 23, 42],
+        fontStyle: 'bold',
+        fontSize: 9.5,
       },
       styles: {
-        fontSize: 8.5,
-        cellPadding: 2.5,
+        fontSize: 9,
+        cellPadding: 3.5,
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 16 },
+        1: { fontStyle: 'bold' },
+        2: { font: 'courier' },
+        3: { halign: 'center', fontStyle: 'bold' },
       },
       alternateRowStyles: {
         fillColor: [248, 250, 252],
       },
     });
 
-    // Signature Footer
-    const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 20;
-    if (finalY < 270) {
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 116, 139);
-      doc.line(18, finalY + 12, 90, finalY + 12);
-      doc.text('Assinatura do Auditor Responsável', 18, finalY + 17);
+    let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
 
-      doc.line(110, finalY + 12, 182, finalY + 12);
-      doc.text('Supervisão / Conferência Grupo Solutions', 110, finalY + 17);
+    // 5. Relação Detalhada de Seriais (Opcional caso usuário queira)
+    if (incluirSeriaisEspelho && produtosCaixa.length > 0) {
+      if (currentY > 230) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text('RELAÇÃO DE NÚMEROS DE SÉRIE BIPADOS NESTA CAIXA:', 14, currentY);
+
+      const serialsData = produtosCaixa.map((p, idx) => [
+        (idx + 1).toString().padStart(2, '0'),
+        p.modelo_produto,
+        p.ean,
+        p.serial,
+      ]);
+
+      autoTable(doc, {
+        startY: currentY + 3,
+        head: [['Nº', 'Modelo Produto', 'EAN', 'Número de Série (Serial)']],
+        body: serialsData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8,
+        },
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 14 },
+          3: { font: 'courier', fontStyle: 'bold' },
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+      });
+
+      currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
     }
 
-    doc.save(`Espelho_${caixaSelecionada.replace(/\s+/g, '_')}_Samsung.pdf`);
+    // 6. Bloco de Assinaturas
+    if (currentY > 250) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.line(18, currentY + 15, 90, currentY + 15);
+    doc.text('Assinatura do Auditor Responsável', 18, currentY + 20);
+
+    doc.line(110, currentY + 15, 182, currentY + 15);
+    doc.text('Supervisão de Qualidade Grupo Solutions', 110, currentY + 20);
+
+    doc.save(`Espelho_Auditoria_${caixaSelecionada.replace(/\s+/g, '_')}_Samsung.pdf`);
   };
 
-  // 2. EXPORT TO EXCEL
-  const exportarExcel = () => {
-    const dadosExcel = produtosCaixa.map((p, idx) => ({
+  // =========================================================================
+  // 2. EXPORTAR RELATÓRIOS (EXCEL E PDF - DA CAIXA OU GERAL DE TODAS AS CAIXAS)
+  // Contém todas as informações detalhadas de conferência (Lacrado, Kit, Marcas, Obs)
+  // =========================================================================
+  const exportarRelatorioExcel = (geralTodasCaixas: boolean) => {
+    const lista = geralTodasCaixas ? db.listarProdutos() : produtosCaixa;
+
+    const dadosExcel = lista.map((p, idx) => ({
       'Nº': idx + 1,
+      Regional: p.regional || regionalAtiva,
       Fabricante: p.fabricante,
-      Modelo: p.modelo_produto,
+      'Modelo Produto': p.modelo_produto,
       EAN: p.ean,
       Serial: p.serial,
       Caixa: p.numero_caixa,
       'Data Auditoria': p.data_auditoria,
-      Lacrado: p.produto_lacrado,
+      'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observações: p.observacao || '-',
@@ -140,228 +251,401 @@ export const GeradorEspelhos: React.FC = () => {
 
     const ws = XLSX.utils.json_to_sheet(dadosExcel);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, caixaSelecionada.substring(0, 31));
-    XLSX.writeFile(wb, `Espelho_${caixaSelecionada.replace(/\s+/g, '_')}.xlsx`);
+    const sheetName = geralTodasCaixas
+      ? 'Auditoria_Geral_Samsung'
+      : caixaSelecionada.substring(0, 31);
+
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(
+      wb,
+      geralTodasCaixas
+        ? `Relatorio_Geral_Todas_Caixas_Samsung_${regionalAtiva.replace(/\s+/g, '_')}_${getDataFormatada().replace(/\//g, '-')}.xlsx`
+        : `Relatorio_Auditoria_${sheetName.replace(/\s+/g, '_')}.xlsx`
+    );
   };
 
-  // 3. NATIVE PRINT
+  const exportarRelatorioPDF = (geralTodasCaixas: boolean) => {
+    const lista = geralTodasCaixas ? db.listarProdutos() : produtosCaixa;
+    const doc = new jsPDF('landscape');
+    const titulo = geralTodasCaixas
+      ? `RELATÓRIO GERAL DE AUDITORIA - TODAS AS CAIXAS SAMSUNG (${regionalAtiva})`
+      : `RELATÓRIO DE AUDITORIA E CONFERÊNCIA - ${caixaSelecionada} (${regionalAtiva})`;
+
+    try {
+      doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 8, 36, 11.8);
+      doc.addImage(LOGO_SAMSUNG_BASE64, 'PNG', 246, 8, 36, 15.4);
+    } catch {
+      // Fallback
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('GRUPO SOLUTIONS - DEPARTAMENTO DE AUDITORIA E QUALIDADE', 14, 25);
+
+    doc.setFontSize(10);
+    doc.setTextColor(12, 77, 162);
+    doc.text(titulo, 14, 30);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Emissão: ${new Date().toLocaleString('pt-BR')} | Regional: ${regionalAtiva} | Auditor: ${usuarioAtual?.nome || 'Operador'} | Total: ${lista.length} aparelhos`,
+      14,
+      35
+    );
+
+    const tableData = lista.map((p, idx) => [
+      (idx + 1).toString(),
+      p.regional || regionalAtiva,
+      p.numero_caixa,
+      p.modelo_produto,
+      p.ean,
+      p.serial,
+      p.produto_lacrado,
+      p.kit_completo || '-',
+      p.aparelho_marcas_uso || '-',
+      p.observacao || '-',
+      p.data_auditoria,
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'Serial', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 8,
+      },
+      styles: {
+        fontSize: 7.5,
+        cellPadding: 2,
+      },
+    });
+
+    doc.save(
+      geralTodasCaixas
+        ? `Relatorio_Geral_Todas_Caixas_${regionalAtiva.replace(/\s+/g, '_')}_${getDataFormatada().replace(/\//g, '-')}.pdf`
+        : `Relatorio_${caixaSelecionada.replace(/\s+/g, '_')}.pdf`
+    );
+  };
+
   const imprimirEspelho = () => {
     window.print();
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Selector Bar (No Print) */}
-      <div className="no-print bg-white rounded-2xl p-6 shadow-xs border border-slate-200">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      {/* Top Bar with Box Selector and Actions */}
+      <div className="bg-white rounded-2xl border-2 border-slate-300 p-6 shadow-xs no-print">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2.5 uppercase">
-              <FileText className="w-6 h-6 text-blue-600" />
-              Gerador de Espelhos de Auditoria
+            <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Gerador de Espelhos & Relatórios de Auditoria
             </h2>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Geração automática agrupada por caixa com layout oficial Samsung & Solutions
+              Espelho oficial com Modelo, EAN, Quantidade e Logos Samsung & Solutions.
             </p>
           </div>
 
-          {/* Box Selector & Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            <div className="flex items-center gap-2 bg-slate-100 border border-slate-300 rounded-xl px-3 py-2">
               <Box className="w-4 h-4 text-slate-500" />
-              <label className="text-xs font-bold text-slate-600 uppercase">Caixa:</label>
+              <label className="text-xs font-bold text-slate-700 uppercase whitespace-nowrap">Caixa:</label>
               <select
                 value={caixaSelecionada}
                 onChange={(e) => setCaixaSelecionada(e.target.value)}
-                className="bg-transparent font-black text-slate-800 text-sm focus:outline-none uppercase"
+                className="bg-transparent font-black text-slate-900 text-sm focus:outline-none uppercase cursor-pointer"
               >
                 {caixas.map((c) => (
                   <option key={c} value={c}>
-                    {c}
+                    {c} ({db.obterContadoresCaixa(c).totalAuditados} produtos)
                   </option>
                 ))}
               </select>
             </div>
 
+            {/* Baixar Espelho PDF */}
             <button
-              onClick={exportarPDF}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs flex items-center gap-2 transition-colors"
+              onClick={exportarEspelhoPDF}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Baixar Espelho oficial em PDF com Logos"
             >
               <Download className="w-4 h-4" />
-              Exportar PDF
+              Baixar Espelho (PDF)
             </button>
 
-            <button
-              onClick={exportarExcel}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs flex items-center gap-2 transition-colors"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Exportar Excel
-            </button>
-
+            {/* Imprimir Espelho */}
             <button
               onClick={imprimirEspelho}
-              className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs flex items-center gap-2 transition-colors"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Imprimir
             </button>
+
+            {/* Relatório da Caixa Excel */}
+            <button
+              onClick={() => exportarRelatorioExcel(false)}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Baixar Relatório completo da Caixa em Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Excel Caixa
+            </button>
+
+            {/* Relatório Geral Todas as Caixas (Excel) */}
+            <button
+              onClick={() => exportarRelatorioExcel(true)}
+              className="bg-teal-700 hover:bg-teal-800 text-white font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Baixar Relatório Geral de TODAS as Caixas em Excel"
+            >
+              <Files className="w-4 h-4" />
+              Relatório Geral (Excel)
+            </button>
+
+            {/* Relatório Geral Todas as Caixas (PDF) */}
+            <button
+              onClick={() => exportarRelatorioPDF(true)}
+              className="bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Baixar Relatório Geral de TODAS as Caixas em PDF"
+            >
+              <Download className="w-4 h-4" />
+              Relatório Geral (PDF)
+            </button>
           </div>
         </div>
 
-        {/* Quick Tabs for all available boxes */}
-        <div className="flex items-center gap-2 mt-5 pt-4 border-t border-slate-100 overflow-x-auto pb-1">
+        {/* Quick Tabs for all boxes */}
+        <div className="flex items-center gap-2 mt-4 pt-2 overflow-x-auto pb-1">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
             <Layers className="w-3.5 h-3.5" />
-            Caixas Registradas:
+            Caixas Cadastradas:
           </span>
           {caixas.map((c) => (
             <button
               key={c}
               onClick={() => setCaixaSelecionada(c)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition-colors shrink-0 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition-colors shrink-0 cursor-pointer ${
                 caixaSelecionada === c
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
               }`}
             >
-              📄 Espelho {c}
+              📄 {c}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Official Inspection Mirror Paper (Printable Sheet Layout) */}
-      <div className="bg-white rounded-2xl shadow-md border border-slate-300 p-8 sm:p-12 max-w-5xl mx-auto print:shadow-none print:border-none print:p-0 print:m-0">
-        {/* Mirror Official Header with Logos */}
+      {/* ========================================================================= */}
+      {/* FOLHA DO ESPELHO DE AUDITORIA (LAYOUT IMPRESSO E VISUAL) */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl shadow-md border border-slate-300 p-8 sm:p-12 max-w-5xl mx-auto print:shadow-none print:border-none print:p-0 print:m-0 print-container">
+        {/* Cabeçalho com Logos Oficiais Solutions & Samsung */}
         <div className="border-b-2 border-slate-800 pb-6 mb-6">
           <div className="flex items-center justify-between">
             <SolutionsLogo height={44} />
             <div className="text-center hidden sm:block">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
-                RELATÓRIO OFICIAL DE CONFERÊNCIA FÍSICA
+                GRUPO SOLUTIONS
               </span>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">
-                ESPELHO DE AUDITORIA
+              <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                ESPELHO DE AUDITORIA SAMSUNG
               </h1>
             </div>
-            <div className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg">
-              <SamsungLogo height={24} variant="blue" />
+            <SamsungLogo height={28} />
+          </div>
+          <div className="text-center sm:hidden mt-3">
+            <h1 className="text-base font-black text-slate-900 tracking-tight uppercase">
+              ESPELHO DE AUDITORIA SAMSUNG
+            </h1>
+          </div>
+        </div>
+
+        {/* Informações da Caixa */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
+              <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>
+              <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Fabricante:</span>
+              <span className="text-xl font-black text-slate-900">SAMSUNG</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade:</span>
+              <span className="text-xl font-black text-emerald-700">
+                {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block">Modelos/EANs:</span>
+              <span className="text-xl font-black text-slate-800">
+                {listaModelosEan.length}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Mirror Meta Information Block (Requisito 15) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-5 bg-slate-50 rounded-xl border border-slate-200 mb-6 text-xs">
-          <div>
-            <span className="font-bold text-slate-400 uppercase block">Fabricante:</span>
-            <span className="font-black text-slate-900 text-sm">SAMSUNG</span>
-          </div>
-          <div>
-            <span className="font-bold text-slate-400 uppercase block">Modelo Principal:</span>
-            <span className="font-black text-slate-900 text-sm">{modeloPrincipal}</span>
-          </div>
-          <div>
-            <span className="font-bold text-slate-400 uppercase block">EAN do Lote:</span>
-            <span className="font-mono font-bold text-slate-800">{eanPrincipal}</span>
-          </div>
-          <div>
-            <span className="font-bold text-slate-400 uppercase block">Caixa Identificada:</span>
-            <span className="font-black text-blue-700 text-sm uppercase">{caixaSelecionada}</span>
+        {/* TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE */}
+        {/* Conforme solicitação: se mesmo modelo e mesmo EAN -> exibe 1 linha com a quantidade (ex: 10). */}
+        {/* Mudou o EAN ou modelo -> vem na linha de baixo com seu modelo, EAN e quantidade. */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
+              Conteúdo Consolidado da Caixa:
+            </span>
+            <span className="text-xs text-slate-500 font-medium">
+              {listaModelosEan.length} item(ns) agrupado(s)
+            </span>
           </div>
 
-          <div className="border-t border-slate-200 pt-3">
-            <span className="font-bold text-slate-400 uppercase block">Quantidade Auditada:</span>
-            <span className="font-black text-slate-900 text-base">{totalProdutos} produtos</span>
-          </div>
-          <div className="border-t border-slate-200 pt-3">
-            <span className="font-bold text-slate-400 uppercase block">Produtos Lacrados:</span>
-            <span className="font-black text-emerald-600 text-sm">{lacradosCount} itens</span>
-          </div>
-          <div className="border-t border-slate-200 pt-3">
-            <span className="font-bold text-slate-400 uppercase block">Não Lacrados:</span>
-            <span className="font-black text-amber-600 text-sm">{naoLacradosCount} itens</span>
-          </div>
-          <div className="border-t border-slate-200 pt-3">
-            <span className="font-bold text-slate-400 uppercase block">Com Marcas de Uso:</span>
-            <span className="font-black text-rose-600 text-sm">{marcasUsoCount} itens</span>
-          </div>
-        </div>
-
-        {/* Audit Table */}
-        <div className="border border-slate-200 rounded-xl overflow-hidden mb-8">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-900 text-white font-black uppercase text-[11px] tracking-wider">
-              <tr>
-                <th className="py-3 px-3 w-12 text-center">Nº</th>
-                <th className="py-3 px-4">Serial</th>
-                <th className="py-3 px-4">Modelo</th>
-                <th className="py-3 px-3 text-center">Lacrado</th>
-                <th className="py-3 px-3 text-center">Kit Completo</th>
-                <th className="py-3 px-3 text-center">Marcas de Uso</th>
-                <th className="py-3 px-4">Observação</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {produtosCaixa.length === 0 ? (
+          <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
-                    Nenhum produto auditado nesta caixa.
-                  </td>
+                  <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
+                  <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
+                  <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
+                  <th className="py-3 px-5 text-center w-36">Quantidade</th>
                 </tr>
-              ) : (
-                produtosCaixa.map((p, index) => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="py-2 px-3 text-center font-bold text-slate-400">
-                      {index + 1}
-                    </td>
-                    <td className="py-2 px-4 font-mono font-black text-slate-900 tracking-wider">
-                      {p.serial}
-                    </td>
-                    <td className="py-2 px-4 text-slate-700">{p.modelo_produto}</td>
-                    <td className="py-2 px-3 text-center">
-                      <span
-                        className={`font-black px-2 py-0.5 rounded text-[10px] ${
-                          p.produto_lacrado === 'SIM'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {p.produto_lacrado}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-center font-bold text-slate-700">
-                      {p.kit_completo || '-'}
-                    </td>
-                    <td className="py-2 px-3 text-center font-bold">
-                      {p.aparelho_marcas_uso === 'SIM' ? (
-                        <span className="text-rose-600 font-black">SIM</span>
-                      ) : (
-                        <span className="text-slate-500">{p.aparelho_marcas_uso || '-'}</span>
-                      )}
-                    </td>
-                    <td className="py-2 px-4 text-slate-500 italic">
-                      {p.observacao || '-'}
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-xs">
+                {listaModelosEan.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
+                      Nenhum produto registrado nesta caixa até o momento.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  listaModelosEan.map((item) => (
+                    <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
+                      <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                        {item.item.toString().padStart(2, '0')}
+                      </td>
+                      <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
+                        {item.modelo}
+                      </td>
+                      <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
+                        {item.ean}
+                      </td>
+                      <td className="py-3 px-5 text-center border-slate-200">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
+                          {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                <tr>
+                  <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
+                    Total Geral de Produtos na Caixa:
+                  </td>
+                  <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
+                    {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
 
-        {/* Footer with Signatures for Quality Inspection */}
-        <div className="pt-8 border-t border-slate-200 grid grid-cols-2 gap-12 text-center text-xs">
-          <div className="space-y-2">
-            <div className="border-b border-slate-400 w-3/4 mx-auto pb-8"></div>
-            <p className="font-bold text-slate-800 uppercase">
-              {usuarioAtual?.nome || 'Operador de Bipagem'}
-            </p>
-            <p className="text-slate-500 text-[11px]">Auditor Responsável - Grupo Solutions</p>
+        {/* Opção de Controle de Seriais (Impressão e PDF) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-6 no-print">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={incluirSeriaisEspelho}
+              onChange={(e) => setIncluirSeriaisEspelho(e.target.checked)}
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+            <span className="text-xs font-bold text-slate-700">
+              Incluir relação detalhada de Seriais no Espelho (Impressão e PDF)
+            </span>
+          </label>
+          <span className="text-[11px] text-slate-500 font-medium">
+            {produtosCaixa.length} números de série gravados nesta caixa
+          </span>
+        </div>
+
+        {/* Relação de Seriais (Exibida caso o usuário ative a opção) */}
+        {incluirSeriaisEspelho && (
+          <div className="space-y-2 mb-8">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
+                Relação Detalhada de Seriais da {caixaSelecionada}:
+              </span>
+              <span className="text-xs text-slate-500 font-medium">
+                {produtosCaixa.length} seriais
+              </span>
+            </div>
+
+            <div className="border border-slate-300 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-4 text-center w-14 border-r border-slate-700">Nº</th>
+                    <th className="py-2.5 px-4 border-r border-slate-700">Modelo Produto</th>
+                    <th className="py-2.5 px-4 font-mono border-r border-slate-700">EAN</th>
+                    <th className="py-2.5 px-4 font-mono">Número de Série (Serial)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                  {produtosCaixa.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-400 font-sans">
+                        Nenhum serial gravado nesta caixa.
+                      </td>
+                    </tr>
+                  ) : (
+                    produtosCaixa.map((p, idx) => (
+                      <tr key={p.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-4 text-center text-slate-400 font-sans border-r border-slate-200">
+                          {(idx + 1).toString().padStart(2, '0')}
+                        </td>
+                        <td className="py-2 px-4 font-sans font-bold text-slate-800 border-r border-slate-200">
+                          {p.modelo_produto}
+                        </td>
+                        <td className="py-2 px-4 text-slate-600 border-r border-slate-200">
+                          {p.ean}
+                        </td>
+                        <td className="py-2 px-4 font-black text-slate-900 tracking-wider">
+                          {p.serial}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="space-y-2">
-            <div className="border-b border-slate-400 w-3/4 mx-auto pb-8"></div>
-            <p className="font-bold text-slate-800 uppercase">Controle de Qualidade</p>
-            <p className="text-slate-500 text-[11px]">Supervisão de Operações & Rastreabilidade</p>
+        )}
+
+        {/* Assinaturas no Espelho */}
+        <div className="grid grid-cols-2 gap-12 text-center pt-8 border-t border-slate-200 text-xs text-slate-500">
+          <div>
+            <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+            <span className="font-bold text-slate-700 block">Assinatura do Auditor Responsável</span>
+            <span className="text-[11px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
+          </div>
+          <div>
+            <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+            <span className="font-bold text-slate-700 block">Supervisão de Qualidade Grupo Solutions</span>
+            <span className="text-[11px] text-slate-400">Rastreabilidade & Qualidade Samsung</span>
           </div>
         </div>
       </div>
@@ -369,3 +653,4 @@ export const GeradorEspelhos: React.FC = () => {
   );
 };
 
+export default GeradorEspelhos;

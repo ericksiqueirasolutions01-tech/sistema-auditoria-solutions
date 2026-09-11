@@ -1,4 +1,5 @@
 import React from 'react';
+import samsungLogoImg from '../assets/logo-samsung.png';
 
 interface SamsungLogoProps {
   className?: string;
@@ -8,39 +9,16 @@ interface SamsungLogoProps {
 
 export const SamsungLogo: React.FC<SamsungLogoProps> = ({
   className = '',
-  variant = 'blue',
   height = 24,
 }) => {
-  const fill =
-    variant === 'blue' ? '#0C4DA2' : variant === 'white' ? '#FFFFFF' : '#000000';
-
   return (
-    <svg
-      height={height}
-      viewBox="0 0 500 100"
-      fill={fill}
-      xmlns="http://www.w3.org/2000/svg"
-      className={`inline-block select-none ${className}`}
-      aria-label="Samsung Logo"
-    >
-      {/* Official Samsung Wordmark Vector Paths */}
-      <g>
-        {/* S */}
-        <path d="M72.5 19.4c-12.8 0-21.7 5.7-21.7 15.6 0 20.8 33.7 15.4 33.7 28.2 0 4.6-4.5 7.6-11.7 7.6-8.7 0-16.8-4-23.7-11.8l-12.3 12.8c9.5 10.9 22.3 16.7 36 16.7 15.8 0 24.8-7.7 24.8-17.7 0-21.7-33.7-15.9-33.7-28.7 0-4.3 3.9-6.9 9.8-6.9 7.4 0 14 3 20 8.6l10.8-13.4c-8-7-19.1-11-32-11z" />
-        {/* A */}
-        <path d="M129.5 21.2h-17.8l-23 65.5h16.2l5.7-17.2h20.1l5.7 17.2h16.2l-23.1-65.5zm-14.3 35.4l5.4-16.7 5.4 16.7h-10.8z" />
-        {/* M */}
-        <path d="M198.8 21.2h-16.9l-13.8 38.6-13.8-38.6h-16.9v65.5h15.2V44.8l10.8 30.8h9.3l10.8-30.8v41.9h15.3V21.2z" />
-        {/* S */}
-        <path d="M239.8 19.4c-12.8 0-21.7 5.7-21.7 15.6 0 20.8 33.7 15.4 33.7 28.2 0 4.6-4.5 7.6-11.7 7.6-8.7 0-16.8-4-23.7-11.8l-12.3 12.8c9.5 10.9 22.3 16.7 36 16.7 15.8 0 24.8-7.7 24.8-17.7 0-21.7-33.7-15.9-33.7-28.7 0-4.3 3.9-6.9 9.8-6.9 7.4 0 14 3 20 8.6l10.8-13.4c-8-7-19.1-11-32-11z" />
-        {/* U */}
-        <path d="M303.4 21.2h-15.5v39.7c0 7.8-4.7 12.3-12.5 12.3s-12.5-4.5-12.5-12.3V21.2h-15.5v40.3c0 16.3 10.7 26.6 28 26.6 17.2 0 28-10.3 28-26.6V21.2z" />
-        {/* N */}
-        <path d="M361.3 21.2h-14.7l-24.1 43.1V21.2h-14.9v65.5h14.7l24.1-43.1v43.1h14.9V21.2z" />
-        {/* G */}
-        <path d="M407.4 19.4c-20.4 0-35.3 14.5-35.3 34.6 0 20 14.9 34.5 35.3 34.5 12.9 0 23.4-5.8 29.5-16.1l-12.9-7.9c-4 6.7-9.9 9.9-16.6 9.9-10.9 0-18.9-8.4-18.9-20.4 0-12 8-20.4 18.9-20.4 7.2 0 13.1 3.5 16.9 10.5h-18.8v13.6h34.8V49c-4-17.5-17.2-29.6-32.9-29.6z" />
-      </g>
-    </svg>
+    <img
+      src={samsungLogoImg}
+      alt="Samsung"
+      style={{ height: `${height}px` }}
+      className={`inline-block object-contain w-auto select-none ${className}`}
+    />
   );
 };
+
 

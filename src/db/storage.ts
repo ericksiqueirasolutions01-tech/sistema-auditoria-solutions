@@ -269,16 +269,23 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
       }
 
-      // Check session
-      const sess = localStorage.getItem('solutions_auditoria_sessao');
+      // Limpeza de sessão legada no localStorage para garantir que entrar no sistema sempre exija login
+      localStorage.removeItem('solutions_auditoria_sessao');
+
+      // Verificar se há sessão ativa apenas na aba atual (sessionStorage)
+      const sess = sessionStorage.getItem('solutions_auditoria_sessao');
       if (sess) {
-        const parsed = JSON.parse(sess);
-        const match = this.usuarios.find(
-          (u) => u.login.toUpperCase() === parsed.login?.toUpperCase()
-        );
-        this.usuarioAtual = (match && match.ativo) ? match : null;
+        try {
+          const parsed = JSON.parse(sess);
+          const match = this.usuarios.find(
+            (u) => u.login.toUpperCase() === parsed.login?.toUpperCase()
+          );
+          this.usuarioAtual = (match && match.ativo) ? match : null;
+        } catch {
+          this.usuarioAtual = null;
+        }
       } else {
-        this.usuarioAtual = null; // Exigir login se não houver sessão ativa
+        this.usuarioAtual = null; // Exigir login ao entrar no sistema
       }
     } catch (e) {
       console.error('Erro ao carregar banco local:', e);
@@ -334,10 +341,11 @@ class AuditoriaDatabase {
   setUsuarioAtual(u: Usuario | null) {
     this.usuarioAtual = u;
     if (u) {
-      localStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
+      sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
     } else {
-      localStorage.removeItem('solutions_auditoria_sessao');
+      sessionStorage.removeItem('solutions_auditoria_sessao');
     }
+    localStorage.removeItem('solutions_auditoria_sessao');
   }
 
   // =========================================================================

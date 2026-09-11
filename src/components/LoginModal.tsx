@@ -37,7 +37,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center p-4 sm:p-6">
       <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl border border-slate-200 space-y-6">
         {/* Logos & System Title */}
         <div className="text-center space-y-4">

@@ -10,12 +10,12 @@
 }
 
 @media print {
+  header, nav, footer, .no-print {
+    display: none !important;
+  }
   body {
     background-color: white !important;
     color: black !important;
-  }
-  .no-print {
-    display: none !important;
   }
   .print-only {
     display: block !important;

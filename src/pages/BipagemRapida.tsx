@@ -734,7 +734,8 @@ export const BipagemRapida: React.FC = () => {
       {/* ========================================================================= */}
       {/* 1. BARRA DE FERRAMENTAS SUPERIOR (ESTILO EXCEL OPERACIONAL) */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border-2 border-slate-300 shadow-sm space-y-4">
+      <div className={`space-y-4 ${mostrarEspelhoModal ? 'no-print' : ''}`}>
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border-2 border-slate-300 shadow-sm space-y-4">
         {/* Linha 1: Controles de Caixa e Botões Principais */}
         <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-slate-200 pb-4">
           
@@ -863,7 +864,10 @@ export const BipagemRapida: React.FC = () => {
 
             {/* 2. Gerar Espelho da Caixa (COM LOGO SAMSUNG & SOLUTIONS, MODELO, EAN E QTD) */}
             <button
-              onClick={() => setMostrarEspelhoModal(true)}
+              onClick={() => {
+                setIncluirSeriaisEspelho(false);
+                setMostrarEspelhoModal(true);
+              }}
               className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
               title="Espelho da Caixa (Modelo, EAN, Quantidade e Logos)"
             >
@@ -1492,6 +1496,7 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
       </div>
+      </div>
 
       {/* ========================================================================= */}
       {/* 3. MODAL: GERADOR DE ESPELHO DA CAIXA (COM LOGOS SOLUTIONS E SAMSUNG) */}
@@ -1623,20 +1628,40 @@ export const BipagemRapida: React.FC = () => {
             </div>
 
             {/* Opção de Controle de Seriais (Impressão e PDF) */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 no-print">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={incluirSeriaisEspelho}
-                  onChange={(e) => setIncluirSeriaisEspelho(e.target.checked)}
-                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
-                <span className="text-xs font-bold text-slate-700">
-                  Incluir relação detalhada de Seriais no Espelho (Impressão e PDF)
+            <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
+                  Tipo de Espelho:
                 </span>
-              </label>
-              <span className="text-[11px] text-slate-500 font-medium">
-                {espelhoCaixaAtual.itens.length} números de série gravados nesta caixa
+                <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setIncluirSeriaisEspelho(false)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      !incluirSeriaisEspelho
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    📄 Espelho Padrão (Sem Serial)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIncluirSeriaisEspelho(true)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      incluirSeriaisEspelho
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    📋 Espelho com Serial
+                  </button>
+                </div>
+              </div>
+              <span className="text-xs text-slate-600 font-bold">
+                {incluirSeriaisEspelho
+                  ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão'
+                  : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem seriais)'}
               </span>
             </div>
 
@@ -1715,17 +1740,19 @@ export const BipagemRapida: React.FC = () => {
               </button>
               <button
                 onClick={handleImprimirEspelho}
-                className="px-4 py-2 rounded-xl text-xs font-bold uppercase bg-slate-800 hover:bg-slate-900 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer ${
+                  incluirSeriaisEspelho ? 'bg-purple-700 hover:bg-purple-800' : 'bg-slate-800 hover:bg-slate-900'
+                }`}
               >
                 <Printer className="w-4 h-4" />
-                Imprimir Espelho
+                {incluirSeriaisEspelho ? 'Imprimir Espelho com Serial' : 'Imprimir Espelho (Padrão)'}
               </button>
               <button
                 onClick={exportarEspelhoPDF}
                 className="px-4 py-2 rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                Baixar PDF do Espelho (com Logos)
+                {incluirSeriaisEspelho ? 'Baixar PDF com Serial' : 'Baixar PDF do Espelho (Padrão)'}
               </button>
             </div>
           </div>

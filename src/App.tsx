@@ -20,12 +20,9 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() =>
     usuario?.perfil === 'ADMINISTRADOR' ? 'dashboard' : 'bipagem'
   );
-  const [mostrarLogin, setMostrarLogin] = useState(!usuario);
-
   // Route Guard: impedir acesso de operador a áreas administrativas
   useEffect(() => {
     if (!usuario) {
-      setMostrarLogin(true);
       return;
     }
     if (usuario.perfil === 'OPERADOR') {
@@ -81,20 +78,22 @@ export const App: React.FC = () => {
   const handleLogout = () => {
     db.setUsuarioAtual(null);
     setUsuario(null);
-    setMostrarLogin(true);
     setActiveTab('bipagem');
   };
 
   const handleLoginSucesso = () => {
     const u = db.getUsuarioAtual();
     setUsuario(u);
-    setMostrarLogin(false);
     if (u?.perfil === 'ADMINISTRADOR') {
       setActiveTab('dashboard');
     } else {
       setActiveTab('bipagem');
     }
   };
+
+  if (!usuario) {
+    return <LoginModal onLoginSucesso={handleLoginSucesso} />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900 font-sans">
@@ -138,9 +137,6 @@ export const App: React.FC = () => {
           </div>
         </div>
       </footer>
-
-      {/* Login Dialog */}
-      {mostrarLogin && <LoginModal onLoginSucesso={handleLoginSucesso} />}
     </div>
   );
 };

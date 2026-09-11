@@ -371,6 +371,34 @@ export const GeradorEspelhos: React.FC = () => {
               </select>
             </div>
 
+            {/* Tipo de Espelho Selector */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-300">
+              <button
+                type="button"
+                onClick={() => setIncluirSeriaisEspelho(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                  !incluirSeriaisEspelho
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Apenas Modelo, EAN e Quantidade"
+              >
+                📄 Padrão (Sem Serial)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncluirSeriaisEspelho(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                  incluirSeriaisEspelho
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Incluir relação de Seriais no Espelho"
+              >
+                📋 Com Serial
+              </button>
+            </div>
+
             {/* Baixar Espelho PDF */}
             <button
               onClick={exportarEspelhoPDF}
@@ -378,16 +406,18 @@ export const GeradorEspelhos: React.FC = () => {
               title="Baixar Espelho oficial em PDF com Logos"
             >
               <Download className="w-4 h-4" />
-              Baixar Espelho (PDF)
+              {incluirSeriaisEspelho ? 'Baixar PDF com Serial' : 'Baixar Espelho (PDF)'}
             </button>
 
             {/* Imprimir Espelho */}
             <button
               onClick={imprimirEspelho}
-              className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className={`text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
+                incluirSeriaisEspelho ? 'bg-purple-700 hover:bg-purple-800' : 'bg-slate-800 hover:bg-slate-900'
+              }`}
             >
               <Printer className="w-4 h-4" />
-              Imprimir
+              {incluirSeriaisEspelho ? 'Imprimir com Serial' : 'Imprimir Espelho'}
             </button>
 
             {/* Relatório da Caixa Excel */}
@@ -565,20 +595,40 @@ export const GeradorEspelhos: React.FC = () => {
         </div>
 
         {/* Opção de Controle de Seriais (Impressão e PDF) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-6 no-print">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={incluirSeriaisEspelho}
-              onChange={(e) => setIncluirSeriaisEspelho(e.target.checked)}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-            />
-            <span className="text-xs font-bold text-slate-700">
-              Incluir relação detalhada de Seriais no Espelho (Impressão e PDF)
+        <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 no-print">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
+              Tipo de Espelho:
             </span>
-          </label>
-          <span className="text-[11px] text-slate-500 font-medium">
-            {produtosCaixa.length} números de série gravados nesta caixa
+            <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setIncluirSeriaisEspelho(false)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                  !incluirSeriaisEspelho
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                📄 Espelho Padrão (Sem Serial)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncluirSeriaisEspelho(true)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                  incluirSeriaisEspelho
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                📋 Espelho com Serial
+              </button>
+            </div>
+          </div>
+          <span className="text-xs text-slate-600 font-bold">
+            {incluirSeriaisEspelho
+              ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão e no PDF'
+              : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem números de série)'}
           </span>
         </div>
 

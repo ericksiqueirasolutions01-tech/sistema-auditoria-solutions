@@ -11,6 +11,7 @@ import {
   BarChart3,
   ShieldCheck,
   ArrowUpRight,
+  CloudUpload,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -135,19 +136,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </span>
         </div>
 
-        {/* Pendências */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-rose-300 transition-colors">
+        {/* Pendentes de Envio Online */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-amber-300 transition-colors">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600">Pendências</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Pendentes de Envio</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <CloudUpload className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-3xl font-black text-rose-600 tracking-tight">
+          <div className="text-3xl font-black text-amber-600 tracking-tight">
             {metricas.pendencias}
           </div>
-          <span className="text-[11px] text-rose-700 font-bold mt-1 block">
-            Abertos c/ avaria ou faltante
+          <span className="text-[11px] text-amber-700 font-bold mt-1 block">
+            {metricas.pendencias === 0 ? 'Base sincronizada com a nuvem' : 'Aguardando envio online'}
           </span>
         </div>
 

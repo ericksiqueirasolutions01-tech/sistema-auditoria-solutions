@@ -814,8 +814,13 @@ class AuditoriaDatabase {
     const produtosLacrados = itens.filter((p) => p.produto_lacrado === 'SIM').length;
     const produtosNaoLacrados = itens.filter((p) => p.produto_lacrado === 'NÃO').length;
     const comMarcasUso = itens.filter((p) => p.aparelho_marcas_uso === 'SIM').length;
-    const pendencias = itens.filter(
+    const avariasFaltantes = itens.filter(
       (p) => p.produto_lacrado === 'NÃO' && (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO')
+    ).length;
+    // Produtos abertos c/ avaria ou faltante NÃO são considerados pendência.
+    // Pendências são exclusivamente registros pendentes de envio para o online:
+    const pendencias = itens.filter(
+      (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
     ).length;
 
     return {
@@ -824,6 +829,7 @@ class AuditoriaDatabase {
       produtosLacrados,
       produtosNaoLacrados,
       comMarcasUso,
+      avariasFaltantes,
       pendencias,
     };
   }
@@ -846,8 +852,13 @@ class AuditoriaDatabase {
     const produtosLacrados = lista.filter((p) => p.produto_lacrado === 'SIM').length;
     const produtosNaoLacrados = lista.filter((p) => p.produto_lacrado === 'NÃO').length;
     const comMarcasUso = lista.filter((p) => p.aparelho_marcas_uso === 'SIM').length;
-    const pendencias = lista.filter(
+    const avariasFaltantes = lista.filter(
       (p) => p.produto_lacrado === 'NÃO' && (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO')
+    ).length;
+    // Produtos que forem Abertos c/ avaria ou faltante NÃO considerar como pendência.
+    // Pendências são exclusivamente registros com sincronização online pendente:
+    const pendencias = lista.filter(
+      (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
     ).length;
 
     const ultimaAuditoria = lista.length > 0 ? lista[0].data_cadastro : null;
@@ -910,8 +921,12 @@ class AuditoriaDatabase {
       const modelosSet = new Set(produtosReg.map((p) => p.modelo_produto));
       const produtosLacrados = produtosReg.filter((p) => p.produto_lacrado === 'SIM').length;
       const produtosNaoLacrados = produtosReg.filter((p) => p.produto_lacrado === 'NÃO').length;
-      const pendencias = produtosReg.filter(
+      const avariasFaltantes = produtosReg.filter(
         (p) => p.produto_lacrado === 'NÃO' && (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO')
+      ).length;
+      // Produtos abertos c/ avaria ou faltante NÃO são pendências:
+      const pendencias = produtosReg.filter(
+        (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
       ).length;
       const taxaQualidade =
         totalProdutos > 0 ? Math.round((produtosLacrados / totalProdutos) * 100) : 100;
@@ -923,6 +938,7 @@ class AuditoriaDatabase {
         totalCaixas: caixasSet.size,
         produtosLacrados,
         produtosNaoLacrados,
+        avariasFaltantes,
         pendencias,
         totalModelos: modelosSet.size,
         taxaQualidade,
@@ -1266,9 +1282,7 @@ class AuditoriaDatabase {
       const ex = mapa.get(pcId);
       const ehLacrado = p.produto_lacrado === 'SIM';
       const ehEnviado = p.status_sincronizacao === 'ENVIADO';
-      const ehPendencia =
-        p.produto_lacrado === 'NÃO' &&
-        (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO');
+      const ehPendencia = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
 
       if (ex) {
         ex.total++;

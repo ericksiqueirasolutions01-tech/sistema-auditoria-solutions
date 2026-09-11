@@ -458,7 +458,7 @@ export const PainelAdmin: React.FC = () => {
                     <th className="py-3 px-4 text-center">Caixas Auditadas</th>
                     <th className="py-3 px-4 text-center">Produtos Lacrados</th>
                     <th className="py-3 px-4 text-center">Não Lacrados</th>
-                    <th className="py-3 px-4 text-center">Pendências</th>
+                    <th className="py-3 px-4 text-center">Pendentes (Envio)</th>
                     <th className="py-3 px-4 text-center">% Qualidade</th>
                     <th className="py-3 px-4 text-right">Ação</th>
                   </tr>
@@ -485,7 +485,7 @@ export const PainelAdmin: React.FC = () => {
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-black ${
                             e.pendencias > 0
-                              ? 'bg-rose-100 text-rose-800'
+                              ? 'bg-amber-100 text-amber-800'
                               : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
@@ -583,10 +583,10 @@ export const PainelAdmin: React.FC = () => {
             <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-600" />
-                  Inconformidades / Pendências por Regional
+                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                  Pendências de Envio Online por Regional
                 </h3>
-                <span className="text-[11px] text-slate-400 font-bold">Avarias & Faltantes</span>
+                <span className="text-[11px] text-slate-400 font-bold">Aguardando Envio</span>
               </div>
 
               <div className="space-y-3 pt-2">
@@ -598,13 +598,13 @@ export const PainelAdmin: React.FC = () => {
                     <div key={item.regional} className="space-y-1">
                       <div className="flex items-center justify-between text-xs font-bold">
                         <span className="text-slate-800">{item.regional}</span>
-                        <span className={item.pendencias > 0 ? 'text-rose-600 font-black' : 'text-slate-400'}>
-                          {item.pendencias} pendências
+                        <span className={item.pendencias > 0 ? 'text-amber-600 font-black' : 'text-slate-400'}>
+                          {item.pendencias} pendentes de envio
                         </span>
                       </div>
                       <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-rose-500 to-amber-500 rounded-full transition-all duration-500"
+                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
                       </div>

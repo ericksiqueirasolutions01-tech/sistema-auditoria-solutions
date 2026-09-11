@@ -90,7 +90,8 @@ export interface ContadoresCaixa {
   produtosLacrados: number;
   produtosNaoLacrados: number;
   comMarcasUso: number;
-  pendencias: number;
+  avariasFaltantes?: number;
+  pendencias: number; // Exclusivamente pendentes de envio online
 }
 
 export interface MetricasDashboard {
@@ -99,7 +100,8 @@ export interface MetricasDashboard {
   produtosLacrados: number;
   produtosNaoLacrados: number;
   comMarcasUso: number;
-  pendencias: number;
+  avariasFaltantes?: number;
+  pendencias: number; // Exclusivamente pendentes de envio online
   ultimaAuditoria: string | null;
   produtosPorCaixa: { caixa: string; total: number }[];
   produtosPorModelo: { modelo: string; total: number }[];
@@ -112,7 +114,8 @@ export interface EstatisticasRegional {
   totalCaixas: number;
   produtosLacrados: number;
   produtosNaoLacrados: number;
-  pendencias: number;
+  avariasFaltantes?: number;
+  pendencias: number; // Exclusivamente pendentes de envio online
   totalModelos: number;
   taxaQualidade: number; // percentual de lacrados
   ultimaAuditoria: string | null;

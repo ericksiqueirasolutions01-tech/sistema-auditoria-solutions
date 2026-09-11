@@ -74,3 +74,4 @@ O sistema abrirá automaticamente em `http://localhost:5173`.
 
 ---
 *Grupo Solutions - Tecnologia, Qualidade e Rastreabilidade Samsung*
+

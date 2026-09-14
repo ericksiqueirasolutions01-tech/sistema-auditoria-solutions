@@ -116,8 +116,8 @@ export const PainelAdmin: React.FC = () => {
   }, [forcarAtualizacao]);
 
   const totalFotosGerais = useMemo(() => {
-    return arvoreFotos.reduce(
-      (acc, r) => acc + r.caixas.reduce((cAcc, c) => cAcc + c.fotos.length, 0),
+    return (arvoreFotos || []).reduce(
+      (acc, r) => acc + (r?.caixas || []).reduce((cAcc, c) => cAcc + (c?.fotos || []).length, 0),
       0
     );
   }, [arvoreFotos]);
@@ -157,20 +157,43 @@ export const PainelAdmin: React.FC = () => {
     return db.listarCaixas(regionalAtiva === 'CONSOLIDADO' ? undefined : regionalAtiva);
   }, [regionalAtiva]);
 
+  const formatarHora = (dataStr?: string | null): string => {
+    if (!dataStr) return '-';
+    try {
+      const d = new Date(dataStr);
+      if (isNaN(d.getTime())) return String(dataStr);
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return String(dataStr);
+    }
+  };
+
+  const formatarDataHora = (dataStr?: string | null): string => {
+    if (!dataStr) return '-';
+    try {
+      const d = new Date(dataStr);
+      if (isNaN(d.getTime())) return String(dataStr);
+      return d.toLocaleString('pt-BR');
+    } catch {
+      return String(dataStr);
+    }
+  };
+
   // Filtragem e busca da tabela estilo Excel
   const produtosFiltrados = useMemo(() => {
-    return todosProdutosRegional.filter((p) => {
+    return (todosProdutosRegional || []).filter((p) => {
+      if (!p) return false;
       if (busca) {
         const termo = busca.toLowerCase();
         const match =
-          p.serial.toLowerCase().includes(termo) ||
-          p.modelo_produto.toLowerCase().includes(termo) ||
-          p.ean.toLowerCase().includes(termo) ||
-          p.numero_caixa.toLowerCase().includes(termo) ||
-          p.regional.toLowerCase().includes(termo) ||
-          (p.computador_id && p.computador_id.toLowerCase().includes(termo)) ||
-          (p.computador_nome && p.computador_nome.toLowerCase().includes(termo)) ||
-          p.observacao.toLowerCase().includes(termo);
+          (p.serial || '').toLowerCase().includes(termo) ||
+          (p.modelo_produto || '').toLowerCase().includes(termo) ||
+          (p.ean || '').toLowerCase().includes(termo) ||
+          (p.numero_caixa || '').toLowerCase().includes(termo) ||
+          (p.regional || '').toLowerCase().includes(termo) ||
+          ((p.computador_id || '') && (p.computador_id || '').toLowerCase().includes(termo)) ||
+          ((p.computador_nome || '') && (p.computador_nome || '').toLowerCase().includes(termo)) ||
+          (p.observacao || '').toLowerCase().includes(termo);
         if (!match) return false;
       }
       if (filtroCaixa !== 'TODAS' && p.numero_caixa !== filtroCaixa) return false;
@@ -1291,13 +1314,7 @@ export const PainelAdmin: React.FC = () => {
                           {p.status_sincronizacao === 'ENVIADO' && p.data_sincronizacao ? (
                             <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                               <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>
-                                {new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                })}
-                              </span>
+                              <span>{formatarHora(p.data_sincronizacao)}</span>
                             </span>
                           ) : (
                             <span className="text-slate-300 font-bold text-xs">-</span>
@@ -1506,9 +1523,7 @@ export const PainelAdmin: React.FC = () => {
                                             </div>
                                             <div className="text-[10px] text-slate-400 flex items-center gap-1">
                                               <Clock className="w-3 h-3 text-slate-400" />
-                                              {foto.dataCriacao
-                                                ? new Date(foto.dataCriacao).toLocaleString('pt-BR')
-                                                : '-'}
+                                              {formatarDataHora(foto.dataCriacao)}
                                             </div>
                                             <div className="text-[10px] text-indigo-700 font-bold truncate">
                                               {foto.computador_id || 'PC-001'} • {foto.usuario || 'Operador'}
@@ -1550,7 +1565,7 @@ export const PainelAdmin: React.FC = () => {
                 </span>
                 <span className="text-xs text-slate-400">
                   {fotoAmpliada.totalNoGrupo} aparelhos organizados • Registrado em{' '}
-                  {fotoAmpliada.dataCriacao ? new Date(fotoAmpliada.dataCriacao).toLocaleString('pt-BR') : '-'}
+                  {formatarDataHora(fotoAmpliada.dataCriacao)}
                 </span>
               </div>
               <button

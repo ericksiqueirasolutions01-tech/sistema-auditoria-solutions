@@ -1,7 +1,8 @@
 // Service Worker para Sistema de Auditoria Grupo Solutions - Samsung
-// Garante suporte 100% OFFLINE e sincronização em tempo real sem interferir nas rotas de API
+// v4: Network-First agressivo para scripts e estilos quando online, garantindo que atualizações
+// entrem imediatamente sem prender o navegador em arquivos JS antigos/incompatíveis.
 
-const CACHE_NAME = 'solutions-auditoria-cache-v3';
+const CACHE_NAME = 'solutions-auditoria-cache-v4';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -12,13 +13,14 @@ const PRECACHE_ASSETS = [
 
 // 1. Instalação: Pré-carrega os arquivos essenciais e ativa imediatamente
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker v3] Pré-carregando arquivos para suporte offline');
+      console.log('[Service Worker v4] Pré-carregando arquivos para suporte offline');
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('[Service Worker v3] Erro ao pré-carregar alguns arquivos:', err);
+        console.warn('[Service Worker v4] Erro ao pré-carregar alguns arquivos:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -29,7 +31,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((name) => {
           if (name !== CACHE_NAME) {
-            console.log('[Service Worker v3] Removendo cache antigo:', name);
+            console.log('[Service Worker v4] Removendo cache antigo:', name);
             return caches.delete(name);
           }
         })
@@ -59,7 +61,6 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('extendsclass.com') ||
     url.hostname.includes('freeimage.host') ||
     url.hostname.includes('iili.io')
-
   ) {
     return;
   }
@@ -76,7 +77,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          console.log('[Service Worker v3] Modo Offline detectado. Servindo aplicação do cache.');
+          console.log('[Service Worker v4] Modo Offline detectado. Servindo aplicação do cache.');
           return caches.match('/index.html').then((cachedIndex) => {
             return cachedIndex || caches.match('/');
           });
@@ -85,20 +86,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Para recursos estáticos locais (JS, CSS, Imagens): Cache com Stale-While-Revalidate
+  // Para arquivos JS e CSS: Network-First quando online para evitar telas brancas por chunks defasados
   event.respondWith(
-    caches.match(req).then((cachedResponse) => {
-      const fetchPromise = fetch(req)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+    fetch(req)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const copy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        // Fallback offline caso a rede falhe
+        return caches.match(req);
+      })
   );
 });

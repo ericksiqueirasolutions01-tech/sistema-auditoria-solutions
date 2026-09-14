@@ -263,14 +263,23 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Estação Badge */}
-              <button
-                onClick={() => setMostrarModalComputador(true)}
-                className="bg-slate-900 text-amber-300 text-[10px] font-mono font-bold px-2 py-1 rounded-lg flex items-center gap-1"
-              >
-                <Monitor className="w-3 h-3" />
-                {computadorAtual.id.split('-').slice(-2).join('-')}
-              </button>
+              {/* Estação Badge ou Badge Servidor Central no Mobile */}
+              {usuario?.perfil === 'ADMINISTRADOR' ? (
+                <div className="bg-purple-950 text-emerald-300 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 border border-purple-800">
+                  <Globe className="w-3 h-3 text-emerald-400 animate-pulse" />
+                  <span>CENTRAL</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setMostrarModalComputador(true)}
+                  className="bg-slate-900 text-amber-300 text-[10px] font-mono font-bold px-2 py-1 rounded-lg flex items-center gap-1"
+                >
+                  <Monitor className="w-3 h-3" />
+                  {typeof computadorAtual?.id === 'string'
+                    ? computadorAtual.id.split('-').slice(-2).join('-')
+                    : 'PC-001'}
+                </button>
+              )}
 
               <button
                 onClick={onLogout}
@@ -282,36 +291,55 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             </div>
           </div>
 
-          {/* Linha Inferior Mobile: Status + Botão Enviar para Online em destaque */}
-          <div className="grid grid-cols-12 gap-2 items-center">
-            <button
-              onClick={() => setMostrarModalPendentes(true)}
-              className={`col-span-4 flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl border text-[11px] font-bold cursor-pointer active:scale-95 transition-all shadow-2xs ${
-                statusSync.pendentes === 0
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-amber-50 text-amber-900 border-amber-300 ring-1 ring-amber-300'
-              }`}
-              title="Clique para ver os itens pendentes"
-            >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-              <span className="truncate">
-                {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pend.`}
-              </span>
-            </button>
+          {/* Linha Inferior Mobile: Status + Botão Ação */}
+          {usuario?.perfil === 'ADMINISTRADOR' ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  setSyncLoading(true);
+                  await db.puxarAtualizacoesServidor();
+                  setSyncLoading(false);
+                  setSyncFeedback('Dados do servidor central atualizados.');
+                  setTimeout(() => setSyncFeedback(null), 3000);
+                }}
+                disabled={syncLoading}
+                className="w-full bg-purple-700 active:bg-purple-900 disabled:opacity-60 text-white py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncLoading ? 'animate-spin' : ''}`} />
+                <span>Atualizar Servidor Central</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-12 gap-2 items-center">
+              <button
+                onClick={() => setMostrarModalPendentes(true)}
+                className={`col-span-4 flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl border text-[11px] font-bold cursor-pointer active:scale-95 transition-all shadow-2xs ${
+                  statusSync.pendentes === 0
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-50 text-amber-900 border-amber-300 ring-1 ring-amber-300'
+                }`}
+                title="Clique para ver os itens pendentes"
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                <span className="truncate">
+                  {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pend.`}
+                </span>
+              </button>
 
-            <button
-              onClick={handleSincronizar}
-              disabled={syncLoading}
-              className="col-span-8 bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs cursor-pointer"
-            >
-              {syncLoading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <CloudUpload className="w-3.5 h-3.5" />
-              )}
-              <span>Enviar para Online</span>
-            </button>
-          </div>
+              <button
+                onClick={handleSincronizar}
+                disabled={syncLoading}
+                className="col-span-8 bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                {syncLoading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CloudUpload className="w-3.5 h-3.5" />
+                )}
+                <span>Enviar para Online</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

@@ -11,13 +11,32 @@
   </head>
   <body class="bg-slate-100 text-slate-900 antialiased selection:bg-blue-600 selection:text-white min-h-screen">
     <div id="root"></div>
+
+    <script>
+      // Fallback de contingência para evitar tela branca em caso de cache defasado do navegador
+      window.addEventListener('error', function(e) {
+        var root = document.getElementById('root');
+        if (root && (!root.innerHTML || root.innerHTML.trim() === '')) {
+          root.innerHTML = '<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; font-family:sans-serif; text-align:center;">' +
+            '<div style="background:#ffffff; border-radius:24px; padding:32px; max-width:480px; width:100%; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1); border:1px solid #e2e8f0;">' +
+            '<div style="color:#2563eb; font-weight:900; font-size:12px; text-transform:uppercase; margin-bottom:8px;">Grupo Solutions • Servidor Central</div>' +
+            '<h2 style="font-size:18px; font-weight:900; color:#0f172a; text-transform:uppercase; margin-bottom:8px;">Atualização do Sistema Detectada</h2>' +
+            '<p style="font-size:13px; color:#64748b; margin-bottom:20px; line-height:1.5;">Uma versão mais recente do painel está disponível. Clique abaixo para atualizar o cache do navegador e entrar diretamente.</p>' +
+            '<button onclick="try{sessionStorage.clear(); localStorage.removeItem(\'solutions_auditoria_sessao\'); if(\'caches\' in window){caches.keys().then(function(k){k.forEach(function(n){caches.delete(n);});});}}catch(x){} window.location.reload(true);" style="background:#2563eb; color:#ffffff; font-weight:900; border:none; padding:14px 24px; border-radius:14px; cursor:pointer; text-transform:uppercase; font-size:12px; width:100%; box-shadow:0 4px 6px -1px rgba(37,99,235,0.3);">Atualizar e Entrar no Painel</button>' +
+            '</div></div>';
+        }
+      });
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
+
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
             .then((reg) => {
-              console.log('[PWA] Service Worker registrado com sucesso para suporte Offline:', reg.scope);
+              console.log('[PWA] Service Worker registrado:', reg.scope);
+              reg.update();
             })
             .catch((err) => {
               console.warn('[PWA] Falha ao registrar Service Worker:', err);
@@ -27,4 +46,3 @@
     </script>
   </body>
 </html>
-

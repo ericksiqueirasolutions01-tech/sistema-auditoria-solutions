@@ -940,9 +940,6 @@ export const BipagemRapida: React.FC = () => {
     const caixaNomeAlvo = caixaAlvo || (filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
     const itens = db.listarProdutos({ caixa: caixaNomeAlvo });
     const totalGeral = itens.length;
-    const nfPrincipal = itens.find((i) => i.numero_nf)?.numero_nf || nfAtiva || 'NF 001';
-    const totalConferidos = itens.filter((i) => i.nf_conferida !== 'NÃO').length;
-    const totalNaoConferidos = itens.filter((i) => i.nf_conferida === 'NÃO').length;
 
     try {
       doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);
@@ -3179,14 +3176,10 @@ export const BipagemRapida: React.FC = () => {
 
             {/* Quadro de Detalhes da Caixa */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
                   <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Nota Fiscal:</span>
-                  <span className="font-black text-indigo-700 text-base uppercase">{nfAtiva || 'NF 001'}</span>
                 </div>
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Regional:</span>

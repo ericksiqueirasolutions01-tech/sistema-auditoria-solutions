@@ -274,10 +274,7 @@ export const GeradorEspelhos: React.FC = () => {
   // =========================================================================
   const exportarEspelhoTransportePDF = () => {
     const doc = new jsPDF();
-    const nfPrincipal = produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001';
     const totalGeral = produtosCaixa.length;
-    const totalConferidos = produtosCaixa.filter((i) => i.nf_conferida !== 'NÃO').length;
-    const totalNaoConferidos = produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length;
 
     try {
       doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);

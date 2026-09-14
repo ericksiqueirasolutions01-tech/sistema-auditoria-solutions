@@ -37,6 +37,7 @@ import {
   Lock,
   Unlock,
   Eye,
+  PackageCheck,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -303,7 +304,7 @@ export const BipagemRapida: React.FC = () => {
     if (totalAtualNaCaixa >= 20) {
       sounds.playError();
       setAlertaValidacao(
-        `O limite máximo de 20 produtos por caixa foi atingido para a ${caixaLimpa}. Por favor, inicie ou selecione uma nova caixa.`
+        'Limite de produtos por caixa atingido. Por favor, lance os próximos produtos em outra caixa.'
       );
       return;
     }
@@ -727,11 +728,33 @@ export const BipagemRapida: React.FC = () => {
       item: idx + 1,
     }));
 
+    // Agrupamento exclusivo por EAN (Requisito Espelho 2: Região, EAN, Quantidade por EAN)
+    const agrupamentoEans = new Map<string, { item: number; ean: string; total: number }>();
+    for (const p of itens) {
+      const ean = p.ean?.trim() || 'SEM EAN';
+      const ex = agrupamentoEans.get(ean);
+      if (ex) {
+        ex.total++;
+      } else {
+        agrupamentoEans.set(ean, {
+          item: agrupamentoEans.size + 1,
+          ean,
+          total: 1,
+        });
+      }
+    }
+
+    const resumoEans = Array.from(agrupamentoEans.values()).map((r, idx) => ({
+      ...r,
+      item: idx + 1,
+    }));
+
     return {
       caixaNome,
       itens,
       totalGeral: itens.length,
       resumoModelos,
+      resumoEans,
     };
   };
 
@@ -772,20 +795,29 @@ export const BipagemRapida: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável Grupo Solutions: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
+    // Box de Instrução: Colocar dentro da Caixa Master
+    doc.setDrawColor(37, 99, 235);
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(14, 49, 182, 10, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 64, 175);
+    doc.text('ATENÇÃO: Este espelho deve ser colocado dentro da Caixa Master.', 18, 55.5);
+
     // 3. Quadro de Informações da Caixa
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 49, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 57);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 64);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 71);
+    doc.text(`CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 70);
+    doc.text(`FABRICANTE: SAMSUNG`, 18, 77);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 84);
 
-    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 57);
-    doc.text(`MODELOS/EANS DISTINTOS: ${resumoModelos.length}`, 105, 64);
+    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 70);
+    doc.text(`MODELOS/EANS DISTINTOS: ${resumoModelos.length}`, 105, 77);
 
     // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
     // Exatamente como solicitado:
@@ -799,7 +831,7 @@ export const BipagemRapida: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 81,
+      startY: 94,
       head: [['Item', 'Modelo Produto', 'Código EAN', 'Quantidade']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-', '-']],
       foot: [
@@ -924,7 +956,7 @@ export const BipagemRapida: React.FC = () => {
 
     doc.setFontSize(11);
     doc.setTextColor(180, 83, 9); // Âmbar transporte
-    doc.text('ESPELHO RESUMIDO DE TRANSPORTE (SEGURANÇA DE CARGA)', 14, 34);
+    doc.text('ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO', 14, 34);
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -932,55 +964,41 @@ export const BipagemRapida: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Box com aviso de segurança
-    doc.setDrawColor(245, 158, 11);
-    doc.setFillColor(254, 243, 199);
-    doc.roundedRect(14, 48, 182, 10, 2, 2, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(146, 64, 14);
-    doc.text(
-      'AVISO DE SEGURANÇA: Nomes e modelos de produtos foram omitidos deste documento para prevenção contra roubo e segurança da carga.',
-      18,
-      54
-    );
-
-    // Quadro de informações gerais
+    // Quadro de informações gerais (Região e Caixa)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 61, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`IDENTIFICAÇÃO DO VOLUME: ${caixaNomeAlvo.toUpperCase()}`, 18, 69);
-    doc.text(`NOTA FISCAL: ${nfPrincipal}`, 18, 76);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 83);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
+    doc.text(`VOLUME / CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 64);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 58);
 
-    doc.text(`QUANTIDADE NO VOLUME: ${totalGeral} peças`, 105, 69);
-    doc.text(
-      `STATUS CONFERÊNCIA NF: ${totalNaoConferidos > 0 ? `${totalNaoConferidos} item(ns) NÃO conferido(s)` : 'SIM (100% CONFERIDO)'}`,
-      105,
-      76
-    );
-    doc.text(`FINALIDADE: TRANSPORTE SEGURO`, 105, 83);
+    // Agrupamento exclusivo por EAN (Requisito Espelho 2: Região, EAN, Quantidade por EAN)
+    const eanMap = new Map<string, number>();
+    for (const p of itens) {
+      const ean = p.ean?.trim() || 'SEM EAN';
+      eanMap.set(ean, (eanMap.get(ean) || 0) + 1);
+    }
+    const listaEans = Array.from(eanMap.entries()).map(([ean, qtd], idx) => ({
+      item: (idx + 1).toString().padStart(2, '0'),
+      ean,
+      qtd,
+    }));
 
-    // Tabela resumida ESTRITAMENTE SEM MODELOS
-    const tableData = [
-      [
-        '01',
-        caixaNomeAlvo.toUpperCase(),
-        nfPrincipal,
-        totalNaoConferidos > 0 ? `${totalConferidos} SIM / ${totalNaoConferidos} NÃO` : 'SIM',
-        `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`,
-      ],
-    ];
+    const tableData = listaEans.map((e) => [
+      e.item,
+      e.ean,
+      `${e.qtd} ${e.qtd === 1 ? 'unidade' : 'unidades'}`,
+    ]);
 
     autoTable(doc, {
-      startY: 94,
-      head: [['Item', 'Volume / Caixa', 'Nota Fiscal', 'NF Conferida?', 'Qtd. Total de Peças']],
-      body: tableData,
-      foot: [['', 'TOTAL GERAL TRANSPORTADO NESTE VOLUME', '', '', `${totalGeral} unidades`]],
+      startY: 75,
+      head: [['Item', 'Código EAN', 'Quantidade por EAN']],
+      body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-']],
+      foot: [['', 'TOTAL GERAL NO VOLUME', `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`]],
       theme: 'grid',
       headStyles: {
         fillColor: [180, 83, 9],
@@ -999,10 +1017,9 @@ export const BipagemRapida: React.FC = () => {
         cellPadding: 4,
       },
       columnStyles: {
-        0: { halign: 'center', cellWidth: 16 },
-        1: { fontStyle: 'bold' },
-        3: { halign: 'center', fontStyle: 'bold' },
-        4: { halign: 'center', fontStyle: 'bold' },
+        0: { halign: 'center', cellWidth: 20 },
+        1: { font: 'courier', fontStyle: 'bold' },
+        2: { halign: 'center', fontStyle: 'bold' },
       },
     });
 
@@ -1021,7 +1038,7 @@ export const BipagemRapida: React.FC = () => {
     doc.line(110, currentY + 15, 182, currentY + 15);
     doc.text('Responsável Grupo Solutions', 110, currentY + 20);
 
-    doc.save(`Espelho_Transporte_${caixaNomeAlvo.replace(/\s+/g, '_')}_Seguranca.pdf`);
+    doc.save(`Espelho_2_Expedicao_${caixaNomeAlvo.replace(/\s+/g, '_')}.pdf`);
   };
 
   const baixarAmbosEspelhos = () => {
@@ -1361,7 +1378,6 @@ export const BipagemRapida: React.FC = () => {
               </span>
               <span className="text-xs font-black">
                 {contadores.totalAuditados} / 20 produtos
-                {contadores.totalAuditados >= 20 ? ' • ⚠️ LOTADA (INICIE NOVA CAIXA)' : ''}
               </span>
             </div>
           </div>
@@ -3111,7 +3127,7 @@ export const BipagemRapida: React.FC = () => {
               </button>
             </div>
 
-            {/* Seletor do Tipo de Espelho (Requisito 6: Espelho 1 Completo vs Espelho 2 Transporte sem modelos) */}
+            {/* Seletor do Tipo de Espelho */}
             <div className="flex flex-wrap items-center justify-center gap-3 no-print bg-slate-100 p-2 rounded-2xl border border-slate-300">
               <button
                 type="button"
@@ -3123,7 +3139,7 @@ export const BipagemRapida: React.FC = () => {
                 }`}
               >
                 <FileText className="w-4 h-4" />
-                Espelho 1: Completo (Operacional)
+                Espelho 1: Completo (Dentro da Caixa Master)
               </button>
               <button
                 type="button"
@@ -3134,8 +3150,8 @@ export const BipagemRapida: React.FC = () => {
                     : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
                 }`}
               >
-                <Lock className="w-4 h-4 text-amber-200" />
-                Espelho 2: Transporte (Segurança - Sem Modelos)
+                <Boxes className="w-4 h-4 text-amber-200" />
+                Espelho 2: Expedição (Por EAN)
               </button>
             </div>
 
@@ -3143,27 +3159,27 @@ export const BipagemRapida: React.FC = () => {
             <div className="text-center space-y-1">
               <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">
                 {tipoEspelhoVisualizacao === 'transporte'
-                  ? 'ESPELHO RESUMIDO DE TRANSPORTE & EXPEDIÇÃO'
-                  : 'ESPELHO DE AUDITORIA & QUALIDADE'}
+                  ? 'ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO'
+                  : 'ESPELHO 1 - COMPLETO (OPERACIONAL)'}
               </h2>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
                 Grupo Solutions • Setor de Rastreabilidade e Logística Samsung
               </p>
             </div>
 
-            {/* AVISO DE SEGURANÇA NO ESPELHO DE TRANSPORTE */}
-            {tipoEspelhoVisualizacao === 'transporte' && (
-              <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 rounded-2xl p-3.5 flex items-center gap-3 shadow-xs">
-                <Lock className="w-5 h-5 text-amber-600 shrink-0" />
+            {/* AVISO DA CAIXA MASTER NO ESPELHO 1 */}
+            {tipoEspelhoVisualizacao === 'completo' && (
+              <div className="bg-blue-50 border-2 border-blue-400 text-blue-900 rounded-2xl p-3.5 flex items-center gap-3 shadow-xs">
+                <PackageCheck className="w-5 h-5 text-blue-600 shrink-0" />
                 <span className="text-xs font-bold leading-relaxed">
-                  <strong>AVISO DE SEGURANÇA DO TRANSPORTE:</strong> Os modelos e especificações técnicas dos aparelhos foram omitidos deste documento para prevenção de desvios e segurança da carga de alto valor durante o transporte.
+                  <strong>INSTRUÇÃO DE EMBARQUE:</strong> Este espelho deve ser colocado <strong>dentro da Caixa Master</strong>.
                 </span>
               </div>
             )}
 
             {/* Quadro de Detalhes da Caixa */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
                   <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
@@ -3182,19 +3198,13 @@ export const BipagemRapida: React.FC = () => {
                     {espelhoCaixaAtual.totalGeral} peças
                   </span>
                 </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">NF Conferida:</span>
-                  <span className={`font-black text-base ${nfConferidaAtiva === 'SIM' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {nfConferidaAtiva}
-                  </span>
-                </div>
               </div>
             </div>
 
             {/* RENDERIZAÇÃO DO CONTEÚDO CONFORME O TIPO DE ESPELHO SELECIONADO */}
             {tipoEspelhoVisualizacao === 'transporte' ? (
               /* ========================================================================= */
-              /* ESPELHO 2: RESUMIDO / TRANSPORTE (SEM MODELOS)                            */
+              /* ESPELHO 2: RESUMIDO / EXPEDIÇÃO (POR EAN)                                 */
               /* ========================================================================= */
               <div className="space-y-4">
                 <div className="border-2 border-amber-300 rounded-2xl overflow-hidden shadow-xs">
@@ -3202,40 +3212,38 @@ export const BipagemRapida: React.FC = () => {
                     <thead className="bg-amber-700 text-white uppercase text-[11px] font-black tracking-wider">
                       <tr>
                         <th className="py-3 px-4 text-center w-16 border-r border-amber-600">Item</th>
-                        <th className="py-3 px-5 border-r border-amber-600">Identificação do Volume</th>
-                        <th className="py-3 px-5 border-r border-amber-600">Nota Fiscal</th>
-                        <th className="py-3 px-5 text-center border-r border-amber-600">NF Conferida?</th>
-                        <th className="py-3 px-5 text-center w-40">Qtd. Total de Peças</th>
+                        <th className="py-3 px-5 font-mono border-r border-amber-600">Código EAN</th>
+                        <th className="py-3 px-5 text-center w-48">Quantidade por EAN</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-xs">
-                      <tr className="hover:bg-amber-50/40">
-                        <td className="py-3.5 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                          01
-                        </td>
-                        <td className="py-3.5 px-5 font-black text-slate-900 text-sm border-r border-slate-200 uppercase">
-                          {espelhoCaixaAtual.caixaNome}
-                        </td>
-                        <td className="py-3.5 px-5 font-bold text-slate-700 text-sm border-r border-slate-200">
-                          {nfAtiva || 'NF 001'}
-                        </td>
-                        <td className="py-3.5 px-5 text-center border-r border-slate-200">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${
-                            nfConferidaAtiva === 'SIM' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                          }`}>
-                            {nfConferidaAtiva}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-5 text-center">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
-                            {espelhoCaixaAtual.totalGeral} {espelhoCaixaAtual.totalGeral === 1 ? 'unidade' : 'unidades'}
-                          </span>
-                        </td>
-                      </tr>
+                      {espelhoCaixaAtual.resumoEans.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="py-8 text-center text-slate-400 font-medium">
+                            Nenhum produto registrado nesta caixa até o momento.
+                          </td>
+                        </tr>
+                      ) : (
+                        espelhoCaixaAtual.resumoEans.map((item) => (
+                          <tr key={item.ean} className="hover:bg-amber-50/40">
+                            <td className="py-3.5 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                              {item.item.toString().padStart(2, '0')}
+                            </td>
+                            <td className="py-3.5 px-5 font-mono font-bold text-slate-800 text-sm border-r border-slate-200">
+                              {item.ean}
+                            </td>
+                            <td className="py-3.5 px-5 text-center">
+                              <span className="inline-flex items-center px-3.5 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
+                                {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                     <tfoot className="bg-amber-50 font-black text-slate-900 border-t-2 border-amber-300">
                       <tr>
-                        <td colSpan={4} className="py-3.5 px-5 text-right uppercase text-xs tracking-wider text-amber-950">
+                        <td colSpan={2} className="py-3.5 px-5 text-right uppercase text-xs tracking-wider text-amber-950">
                           TOTAL GERAL TRANSPORTADO NESTE VOLUME:
                         </td>
                         <td className="py-3.5 px-5 text-center text-sm text-amber-900 font-black">
@@ -3442,10 +3450,10 @@ export const BipagemRapida: React.FC = () => {
                   type="button"
                   onClick={() => exportarEspelhoTransportePDF()}
                   className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Baixar PDF do Espelho 2 (Transporte sem modelos de produtos)"
+                  title="Baixar PDF do Espelho 2 (Região, EAN e Quantidade por EAN)"
                 >
-                  <Lock className="w-4 h-4" />
-                  Espelho 2 (Transporte)
+                  <Boxes className="w-4 h-4" />
+                  Espelho 2 (Expedição)
                 </button>
 
                 <button

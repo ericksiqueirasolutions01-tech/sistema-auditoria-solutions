@@ -836,7 +836,7 @@ class AuditoriaDatabase {
     if (totalNaCaixa >= 20) {
       return {
         sucesso: false,
-        erro: `O limite máximo de 20 produtos por caixa foi atingido para a ${caixaAlvo}. Por favor, inicie ou selecione uma nova caixa.`,
+        erro: 'Limite de produtos por caixa atingido. Por favor, lance os próximos produtos em outra caixa.',
       };
     }
 

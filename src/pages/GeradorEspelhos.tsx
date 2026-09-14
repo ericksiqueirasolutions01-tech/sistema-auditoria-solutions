@@ -16,6 +16,7 @@ import {
   HardDrive,
   Camera,
   Eye,
+  PackageCheck,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -70,6 +71,26 @@ export const GeradorEspelhos: React.FC = () => {
     item: idx + 1,
   }));
 
+  // Agrupamento exclusivo por EAN (Requisito Espelho 2: Região, EAN, Quantidade por EAN)
+  const agrupamentoEans = new Map<string, { item: number; ean: string; total: number }>();
+  for (const p of produtosCaixa) {
+    const ean = p.ean?.trim() || 'SEM EAN';
+    const ex = agrupamentoEans.get(ean);
+    if (ex) {
+      ex.total++;
+    } else {
+      agrupamentoEans.set(ean, {
+        item: agrupamentoEans.size + 1,
+        ean,
+        total: 1,
+      });
+    }
+  }
+  const listaEans = Array.from(agrupamentoEans.values()).map((r, idx) => ({
+    ...r,
+    item: idx + 1,
+  }));
+
   const getDataFormatada = (): string => {
     const hoje = new Date();
     const dia = String(hoje.getDate()).padStart(2, '0');
@@ -110,21 +131,30 @@ export const GeradorEspelhos: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável Grupo Solutions: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
+    // Box de Instrução: Colocar dentro da Caixa Master
+    doc.setDrawColor(37, 99, 235);
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(14, 49, 182, 10, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 64, 175);
+    doc.text('ATENÇÃO: Este espelho deve ser colocado dentro da Caixa Master.', 18, 55.5);
+
     // 3. Informações da Caixa
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 49, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 57);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 64);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 71);
+    doc.text(`CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 70);
+    doc.text(`FABRICANTE: SAMSUNG`, 18, 77);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 84);
 
-    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 57);
-    doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 64);
-    doc.text(`EVIDÊNCIAS FOTOGRÁFICAS: ${totalFotosAnexadas} FOTO(S) (${totalGrupos} GRUPO(S))`, 105, 71);
+    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 70);
+    doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 77);
+    doc.text(`EVIDÊNCIAS FOTOGRÁFICAS: ${totalFotosAnexadas} FOTO(S) (${totalGrupos} GRUPO(S))`, 105, 84);
 
     // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
     // Exatamente como solicitado:
@@ -138,7 +168,7 @@ export const GeradorEspelhos: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 81,
+      startY: 94,
       head: [['Item', 'Modelo Produto', 'Código EAN', 'Quantidade']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-', '-']],
       foot: [
@@ -261,7 +291,7 @@ export const GeradorEspelhos: React.FC = () => {
 
     doc.setFontSize(11);
     doc.setTextColor(180, 83, 9); // Âmbar transporte
-    doc.text('ESPELHO RESUMIDO DE TRANSPORTE (SEGURANÇA DE CARGA)', 14, 34);
+    doc.text('ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO', 14, 34);
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -269,55 +299,29 @@ export const GeradorEspelhos: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Box com aviso de segurança
-    doc.setDrawColor(245, 158, 11);
-    doc.setFillColor(254, 243, 199);
-    doc.roundedRect(14, 48, 182, 10, 2, 2, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(146, 64, 14);
-    doc.text(
-      'AVISO DE SEGURANÇA: Nomes e modelos de produtos foram omitidos deste documento para prevenção contra roubo e segurança da carga.',
-      18,
-      54
-    );
-
-    // Quadro de informações gerais
+    // Quadro de informações gerais (Região e Caixa)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 61, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`IDENTIFICAÇÃO DO VOLUME: ${caixaSelecionada.toUpperCase()}`, 18, 69);
-    doc.text(`NOTA FISCAL: ${nfPrincipal}`, 18, 76);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 83);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
+    doc.text(`VOLUME / CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 64);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 58);
 
-    doc.text(`QUANTIDADE NO VOLUME: ${totalGeral} peças`, 105, 69);
-    doc.text(
-      `STATUS CONFERÊNCIA NF: ${totalNaoConferidos > 0 ? `${totalNaoConferidos} item(ns) NÃO conferido(s)` : 'SIM (100% CONFERIDO)'}`,
-      105,
-      76
-    );
-    doc.text(`FINALIDADE: TRANSPORTE SEGURO`, 105, 83);
-
-    // Tabela resumida ESTRITAMENTE SEM MODELOS
-    const tableData = [
-      [
-        '01',
-        caixaSelecionada.toUpperCase(),
-        nfPrincipal,
-        totalNaoConferidos > 0 ? `${totalConferidos} SIM / ${totalNaoConferidos} NÃO` : 'SIM',
-        `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`,
-      ],
-    ];
+    const tableData = listaEans.map((e) => [
+      e.item.toString().padStart(2, '0'),
+      e.ean,
+      `${e.total} ${e.total === 1 ? 'unidade' : 'unidades'}`,
+    ]);
 
     autoTable(doc, {
-      startY: 94,
-      head: [['Item', 'Volume / Caixa', 'Nota Fiscal', 'NF Conferida?', 'Qtd. Total de Peças']],
-      body: tableData,
-      foot: [['', 'TOTAL GERAL TRANSPORTADO NESTE VOLUME', '', '', `${totalGeral} unidades`]],
+      startY: 75,
+      head: [['Item', 'Código EAN', 'Quantidade por EAN']],
+      body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-']],
+      foot: [['', 'TOTAL GERAL NO VOLUME', `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`]],
       theme: 'grid',
       headStyles: {
         fillColor: [180, 83, 9],
@@ -336,10 +340,9 @@ export const GeradorEspelhos: React.FC = () => {
         cellPadding: 4,
       },
       columnStyles: {
-        0: { halign: 'center', cellWidth: 16 },
-        1: { fontStyle: 'bold' },
-        3: { halign: 'center', fontStyle: 'bold' },
-        4: { halign: 'center', fontStyle: 'bold' },
+        0: { halign: 'center', cellWidth: 20 },
+        1: { font: 'courier', fontStyle: 'bold' },
+        2: { halign: 'center', fontStyle: 'bold' },
       },
     });
 
@@ -358,7 +361,7 @@ export const GeradorEspelhos: React.FC = () => {
     doc.line(110, currentY + 15, 182, currentY + 15);
     doc.text('Responsável Grupo Solutions', 110, currentY + 20);
 
-    doc.save(`Espelho_Transporte_${caixaSelecionada.replace(/\s+/g, '_')}_Seguranca.pdf`);
+    doc.save(`Espelho_2_Expedicao_${caixaSelecionada.replace(/\s+/g, '_')}.pdf`);
   };
 
   const baixarAmbosEspelhos = () => {
@@ -567,10 +570,10 @@ export const GeradorEspelhos: React.FC = () => {
               <button
                 onClick={exportarEspelhoTransportePDF}
                 className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs px-3 py-2 rounded-lg shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
-                title="Baixar Espelho 2 Resumido / Transporte (SEM modelo para segurança)"
+                title="Baixar Espelho 2 Resumido (Região, EAN e Quantidade por EAN)"
               >
                 <Download className="w-3.5 h-3.5" />
-                Espelho 2 (Transporte)
+                Espelho 2 (Expedição)
               </button>
               <button
                 onClick={baixarAmbosEspelhos}
@@ -661,7 +664,7 @@ export const GeradorEspelhos: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📄 Espelho 1: Completo (Operacional)
+              📄 Espelho 1: Completo (Dentro da Caixa Master)
             </button>
             <button
               type="button"
@@ -672,14 +675,14 @@ export const GeradorEspelhos: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              🚚 Espelho 2: Transporte (Sem Modelo)
+              🚚 Espelho 2: Expedição (Por EAN)
             </button>
           </div>
         </div>
         <div className="text-xs text-slate-500 font-medium">
           {tipoEspelhoVisualizacao === 'completo'
-            ? 'ℹ️ Visualizando dados operacionais com Modelo, EAN e Quantidade'
-            : '🔒 Visualizando documento de transporte seguro (modelos ocultos)'}
+            ? 'ℹ️ Visualizando dados completos • Colocar dentro da Caixa Master'
+            : '🚚 Visualizando documento de expedição simplificado por EAN'}
         </div>
       </div>
 
@@ -689,7 +692,7 @@ export const GeradorEspelhos: React.FC = () => {
       <div className="bg-white rounded-2xl shadow-md border border-slate-300 p-8 sm:p-12 max-w-5xl mx-auto print:shadow-none print:border-none print:p-0 print:m-0 print-container">
         {tipoEspelhoVisualizacao === 'transporte' ? (
           /* ======================================================================= */
-          /* ESPELHO 2 - RESUMIDO / TRANSPORTE (SEM MODELOS DOS PRODUTOS)             */
+          /* ESPELHO 2 - RESUMIDO / EXPEDIÇÃO (POR EAN)                              */
           /* ======================================================================= */
           <div>
             {/* Cabeçalho Transporte */}
@@ -701,48 +704,31 @@ export const GeradorEspelhos: React.FC = () => {
                     GRUPO SOLUTIONS
                   </span>
                   <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">
-                    ESPELHO RESUMIDO DE TRANSPORTE
+                    ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO
                   </h1>
                   <span className="text-xs font-black text-amber-700 uppercase tracking-wider">
-                    Controle de Expedição & Segurança de Carga
+                    Controle de Expedição & Transporte
                   </span>
                 </div>
                 <SamsungLogo height={28} />
               </div>
               <div className="text-center sm:hidden mt-3">
                 <h1 className="text-base font-black text-slate-900 tracking-tight uppercase">
-                  ESPELHO RESUMIDO DE TRANSPORTE
+                  ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO
                 </h1>
               </div>
             </div>
 
-            {/* Aviso de Segurança de Transporte */}
-            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 mb-6 flex items-start gap-3">
-              <div className="p-2 bg-amber-200 text-amber-900 rounded-xl font-black text-sm shrink-0">
-                🚚 SEGURANÇA
-              </div>
-              <div className="text-xs text-amber-900">
-                <strong className="font-black uppercase block">Aviso de Segurança de Carga:</strong>
-                Conforme política de prevenção e segurança no transporte de cargas valiosas, os modelos e descrições dos produtos foram estritamente omitidos deste documento de embarque.
-              </div>
-            </div>
-
-            {/* Informações do Volume */}
+            {/* Informações do Volume (Apenas Região, Volume e Quantidade) */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>
+                  <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
+                </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Volume / Caixa:</span>
                   <span className="text-xl font-black text-amber-700 uppercase">{caixaSelecionada}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Nota Fiscal:</span>
-                  <span className="text-xl font-black text-slate-900">
-                    {produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional de Origem:</span>
-                  <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade no Volume:</span>
@@ -753,47 +739,45 @@ export const GeradorEspelhos: React.FC = () => {
               </div>
             </div>
 
-            {/* Tabela de Transporte: ESTRITAMENTE SEM MODELOS */}
+            {/* Tabela de Expedição por EAN */}
             <div className="mb-6">
               <div className="border-2 border-amber-500 rounded-2xl overflow-hidden shadow-xs">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-amber-700 text-white uppercase text-[11px] font-black tracking-wider">
                     <tr>
                       <th className="py-3 px-4 text-center w-16 border-r border-amber-600">Item</th>
-                      <th className="py-3 px-5 border-r border-amber-600">Volume / Caixa</th>
-                      <th className="py-3 px-5 border-r border-amber-600">Nota Fiscal</th>
-                      <th className="py-3 px-5 text-center border-r border-amber-600">Conferência NF</th>
-                      <th className="py-3 px-5 text-center w-44">Qtd. Total de Peças</th>
+                      <th className="py-3 px-5 font-mono border-r border-amber-600">Código EAN</th>
+                      <th className="py-3 px-5 text-center w-52">Quantidade por EAN</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-xs font-bold">
-                    <tr>
-                      <td className="py-4 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                        01
-                      </td>
-                      <td className="py-4 px-5 text-slate-900 uppercase border-r border-slate-200">
-                        {caixaSelecionada}
-                      </td>
-                      <td className="py-4 px-5 text-slate-800 border-r border-slate-200">
-                        {produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001'}
-                      </td>
-                      <td className="py-4 px-5 text-center border-r border-slate-200">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
-                          {produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length > 0
-                            ? `${produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length} NÃO CONFERIDO(S)`
-                            : 'SIM (100% CONFERIDO)'}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5 text-center">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
-                          {produtosCaixa.length} {produtosCaixa.length === 1 ? 'peça' : 'peças'}
-                        </span>
-                      </td>
-                    </tr>
+                    {listaEans.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="py-8 text-center text-slate-400 font-medium">
+                          Nenhum produto registrado nesta caixa até o momento.
+                        </td>
+                      </tr>
+                    ) : (
+                      listaEans.map((item) => (
+                        <tr key={item.ean} className="hover:bg-amber-50/40">
+                          <td className="py-4 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                            {item.item.toString().padStart(2, '0')}
+                          </td>
+                          <td className="py-4 px-5 font-mono text-slate-900 text-sm border-r border-slate-200">
+                            {item.ean}
+                          </td>
+                          <td className="py-4 px-5 text-center">
+                            <span className="inline-flex items-center px-3.5 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
+                              {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                   <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
                     <tr>
-                      <td colSpan={4} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
+                      <td colSpan={2} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
                         Total Geral Transportado Neste Volume:
                       </td>
                       <td className="py-3 px-5 text-center text-sm text-amber-800 font-black">
@@ -805,7 +789,7 @@ export const GeradorEspelhos: React.FC = () => {
               </div>
             </div>
 
-            {/* Assinaturas no Espelho Transporte (Requisito 5) */}
+            {/* Assinaturas no Espelho 2 */}
             <div className="grid grid-cols-2 gap-12 text-center pt-8 border-t border-slate-200 text-xs text-slate-500">
               <div>
                 <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
@@ -843,6 +827,14 @@ export const GeradorEspelhos: React.FC = () => {
                   ESPELHO DE AUDITORIA SAMSUNG
                 </h1>
               </div>
+            </div>
+
+            {/* Aviso Obrigatório: Colocar dentro da Caixa Master */}
+            <div className="bg-blue-50 border-2 border-blue-400 text-blue-900 rounded-2xl p-4 mb-6 flex items-center gap-3 shadow-xs">
+              <PackageCheck className="w-5 h-5 text-blue-600 shrink-0" />
+              <span className="text-xs font-bold leading-relaxed">
+                <strong>INSTRUÇÃO DE EMBARQUE:</strong> Este espelho deve ser colocado <strong>dentro da Caixa Master</strong>.
+              </span>
             </div>
 
             {/* Informações da Caixa */}

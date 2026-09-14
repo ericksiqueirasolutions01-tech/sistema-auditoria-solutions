@@ -425,12 +425,39 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
   }
 
   // 5. POST /api/central/limpar (Apenas para testes/reset se admin)
-  if (endpoint === '/api/central/limpar' && req.method === 'POST') {
-    writeCentralDb({ produtos: [], fotos: [], ultimaAtualizacao: new Date().toISOString() });
+  if (endpoint === '/api/central/limpar' && (req.method === 'POST' || req.method === 'GET')) {
+    const agora = new Date().toISOString();
+    writeCentralDb({ produtos: [], fotos: [], ultimaAtualizacao: agora });
     try {
       fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
       fs.writeFileSync(TENTATIVAS_FILE, JSON.stringify([], null, 2), 'utf-8');
     } catch {}
+
+    const cleanPayload = JSON.stringify({
+      system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+      produtos: [],
+      fotos: [],
+      historico_envios: [],
+      tentativas_duplicadas: [],
+      ultimaAtualizacao: agora,
+    });
+
+    fetch(CLOUD_STORAGE_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: cleanPayload,
+    })
+      .then((r) => {
+        if (!r.ok) {
+          return fetch(CLOUD_STORAGE_BACKUP_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: cleanPayload,
+          });
+        }
+      })
+      .catch(() => {});
+
     res.statusCode = 200;
     res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso: 0 produtos, 0 fotos, 0 sincronizações.' }));
     return;

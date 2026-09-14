@@ -253,6 +253,8 @@ export const PainelAdmin: React.FC = () => {
       EAN: p.ean,
       Serial: p.serial,
       Caixa: p.numero_caixa,
+      'Nota Fiscal': p.numero_nf || 'NF 001',
+      'NF foi conferida?': p.nf_conferida || 'SIM',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
@@ -1108,14 +1110,25 @@ export const PainelAdmin: React.FC = () => {
           {/* TABELA COMPLETA DA REGIONAL ESTILO EXCEL (ITEM 7) */}
           <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                  Tabela Completa de Registros ({regionalAtiva})
-                </h3>
-                <span className="text-xs text-slate-500 font-medium">
-                  {produtosFiltrados.length} aparelhos encontrados
-                </span>
+              <div className="flex items-center gap-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                    Tabela Completa de Registros ({regionalAtiva})
+                  </h3>
+                  <span className="text-xs text-slate-500 font-medium">
+                    {produtosFiltrados.length} aparelhos encontrados
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => exportarExcelRegional(regionalAtiva)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Exportar para Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Excel ({regionalAtiva})
+                </button>
               </div>
 
               {/* Controles de Filtros e Busca */}
@@ -1216,6 +1229,8 @@ export const PainelAdmin: React.FC = () => {
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
+                    <th className="py-2.5 px-3 border-r border-blue-600">NF</th>
+                    <th className="py-2.5 px-3 text-center border-r border-blue-600">NF Conferida?</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Lacrado</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Kit Compl.</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Marcas Uso</th>
@@ -1236,7 +1251,7 @@ export const PainelAdmin: React.FC = () => {
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   {produtosPaginados.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="py-12 text-center text-slate-400 font-sans">
+                      <td colSpan={15} className="py-12 text-center text-slate-400 font-sans">
                         Nenhum registro encontrado com os filtros aplicados.
                       </td>
                     </tr>
@@ -1262,6 +1277,20 @@ export const PainelAdmin: React.FC = () => {
                         </td>
                         <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase border-r border-slate-200">
                           {p.numero_caixa}
+                        </td>
+                        <td className="py-2 px-3 font-sans font-bold text-slate-800 border-r border-slate-200">
+                          {p.numero_nf || 'NF 001'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                              p.nf_conferida === 'NÃO'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {p.nf_conferida || 'SIM'}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
                           <span

@@ -27,6 +27,7 @@ export const GeradorEspelhos: React.FC = () => {
     caixas.length > 0 ? caixas[0] : 'Caixa 01'
   );
   const [incluirSeriaisEspelho, setIncluirSeriaisEspelho] = useState<boolean>(false);
+  const [tipoEspelhoVisualizacao, setTipoEspelhoVisualizacao] = useState<'completo' | 'transporte'>('completo');
   const [modalVisualizarFotosAberto, setModalVisualizarFotosAberto] = useState(false);
 
   const produtosCaixa = db.listarProdutos({ caixa: caixaSelecionada });
@@ -107,7 +108,7 @@ export const GeradorEspelhos: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
-    doc.text(`Auditor Responsável: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
+    doc.text(`Responsável Grupo Solutions: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
     // 3. Informações da Caixa
     doc.setDrawColor(203, 213, 225);
@@ -219,7 +220,7 @@ export const GeradorEspelhos: React.FC = () => {
       currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
     }
 
-    // 6. Bloco de Assinaturas
+    // 6. Bloco de Assinaturas (Requisito 5: Responsável Casas Bahia e Responsável Grupo Solutions)
     if (currentY > 250) {
       doc.addPage();
       currentY = 25;
@@ -228,12 +229,143 @@ export const GeradorEspelhos: React.FC = () => {
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.line(18, currentY + 15, 90, currentY + 15);
-    doc.text('Assinatura do Auditor Responsável', 18, currentY + 20);
+    doc.text('Responsável Casas Bahia', 18, currentY + 20);
 
     doc.line(110, currentY + 15, 182, currentY + 15);
-    doc.text('Supervisão de Qualidade Grupo Solutions', 110, currentY + 20);
+    doc.text('Responsável Grupo Solutions', 110, currentY + 20);
 
-    doc.save(`Espelho_Auditoria_${caixaSelecionada.replace(/\s+/g, '_')}_Samsung.pdf`);
+    doc.save(`Espelho_Completo_${caixaSelecionada.replace(/\s+/g, '_')}_Samsung.pdf`);
+  };
+
+  // =========================================================================
+  // ESPELHO 2: RESUMIDO / TRANSPORTE (SEGURANÇA DE CARGA)
+  // REQUISITO DE SEGURANÇA: NÃO EXIBE MODELOS DOS PRODUTOS
+  // Contém apenas NF, Caixas, quantidades por caixa e totais + assinaturas
+  // =========================================================================
+  const exportarEspelhoTransportePDF = () => {
+    const doc = new jsPDF();
+    const nfPrincipal = produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001';
+    const totalGeral = produtosCaixa.length;
+    const totalConferidos = produtosCaixa.filter((i) => i.nf_conferida !== 'NÃO').length;
+    const totalNaoConferidos = produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length;
+
+    try {
+      doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);
+      doc.addImage(LOGO_SAMSUNG_BASE64, 'PNG', 160, 9, 36, 15.4);
+    } catch {}
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text('GRUPO SOLUTIONS - CONTROLE DE TRANSPORTE E EXPEDIÇÃO', 14, 28);
+
+    doc.setFontSize(11);
+    doc.setTextColor(180, 83, 9); // Âmbar transporte
+    doc.text('ESPELHO RESUMIDO DE TRANSPORTE (SEGURANÇA DE CARGA)', 14, 34);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
+    doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
+
+    // Box com aviso de segurança
+    doc.setDrawColor(245, 158, 11);
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(14, 48, 182, 10, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(146, 64, 14);
+    doc.text(
+      'AVISO DE SEGURANÇA: Nomes e modelos de produtos foram omitidos deste documento para prevenção contra roubo e segurança da carga.',
+      18,
+      54
+    );
+
+    // Quadro de informações gerais
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 61, 182, 28, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`IDENTIFICAÇÃO DO VOLUME: ${caixaSelecionada.toUpperCase()}`, 18, 69);
+    doc.text(`NOTA FISCAL: ${nfPrincipal}`, 18, 76);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 83);
+
+    doc.text(`QUANTIDADE NO VOLUME: ${totalGeral} peças`, 105, 69);
+    doc.text(
+      `STATUS CONFERÊNCIA NF: ${totalNaoConferidos > 0 ? `${totalNaoConferidos} item(ns) NÃO conferido(s)` : 'SIM (100% CONFERIDO)'}`,
+      105,
+      76
+    );
+    doc.text(`FINALIDADE: TRANSPORTE SEGURO`, 105, 83);
+
+    // Tabela resumida ESTRITAMENTE SEM MODELOS
+    const tableData = [
+      [
+        '01',
+        caixaSelecionada.toUpperCase(),
+        nfPrincipal,
+        totalNaoConferidos > 0 ? `${totalConferidos} SIM / ${totalNaoConferidos} NÃO` : 'SIM',
+        `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`,
+      ],
+    ];
+
+    autoTable(doc, {
+      startY: 94,
+      head: [['Item', 'Volume / Caixa', 'Nota Fiscal', 'NF Conferida?', 'Qtd. Total de Peças']],
+      body: tableData,
+      foot: [['', 'TOTAL GERAL TRANSPORTADO NESTE VOLUME', '', '', `${totalGeral} unidades`]],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [180, 83, 9],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 9.5,
+      },
+      footStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [15, 23, 42],
+        fontStyle: 'bold',
+        fontSize: 9.5,
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 16 },
+        1: { fontStyle: 'bold' },
+        3: { halign: 'center', fontStyle: 'bold' },
+        4: { halign: 'center', fontStyle: 'bold' },
+      },
+    });
+
+    let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 25;
+
+    if (currentY > 250) {
+      doc.addPage();
+      currentY = 30;
+    }
+
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.line(18, currentY + 15, 90, currentY + 15);
+    doc.text('Responsável Casas Bahia', 18, currentY + 20);
+
+    doc.line(110, currentY + 15, 182, currentY + 15);
+    doc.text('Responsável Grupo Solutions', 110, currentY + 20);
+
+    doc.save(`Espelho_Transporte_${caixaSelecionada.replace(/\s+/g, '_')}_Seguranca.pdf`);
+  };
+
+  const baixarAmbosEspelhos = () => {
+    exportarEspelhoPDF();
+    setTimeout(() => {
+      exportarEspelhoTransportePDF();
+    }, 600);
   };
 
   // =========================================================================
@@ -251,6 +383,8 @@ export const GeradorEspelhos: React.FC = () => {
       EAN: p.ean,
       Serial: p.serial,
       Caixa: p.numero_caixa,
+      'Nota Fiscal': p.numero_nf || 'NF 001',
+      'NF foi conferida?': p.nf_conferida || 'SIM',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
@@ -420,25 +554,43 @@ export const GeradorEspelhos: React.FC = () => {
               VISUALIZAR FOTOS DA CAIXA ({totalFotosAnexadas}/{totalGrupos})
             </button>
 
-            {/* Baixar Espelho PDF */}
-            <button
-              onClick={exportarEspelhoPDF}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Baixar Espelho oficial em PDF com Logos"
-            >
-              <Download className="w-4 h-4" />
-              {incluirSeriaisEspelho ? 'Baixar PDF com Serial' : 'Baixar Espelho (PDF)'}
-            </button>
+            {/* Botões de Download dos 2 Espelhos conforme Requisito 6 */}
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-300">
+              <button
+                onClick={exportarEspelhoPDF}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs px-3 py-2 rounded-lg shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+                title="Baixar Espelho 1 Completo (Modelo, EAN, Quantidade)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Espelho 1 (Completo)
+              </button>
+              <button
+                onClick={exportarEspelhoTransportePDF}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs px-3 py-2 rounded-lg shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+                title="Baixar Espelho 2 Resumido / Transporte (SEM modelo para segurança)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Espelho 2 (Transporte)
+              </button>
+              <button
+                onClick={baixarAmbosEspelhos}
+                className="bg-purple-700 hover:bg-purple-800 text-white font-black text-xs px-3 py-2 rounded-lg shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+                title="Baixar ambos os espelhos em PDF"
+              >
+                <Files className="w-3.5 h-3.5" />
+                Baixar Ambos
+              </button>
+            </div>
 
             {/* Imprimir Espelho */}
             <button
               onClick={imprimirEspelho}
               className={`text-white font-bold text-xs px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
-                incluirSeriaisEspelho ? 'bg-purple-700 hover:bg-purple-800' : 'bg-slate-800 hover:bg-slate-900'
+                tipoEspelhoVisualizacao === 'transporte' ? 'bg-amber-700 hover:bg-amber-800' : 'bg-slate-800 hover:bg-slate-900'
               }`}
             >
               <Printer className="w-4 h-4" />
-              {incluirSeriaisEspelho ? 'Imprimir com Serial' : 'Imprimir Espelho'}
+              Imprimir Visualização
             </button>
 
             {/* Relatório da Caixa Excel */}
@@ -495,244 +647,417 @@ export const GeradorEspelhos: React.FC = () => {
         </div>
       </div>
 
+      {/* Seletor de visualização do espelho em tela */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border-2 border-slate-300 rounded-2xl p-4 shadow-xs no-print">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">Visualização em Tela:</span>
+          <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-300">
+            <button
+              type="button"
+              onClick={() => setTipoEspelhoVisualizacao('completo')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                tipoEspelhoVisualizacao === 'completo'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📄 Espelho 1: Completo (Operacional)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTipoEspelhoVisualizacao('transporte')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                tipoEspelhoVisualizacao === 'transporte'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🚚 Espelho 2: Transporte (Sem Modelo)
+            </button>
+          </div>
+        </div>
+        <div className="text-xs text-slate-500 font-medium">
+          {tipoEspelhoVisualizacao === 'completo'
+            ? 'ℹ️ Visualizando dados operacionais com Modelo, EAN e Quantidade'
+            : '🔒 Visualizando documento de transporte seguro (modelos ocultos)'}
+        </div>
+      </div>
+
       {/* ========================================================================= */}
       {/* FOLHA DO ESPELHO DE AUDITORIA (LAYOUT IMPRESSO E VISUAL) */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl shadow-md border border-slate-300 p-8 sm:p-12 max-w-5xl mx-auto print:shadow-none print:border-none print:p-0 print:m-0 print-container">
-        {/* Cabeçalho com Logos Oficiais Solutions & Samsung */}
-        <div className="border-b-2 border-slate-800 pb-6 mb-6">
-          <div className="flex items-center justify-between">
-            <SolutionsLogo height={44} />
-            <div className="text-center hidden sm:block">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
-                GRUPO SOLUTIONS
-              </span>
-              <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">
-                ESPELHO DE AUDITORIA SAMSUNG
-              </h1>
+        {tipoEspelhoVisualizacao === 'transporte' ? (
+          /* ======================================================================= */
+          /* ESPELHO 2 - RESUMIDO / TRANSPORTE (SEM MODELOS DOS PRODUTOS)             */
+          /* ======================================================================= */
+          <div>
+            {/* Cabeçalho Transporte */}
+            <div className="border-b-2 border-amber-600 pb-6 mb-6">
+              <div className="flex items-center justify-between">
+                <SolutionsLogo height={44} />
+                <div className="text-center hidden sm:block">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+                    GRUPO SOLUTIONS
+                  </span>
+                  <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                    ESPELHO RESUMIDO DE TRANSPORTE
+                  </h1>
+                  <span className="text-xs font-black text-amber-700 uppercase tracking-wider">
+                    Controle de Expedição & Segurança de Carga
+                  </span>
+                </div>
+                <SamsungLogo height={28} />
+              </div>
+              <div className="text-center sm:hidden mt-3">
+                <h1 className="text-base font-black text-slate-900 tracking-tight uppercase">
+                  ESPELHO RESUMIDO DE TRANSPORTE
+                </h1>
+              </div>
             </div>
-            <SamsungLogo height={28} />
-          </div>
-          <div className="text-center sm:hidden mt-3">
-            <h1 className="text-base font-black text-slate-900 tracking-tight uppercase">
-              ESPELHO DE AUDITORIA SAMSUNG
-            </h1>
-          </div>
-        </div>
 
-        {/* Informações da Caixa */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 items-center">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
-              <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
+            {/* Aviso de Segurança de Transporte */}
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 mb-6 flex items-start gap-3">
+              <div className="p-2 bg-amber-200 text-amber-900 rounded-xl font-black text-sm shrink-0">
+                🚚 SEGURANÇA
+              </div>
+              <div className="text-xs text-amber-900">
+                <strong className="font-black uppercase block">Aviso de Segurança de Carga:</strong>
+                Conforme política de prevenção e segurança no transporte de cargas valiosas, os modelos e descrições dos produtos foram estritamente omitidos deste documento de embarque.
+              </div>
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>
-              <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Fabricante:</span>
-              <span className="text-xl font-black text-slate-900">SAMSUNG</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade:</span>
-              <span className="text-xl font-black text-emerald-700">
-                {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Modelos/EANs:</span>
-              <span className="text-xl font-black text-slate-800">
-                {listaModelosEan.length}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase block">Fotos da Caixa:</span>
-              <span className="text-sm font-black text-blue-900 block">
-                {totalFotosAnexadas} de {totalGrupos} foto(s)
-              </span>
-              <button
-                type="button"
-                onClick={() => setModalVisualizarFotosAberto(true)}
-                className="mt-1 text-[11px] font-black uppercase text-blue-700 hover:text-blue-900 underline flex items-center gap-1 cursor-pointer no-print"
-                title="Visualizar evidências fotográficas anexadas"
-              >
-                <Camera className="w-3 h-3" /> Visualizar Fotos
-              </button>
-            </div>
-          </div>
-        </div>
 
-        {/* TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE */}
-        {/* Conforme solicitação: se mesmo modelo e mesmo EAN -> exibe 1 linha com a quantidade (ex: 10). */}
-        {/* Mudou o EAN ou modelo -> vem na linha de baixo com seu modelo, EAN e quantidade. */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
-              Conteúdo Consolidado da Caixa:
-            </span>
-            <span className="text-xs text-slate-500 font-medium">
-              {listaModelosEan.length} item(ns) agrupado(s)
-            </span>
-          </div>
+            {/* Informações do Volume */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Volume / Caixa:</span>
+                  <span className="text-xl font-black text-amber-700 uppercase">{caixaSelecionada}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Nota Fiscal:</span>
+                  <span className="text-xl font-black text-slate-900">
+                    {produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional de Origem:</span>
+                  <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade no Volume:</span>
+                  <span className="text-xl font-black text-emerald-700">
+                    {produtosCaixa.length} {produtosCaixa.length === 1 ? 'peça' : 'peças'}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-          <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
-                <tr>
-                  <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
-                  <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
-                  <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
-                  <th className="py-3 px-5 text-center w-36">Quantidade</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 text-xs">
-                {listaModelosEan.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
-                      Nenhum produto registrado nesta caixa até o momento.
-                    </td>
-                  </tr>
-                ) : (
-                  listaModelosEan.map((item) => (
-                    <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
-                      <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                        {item.item.toString().padStart(2, '0')}
+            {/* Tabela de Transporte: ESTRITAMENTE SEM MODELOS */}
+            <div className="mb-6">
+              <div className="border-2 border-amber-500 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-amber-700 text-white uppercase text-[11px] font-black tracking-wider">
+                    <tr>
+                      <th className="py-3 px-4 text-center w-16 border-r border-amber-600">Item</th>
+                      <th className="py-3 px-5 border-r border-amber-600">Volume / Caixa</th>
+                      <th className="py-3 px-5 border-r border-amber-600">Nota Fiscal</th>
+                      <th className="py-3 px-5 text-center border-r border-amber-600">Conferência NF</th>
+                      <th className="py-3 px-5 text-center w-44">Qtd. Total de Peças</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs font-bold">
+                    <tr>
+                      <td className="py-4 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                        01
                       </td>
-                      <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
-                        {item.modelo}
+                      <td className="py-4 px-5 text-slate-900 uppercase border-r border-slate-200">
+                        {caixaSelecionada}
                       </td>
-                      <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
-                        {item.ean}
+                      <td className="py-4 px-5 text-slate-800 border-r border-slate-200">
+                        {produtosCaixa.find((i) => i.numero_nf)?.numero_nf || 'NF 001'}
                       </td>
-                      <td className="py-3 px-5 text-center border-slate-200">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
-                          {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                      <td className="py-4 px-5 text-center border-r border-slate-200">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
+                          {produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length > 0
+                            ? `${produtosCaixa.filter((i) => i.nf_conferida === 'NÃO').length} NÃO CONFERIDO(S)`
+                            : 'SIM (100% CONFERIDO)'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-5 text-center">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
+                          {produtosCaixa.length} {produtosCaixa.length === 1 ? 'peça' : 'peças'}
                         </span>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-              <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
-                <tr>
-                  <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
-                    Total Geral de Produtos na Caixa:
-                  </td>
-                  <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
-                    {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        {/* Opção de Controle de Seriais (Impressão e PDF) */}
-        <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 no-print">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
-              Tipo de Espelho:
-            </span>
-            <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
-              <button
-                type="button"
-                onClick={() => setIncluirSeriaisEspelho(false)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                  !incluirSeriaisEspelho
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                📄 Espelho Padrão (Sem Serial)
-              </button>
-              <button
-                type="button"
-                onClick={() => setIncluirSeriaisEspelho(true)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                  incluirSeriaisEspelho
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                📋 Espelho com Serial
-              </button>
-            </div>
-          </div>
-          <span className="text-xs text-slate-600 font-bold">
-            {incluirSeriaisEspelho
-              ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão e no PDF'
-              : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem números de série)'}
-          </span>
-        </div>
-
-        {/* Relação de Seriais (Exibida caso o usuário ative a opção) */}
-        {incluirSeriaisEspelho && (
-          <div className="space-y-2 mb-8">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
-                Relação Detalhada de Seriais da {caixaSelecionada}:
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                {produtosCaixa.length} seriais
-              </span>
-            </div>
-
-            <div className="border border-slate-300 rounded-xl overflow-hidden">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-4 text-center w-14 border-r border-slate-700">Nº</th>
-                    <th className="py-2.5 px-4 border-r border-slate-700">Modelo Produto</th>
-                    <th className="py-2.5 px-4 font-mono border-r border-slate-700">EAN</th>
-                    <th className="py-2.5 px-4 font-mono">Número de Série (Serial)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-mono text-xs">
-                  {produtosCaixa.length === 0 ? (
+                  </tbody>
+                  <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-400 font-sans">
-                        Nenhum serial gravado nesta caixa.
+                      <td colSpan={4} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
+                        Total Geral Transportado Neste Volume:
+                      </td>
+                      <td className="py-3 px-5 text-center text-sm text-amber-800 font-black">
+                        {produtosCaixa.length} {produtosCaixa.length === 1 ? 'peça' : 'peças'}
                       </td>
                     </tr>
-                  ) : (
-                    produtosCaixa.map((p, idx) => (
-                      <tr key={p.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-4 text-center text-slate-400 font-sans border-r border-slate-200">
-                          {(idx + 1).toString().padStart(2, '0')}
-                        </td>
-                        <td className="py-2 px-4 font-sans font-bold text-slate-800 border-r border-slate-200">
-                          {p.modelo_produto}
-                        </td>
-                        <td className="py-2 px-4 text-slate-600 border-r border-slate-200">
-                          {p.ean}
-                        </td>
-                        <td className="py-2 px-4 font-black text-slate-900 tracking-wider">
-                          {p.serial}
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Assinaturas no Espelho Transporte (Requisito 5) */}
+            <div className="grid grid-cols-2 gap-12 text-center pt-8 border-t border-slate-200 text-xs text-slate-500">
+              <div>
+                <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+                <span className="font-bold text-slate-700 block">Responsável Casas Bahia</span>
+                <span className="text-[11px] text-slate-400">Conferência e Recebimento no Transporte</span>
+              </div>
+              <div>
+                <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+                <span className="font-bold text-slate-700 block">Responsável Grupo Solutions</span>
+                <span className="text-[11px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ======================================================================= */
+          /* ESPELHO 1 - COMPLETO / OPERACIONAL (COM MODELOS, EAN E QUANTIDADES)      */
+          /* ======================================================================= */
+          <div>
+            {/* Cabeçalho com Logos Oficiais Solutions & Samsung */}
+            <div className="border-b-2 border-slate-800 pb-6 mb-6">
+              <div className="flex items-center justify-between">
+                <SolutionsLogo height={44} />
+                <div className="text-center hidden sm:block">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+                    GRUPO SOLUTIONS
+                  </span>
+                  <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                    ESPELHO DE AUDITORIA SAMSUNG
+                  </h1>
+                </div>
+                <SamsungLogo height={28} />
+              </div>
+              <div className="text-center sm:hidden mt-3">
+                <h1 className="text-base font-black text-slate-900 tracking-tight uppercase">
+                  ESPELHO DE AUDITORIA SAMSUNG
+                </h1>
+              </div>
+            </div>
+
+            {/* Informações da Caixa */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 items-center">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
+                  <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>
+                  <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Fabricante:</span>
+                  <span className="text-xl font-black text-slate-900">SAMSUNG</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade:</span>
+                  <span className="text-xl font-black text-emerald-700">
+                    {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Modelos/EANs:</span>
+                  <span className="text-xl font-black text-slate-800">
+                    {listaModelosEan.length}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Fotos da Caixa:</span>
+                  <span className="text-sm font-black text-blue-900 block">
+                    {totalFotosAnexadas} de {totalGrupos} foto(s)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setModalVisualizarFotosAberto(true)}
+                    className="mt-1 text-[11px] font-black uppercase text-blue-700 hover:text-blue-900 underline flex items-center gap-1 cursor-pointer no-print"
+                    title="Visualizar evidências fotográficas anexadas"
+                  >
+                    <Camera className="w-3 h-3" /> Visualizar Fotos
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
+                  Conteúdo Consolidado da Caixa:
+                </span>
+                <span className="text-xs text-slate-500 font-medium">
+                  {listaModelosEan.length} item(ns) agrupado(s)
+                </span>
+              </div>
+
+              <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
+                    <tr>
+                      <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
+                      <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
+                      <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
+                      <th className="py-3 px-5 text-center w-36">Quantidade</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs">
+                    {listaModelosEan.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
+                          Nenhum produto registrado nesta caixa até o momento.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      listaModelosEan.map((item) => (
+                        <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
+                          <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                            {item.item.toString().padStart(2, '0')}
+                          </td>
+                          <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
+                            {item.modelo}
+                          </td>
+                          <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
+                            {item.ean}
+                          </td>
+                          <td className="py-3 px-5 text-center border-slate-200">
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
+                              {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                    <tr>
+                      <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
+                        Total Geral de Produtos na Caixa:
+                      </td>
+                      <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
+                        {produtosCaixa.length} {produtosCaixa.length === 1 ? 'produto' : 'produtos'}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Opção de Controle de Seriais (Impressão e PDF) */}
+            <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 no-print">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
+                  Tipo de Espelho:
+                </span>
+                <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setIncluirSeriaisEspelho(false)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      !incluirSeriaisEspelho
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    📄 Espelho Padrão (Sem Serial)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIncluirSeriaisEspelho(true)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                      incluirSeriaisEspelho
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    📋 Espelho com Serial
+                  </button>
+                </div>
+              </div>
+              <span className="text-xs text-slate-600 font-bold">
+                {incluirSeriaisEspelho
+                  ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão e no PDF'
+                  : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem números de série)'}
+              </span>
+            </div>
+
+            {/* Relação de Seriais (Exibida caso o usuário ative a opção) */}
+            {incluirSeriaisEspelho && (
+              <div className="space-y-2 mb-8">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
+                    Relação Detalhada de Seriais da {caixaSelecionada}:
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    {produtosCaixa.length} seriais
+                  </span>
+                </div>
+
+                <div className="border border-slate-300 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-4 text-center w-14 border-r border-slate-700">Nº</th>
+                        <th className="py-2.5 px-4 border-r border-slate-700">Modelo Produto</th>
+                        <th className="py-2.5 px-4 font-mono border-r border-slate-700">EAN</th>
+                        <th className="py-2.5 px-4 font-mono">Número de Série (Serial)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                      {produtosCaixa.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-8 text-center text-slate-400 font-sans">
+                            Nenhum serial gravado nesta caixa.
+                          </td>
+                        </tr>
+                      ) : (
+                        produtosCaixa.map((p, idx) => (
+                          <tr key={p.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-4 text-center text-slate-400 font-sans border-r border-slate-200">
+                              {(idx + 1).toString().padStart(2, '0')}
+                            </td>
+                            <td className="py-2 px-4 font-sans font-bold text-slate-800 border-r border-slate-200">
+                              {p.modelo_produto}
+                            </td>
+                            <td className="py-2 px-4 text-slate-600 border-r border-slate-200">
+                              {p.ean}
+                            </td>
+                            <td className="py-2 px-4 font-black text-slate-900 tracking-wider">
+                              {p.serial}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Assinaturas no Espelho Completo (Requisito 5) */}
+            <div className="grid grid-cols-2 gap-12 text-center pt-8 border-t border-slate-200 text-xs text-slate-500">
+              <div>
+                <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+                <span className="font-bold text-slate-700 block">Responsável Casas Bahia</span>
+                <span className="text-[11px] text-slate-400">Conferência e Recebimento</span>
+              </div>
+              <div>
+                <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
+                <span className="font-bold text-slate-700 block">Responsável Grupo Solutions</span>
+                <span className="text-[11px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
+              </div>
             </div>
           </div>
         )}
-
-        {/* Assinaturas no Espelho */}
-        <div className="grid grid-cols-2 gap-12 text-center pt-8 border-t border-slate-200 text-xs text-slate-500">
-          <div>
-            <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
-            <span className="font-bold text-slate-700 block">Assinatura do Auditor Responsável</span>
-            <span className="text-[11px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
-          </div>
-          <div>
-            <div className="border-t border-slate-400 w-4/5 mx-auto mb-2"></div>
-            <span className="font-bold text-slate-700 block">Supervisão de Qualidade Grupo Solutions</span>
-            <span className="text-[11px] text-slate-400">Rastreabilidade & Qualidade Samsung</span>
-          </div>
-        </div>
       </div>
 
       {/* Modal de Visualização de Fotos da Caixa (Item 11 do Prompt) */}

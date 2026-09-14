@@ -75,6 +75,24 @@ export const BipagemRapida: React.FC = () => {
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
 
+  // Estados da Nota Fiscal e Conferência de NF (Requisitos 3 e 4)
+  const [nfAtiva, setNfAtiva] = useState<string>(() => {
+    return localStorage.getItem('solutions_nf_ativa') || 'NF 001';
+  });
+  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao>(() => {
+    return (localStorage.getItem('solutions_nf_conferida_ativa') as SimNao) || 'SIM';
+  });
+
+  const handleMudarNfConferida = (novoValor: SimNao) => {
+    setNfConferidaAtiva(novoValor);
+    localStorage.setItem('solutions_nf_conferida_ativa', novoValor);
+  };
+
+  const handleMudarNfAtiva = (novaNf: string) => {
+    setNfAtiva(novaNf);
+    localStorage.setItem('solutions_nf_ativa', novaNf);
+  };
+
   // Editing state for previously recorded rows (full inline editing of any cell)
   const [linhaEditandoId, setLinhaEditandoId] = useState<number | null>(null);
   const [editModelo, setEditModelo] = useState('');
@@ -82,6 +100,8 @@ export const BipagemRapida: React.FC = () => {
   const [editSerial, setEditSerial] = useState('');
   const [editData, setEditData] = useState('');
   const [editCaixa, setEditCaixa] = useState('');
+  const [editNf, setEditNf] = useState('');
+  const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
   const [editLacre, setEditLacre] = useState<SimNao>('SIM');
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
@@ -90,6 +110,7 @@ export const BipagemRapida: React.FC = () => {
   // UI Modals
   const [mostrarEspelhoModal, setMostrarEspelhoModal] = useState(false);
   const [incluirSeriaisEspelho, setIncluirSeriaisEspelho] = useState(false);
+  const [tipoEspelhoVisualizacao, setTipoEspelhoVisualizacao] = useState<'completo' | 'transporte'>('completo');
   const [mostrarImportModal, setMostrarImportModal] = useState(false);
   const [mostrarNovaCaixaModal, setMostrarNovaCaixaModal] = useState(false);
   const [novaCaixaNome, setNovaCaixaNome] = useState('');
@@ -277,6 +298,16 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
 
+    // 0. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
+    const totalAtualNaCaixa = db.listarProdutos({ caixa: caixaLimpa }).length;
+    if (totalAtualNaCaixa >= 20) {
+      sounds.playError();
+      setAlertaValidacao(
+        `O limite máximo de 20 produtos por caixa foi atingido para a ${caixaLimpa}. Por favor, inicie ou selecione uma nova caixa.`
+      );
+      return;
+    }
+
     // 1. VALIDAR DUPLICIDADE EM TEMPO REAL
     const check = db.validarDuplicidade(serialLimpo);
     if (check.duplicado && check.produto) {
@@ -311,6 +342,8 @@ export const BipagemRapida: React.FC = () => {
       serial: serialLimpo,
       data_auditoria: dataLimpa,
       numero_caixa: caixaLimpa,
+      numero_nf: nfAtiva.trim(),
+      nf_conferida: nfConferidaAtiva,
       produto_lacrado: lacreAtivo,
       kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
       aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
@@ -355,7 +388,7 @@ export const BipagemRapida: React.FC = () => {
     }
   };
 
-  // Full Inline Row Editing (Excel mode) - Allows editing Modelo, EAN, Serial, Caixa, Lacre, Kit, Marcas, Obs
+  // Full Inline Row Editing (Excel mode) - Allows editing Modelo, EAN, Serial, Caixa, Lacre, Kit, Marcas, Obs, NF Conferida
   const iniciarEdicaoLinha = (item: ProdutoAuditoria) => {
     if (item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       sounds.playError();
@@ -368,6 +401,8 @@ export const BipagemRapida: React.FC = () => {
     setEditSerial(item.serial);
     setEditData(item.data_auditoria);
     setEditCaixa(item.numero_caixa);
+    setEditNf(item.numero_nf || '');
+    setEditNfConferida(item.nf_conferida || 'SIM');
     setEditLacre(item.produto_lacrado);
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
@@ -409,6 +444,8 @@ export const BipagemRapida: React.FC = () => {
       serial: editSerial.trim().toUpperCase(),
       data_auditoria: editData.trim(),
       numero_caixa: editCaixa.trim(),
+      numero_nf: editNf.trim(),
+      nf_conferida: editNfConferida,
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
@@ -733,7 +770,7 @@ export const BipagemRapida: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
-    doc.text(`Auditor Responsável: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
+    doc.text(`Responsável Grupo Solutions: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
     // 3. Quadro de Informações da Caixa
     doc.setDrawColor(203, 213, 225);
@@ -844,7 +881,7 @@ export const BipagemRapida: React.FC = () => {
       currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
     }
 
-    // 6. Bloco de Assinaturas
+    // 6. Bloco de Assinaturas (Requisito 5: Responsável Casas Bahia e Responsável Grupo Solutions)
     if (currentY > 250) {
       doc.addPage();
       currentY = 25;
@@ -853,12 +890,145 @@ export const BipagemRapida: React.FC = () => {
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.line(18, currentY + 15, 90, currentY + 15);
-    doc.text('Assinatura do Auditor Responsável', 18, currentY + 20);
+    doc.text('Responsável Casas Bahia', 18, currentY + 20);
 
     doc.line(110, currentY + 15, 182, currentY + 15);
-    doc.text('Supervisão de Qualidade Grupo Solutions', 110, currentY + 20);
+    doc.text('Responsável Grupo Solutions', 110, currentY + 20);
 
-    doc.save(`Espelho_Auditoria_${caixaNomeAlvo.replace(/\s+/g, '_')}_Samsung.pdf`);
+    doc.save(`Espelho_Completo_${caixaNomeAlvo.replace(/\s+/g, '_')}_Samsung.pdf`);
+  };
+
+  // =========================================================================
+  // ESPELHO 2: RESUMIDO / TRANSPORTE (SEGURANÇA DE CARGA)
+  // REQUISITO DE SEGURANÇA: NÃO EXIBE MODELOS DOS PRODUTOS
+  // Contém apenas NF, Caixas, quantidades por caixa e totais + assinaturas
+  // =========================================================================
+  const exportarEspelhoTransportePDF = (caixaAlvo?: string) => {
+    const doc = new jsPDF();
+    const caixaNomeAlvo = caixaAlvo || (filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
+    const itens = db.listarProdutos({ caixa: caixaNomeAlvo });
+    const totalGeral = itens.length;
+    const nfPrincipal = itens.find((i) => i.numero_nf)?.numero_nf || nfAtiva || 'NF 001';
+    const totalConferidos = itens.filter((i) => i.nf_conferida !== 'NÃO').length;
+    const totalNaoConferidos = itens.filter((i) => i.nf_conferida === 'NÃO').length;
+
+    try {
+      doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);
+      doc.addImage(LOGO_SAMSUNG_BASE64, 'PNG', 160, 9, 36, 15.4);
+    } catch {}
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text('GRUPO SOLUTIONS - CONTROLE DE TRANSPORTE E EXPEDIÇÃO', 14, 28);
+
+    doc.setFontSize(11);
+    doc.setTextColor(180, 83, 9); // Âmbar transporte
+    doc.text('ESPELHO RESUMIDO DE TRANSPORTE (SEGURANÇA DE CARGA)', 14, 34);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
+    doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
+
+    // Box com aviso de segurança
+    doc.setDrawColor(245, 158, 11);
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(14, 48, 182, 10, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(146, 64, 14);
+    doc.text(
+      'AVISO DE SEGURANÇA: Nomes e modelos de produtos foram omitidos deste documento para prevenção contra roubo e segurança da carga.',
+      18,
+      54
+    );
+
+    // Quadro de informações gerais
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 61, 182, 28, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`IDENTIFICAÇÃO DO VOLUME: ${caixaNomeAlvo.toUpperCase()}`, 18, 69);
+    doc.text(`NOTA FISCAL: ${nfPrincipal}`, 18, 76);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 83);
+
+    doc.text(`QUANTIDADE NO VOLUME: ${totalGeral} peças`, 105, 69);
+    doc.text(
+      `STATUS CONFERÊNCIA NF: ${totalNaoConferidos > 0 ? `${totalNaoConferidos} item(ns) NÃO conferido(s)` : 'SIM (100% CONFERIDO)'}`,
+      105,
+      76
+    );
+    doc.text(`FINALIDADE: TRANSPORTE SEGURO`, 105, 83);
+
+    // Tabela resumida ESTRITAMENTE SEM MODELOS
+    const tableData = [
+      [
+        '01',
+        caixaNomeAlvo.toUpperCase(),
+        nfPrincipal,
+        totalNaoConferidos > 0 ? `${totalConferidos} SIM / ${totalNaoConferidos} NÃO` : 'SIM',
+        `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`,
+      ],
+    ];
+
+    autoTable(doc, {
+      startY: 94,
+      head: [['Item', 'Volume / Caixa', 'Nota Fiscal', 'NF Conferida?', 'Qtd. Total de Peças']],
+      body: tableData,
+      foot: [['', 'TOTAL GERAL TRANSPORTADO NESTE VOLUME', '', '', `${totalGeral} unidades`]],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [180, 83, 9],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 9.5,
+      },
+      footStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [15, 23, 42],
+        fontStyle: 'bold',
+        fontSize: 9.5,
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 16 },
+        1: { fontStyle: 'bold' },
+        3: { halign: 'center', fontStyle: 'bold' },
+        4: { halign: 'center', fontStyle: 'bold' },
+      },
+    });
+
+    let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 25;
+
+    if (currentY > 250) {
+      doc.addPage();
+      currentY = 30;
+    }
+
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.line(18, currentY + 15, 90, currentY + 15);
+    doc.text('Responsável Casas Bahia', 18, currentY + 20);
+
+    doc.line(110, currentY + 15, 182, currentY + 15);
+    doc.text('Responsável Grupo Solutions', 110, currentY + 20);
+
+    doc.save(`Espelho_Transporte_${caixaNomeAlvo.replace(/\s+/g, '_')}_Seguranca.pdf`);
+  };
+
+  const baixarAmbosEspelhos = () => {
+    exportarEspelhoPDF();
+    setTimeout(() => {
+      exportarEspelhoTransportePDF();
+    }, 600);
   };
 
   // =========================================================================
@@ -1111,6 +1281,102 @@ export const BipagemRapida: React.FC = () => {
           <span className="text-xs font-bold">{sucessoNotif}</span>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* BARRA SUPERIOR: NOTA FISCAL, CONFERÊNCIA AUTOMÁTICA DA NF E LIMITE DA CAIXA */}
+      {/* REQUISITOS 2, 3 E 4 DO CLIENTE */}
+      {/* ========================================================================= */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-4 border-2 border-blue-600/50">
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Campo da Nota Fiscal (NF) */}
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/50 flex items-center justify-center text-amber-400 shrink-0">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-blue-200 block">
+                Nota Fiscal (NF):
+              </span>
+              <input
+                type="text"
+                value={nfAtiva}
+                onChange={(e) => handleMudarNfAtiva(e.target.value)}
+                placeholder="Ex: NF 00123"
+                className="text-sm font-black text-white bg-blue-950/80 border border-blue-400/60 rounded-xl px-3 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400 w-36 uppercase tracking-wider shadow-inner"
+              />
+            </div>
+          </div>
+
+          {/* Seletor Automático de Conferência da NF: [ SIM ] [ NÃO ] */}
+          <div className="flex items-center gap-2 pl-3 border-l border-blue-700/60">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-blue-200 block mb-1">
+                NF foi conferida?
+              </span>
+              <div className="inline-flex bg-blue-950/90 rounded-xl p-1 border border-blue-600/60 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => handleMudarNfConferida('SIM')}
+                  className={`px-3 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
+                    nfConferidaAtiva === 'SIM'
+                      ? 'bg-emerald-600 text-white shadow-xs scale-105 ring-2 ring-emerald-400'
+                      : 'text-blue-200 hover:text-white'
+                  }`}
+                  title="Todos os próximos seriais bipados assumirão NF Conferida: SIM"
+                >
+                  <Check className="w-3.5 h-3.5" /> SIM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMudarNfConferida('NÃO')}
+                  className={`px-3 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
+                    nfConferidaAtiva === 'NÃO'
+                      ? 'bg-rose-600 text-white shadow-xs scale-105 ring-2 ring-rose-400'
+                      : 'text-blue-200 hover:text-white'
+                  }`}
+                  title="Todos os próximos seriais bipados assumirão NF Conferida: NÃO"
+                >
+                  <X className="w-3.5 h-3.5" /> NÃO
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Indicador em Tempo Real do Limite de 20 Produtos por Caixa */}
+        <div className="flex items-center gap-3">
+          <div
+            className={`px-4 py-2 rounded-xl border flex items-center gap-2.5 transition-all ${
+              contadores.totalAuditados >= 20
+                ? 'bg-rose-950/90 border-rose-500 text-rose-200 shadow-md ring-2 ring-rose-500 animate-pulse'
+                : contadores.totalAuditados >= 15
+                ? 'bg-amber-950/80 border-amber-500 text-amber-200'
+                : 'bg-blue-950/80 border-blue-500/50 text-blue-200'
+            }`}
+          >
+            <Boxes className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <span className="text-[10px] font-bold uppercase block leading-tight">
+                Limite por Caixa:
+              </span>
+              <span className="text-xs font-black">
+                {contadores.totalAuditados} / 20 produtos
+                {contadores.totalAuditados >= 20 ? ' • ⚠️ LOTADA (INICIE NOVA CAIXA)' : ''}
+              </span>
+            </div>
+          </div>
+
+          {contadores.totalAuditados >= 20 && (
+            <button
+              type="button"
+              onClick={handleNovaAuditoria}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase px-3 py-2 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer animate-bounce"
+            >
+              <Plus className="w-4 h-4" /> Nova Caixa
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ========================================================================= */}
       {/* RENDERIZAÇÃO CONDICIONAL: MODO CELULAR VS PLANILHA */}
@@ -2176,6 +2442,9 @@ export const BipagemRapida: React.FC = () => {
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-indigo-50 text-indigo-950">
                   Caixa ✏️
                 </th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[105px] bg-emerald-50 text-emerald-950">
+                  NF foi conferida? ✏️
+                </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
@@ -2252,6 +2521,18 @@ export const BipagemRapida: React.FC = () => {
                           onChange={(e) => setEditCaixa(e.target.value)}
                           className="w-full text-center text-xs font-black text-blue-900 bg-white border-2 border-blue-400 rounded px-1.5 py-1 uppercase"
                         />
+                      </td>
+
+                      {/* NF foi conferida? */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-emerald-50/40">
+                        <select
+                          value={editNfConferida}
+                          onChange={(e) => setEditNfConferida(e.target.value as SimNao)}
+                          className="text-[11px] font-black px-1.5 py-1 rounded border border-amber-400 bg-white cursor-pointer"
+                        >
+                          <option value="SIM">SIM</option>
+                          <option value="NÃO">NÃO</option>
+                        </select>
                       </td>
 
                       {/* Produto Lacrado */}
@@ -2372,6 +2653,17 @@ export const BipagemRapida: React.FC = () => {
                     </td>
                     <td className="py-2 px-3 text-center font-black text-blue-700 border-r border-slate-200 bg-blue-50/20">
                       {item.numero_caixa}
+                    </td>
+                    <td className="py-2 px-2 text-center border-r border-slate-200 bg-emerald-50/20">
+                      <span
+                        className={`font-black px-2 py-0.5 rounded text-[10px] border ${
+                          item.nf_conferida === 'NÃO'
+                            ? 'bg-rose-100 text-rose-800 border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        }`}
+                      >
+                        {item.nf_conferida || 'SIM'}
+                      </span>
                     </td>
                     <td className="py-2 px-3 text-center border-r border-slate-200">
                       <span
@@ -2698,238 +2990,361 @@ export const BipagemRapida: React.FC = () => {
               </button>
             </div>
 
+            {/* Seletor do Tipo de Espelho (Requisito 6: Espelho 1 Completo vs Espelho 2 Transporte sem modelos) */}
+            <div className="flex flex-wrap items-center justify-center gap-3 no-print bg-slate-100 p-2 rounded-2xl border border-slate-300">
+              <button
+                type="button"
+                onClick={() => setTipoEspelhoVisualizacao('completo')}
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
+                  tipoEspelhoVisualizacao === 'completo'
+                    ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                Espelho 1: Completo (Operacional)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipoEspelhoVisualizacao('transporte')}
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
+                  tipoEspelhoVisualizacao === 'transporte'
+                    ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
+                }`}
+              >
+                <Lock className="w-4 h-4 text-amber-200" />
+                Espelho 2: Transporte (Segurança - Sem Modelos)
+              </button>
+            </div>
+
             {/* Título Oficial */}
             <div className="text-center space-y-1">
               <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">
-                ESPELHO DE AUDITORIA
+                {tipoEspelhoVisualizacao === 'transporte'
+                  ? 'ESPELHO RESUMIDO DE TRANSPORTE & EXPEDIÇÃO'
+                  : 'ESPELHO DE AUDITORIA & QUALIDADE'}
               </h2>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                Grupo Solutions • Setor de Rastreabilidade e Qualidade Samsung
+                Grupo Solutions • Setor de Rastreabilidade e Logística Samsung
               </p>
             </div>
 
-            {/* Quadro de Detalhes da Caixa: Caixa, Regional, Fabricante SAMSUNG e Total */}
+            {/* AVISO DE SEGURANÇA NO ESPELHO DE TRANSPORTE */}
+            {tipoEspelhoVisualizacao === 'transporte' && (
+              <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 rounded-2xl p-3.5 flex items-center gap-3 shadow-xs">
+                <Lock className="w-5 h-5 text-amber-600 shrink-0" />
+                <span className="text-xs font-bold leading-relaxed">
+                  <strong>AVISO DE SEGURANÇA DO TRANSPORTE:</strong> Os modelos e especificações técnicas dos aparelhos foram omitidos deste documento para prevenção de desvios e segurança da carga de alto valor durante o transporte.
+                </span>
+              </div>
+            )}
+
+            {/* Quadro de Detalhes da Caixa */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Caixa:</span>
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
                   <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Nota Fiscal:</span>
+                  <span className="font-black text-indigo-700 text-base uppercase">{nfAtiva || 'NF 001'}</span>
                 </div>
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Regional:</span>
                   <span className="font-black text-purple-700 text-base uppercase">{regionalAtiva}</span>
                 </div>
                 <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Fabricante:</span>
-                  <span className="font-black text-slate-900 text-base">SAMSUNG</span>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Qtd Total:</span>
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Qtd Total no Volume:</span>
                   <span className="font-black text-emerald-700 text-base">
-                    {espelhoCaixaAtual.totalGeral}
+                    {espelhoCaixaAtual.totalGeral} peças
                   </span>
                 </div>
                 <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Modelos:</span>
-                  <span className="font-black text-slate-800 text-base">
-                    {espelhoCaixaAtual.resumoModelos.length}
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">NF Conferida:</span>
+                  <span className={`font-black text-base ${nfConferidaAtiva === 'SIM' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {nfConferidaAtiva}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE */}
-            {/* Conforme solicitação: se mesmo modelo e mesmo EAN -> exibe 1 linha com a quantidade (ex: 10). */}
-            {/* Mudou o EAN ou modelo -> vem na linha de baixo com seu modelo, EAN e quantidade. */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
-                  Conteúdo da Caixa (Modelo, EAN e Quantidade):
-                </span>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  {espelhoCaixaAtual.resumoModelos.length} item(ns) agrupado(s)
-                </span>
-              </div>
-
-              <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
-                      <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
-                      <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
-                      <th className="py-3 px-5 text-center w-36">Quantidade</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-xs">
-                    {espelhoCaixaAtual.resumoModelos.length === 0 ? (
+            {/* RENDERIZAÇÃO DO CONTEÚDO CONFORME O TIPO DE ESPELHO SELECIONADO */}
+            {tipoEspelhoVisualizacao === 'transporte' ? (
+              /* ========================================================================= */
+              /* ESPELHO 2: RESUMIDO / TRANSPORTE (SEM MODELOS)                            */
+              /* ========================================================================= */
+              <div className="space-y-4">
+                <div className="border-2 border-amber-300 rounded-2xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-amber-700 text-white uppercase text-[11px] font-black tracking-wider">
                       <tr>
-                        <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
-                          Nenhum produto registrado nesta caixa até o momento.
-                        </td>
-                      </tr>
-                    ) : (
-                      espelhoCaixaAtual.resumoModelos.map((item) => (
-                        <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
-                          <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                            {item.item.toString().padStart(2, '0')}
-                          </td>
-                          <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
-                            {item.modelo}
-                          </td>
-                          <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
-                            {item.ean}
-                          </td>
-                          <td className="py-3 px-5 text-center border-slate-200">
-                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
-                              {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                  <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
-                    <tr>
-                      <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
-                        Total Geral de Produtos na Caixa:
-                      </td>
-                      <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
-                        {espelhoCaixaAtual.totalGeral} {espelhoCaixaAtual.totalGeral === 1 ? 'produto' : 'produtos'}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-
-            {/* Opção de Controle de Seriais (Impressão e PDF) */}
-            <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
-                  Tipo de Espelho:
-                </span>
-                <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
-                  <button
-                    type="button"
-                    onClick={() => setIncluirSeriaisEspelho(false)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                      !incluirSeriaisEspelho
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    📄 Espelho Padrão (Sem Serial)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIncluirSeriaisEspelho(true)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                      incluirSeriaisEspelho
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    📋 Espelho com Serial
-                  </button>
-                </div>
-              </div>
-              <span className="text-xs text-slate-600 font-bold">
-                {incluirSeriaisEspelho
-                  ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão'
-                  : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem seriais)'}
-              </span>
-            </div>
-
-            {/* Relação de Seriais (Exibida caso o usuário ative a opção ou queira conferir) */}
-            {incluirSeriaisEspelho && (
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
-                    Relação Detalhada de Seriais da {espelhoCaixaAtual.caixaNome}:
-                  </span>
-                  <span className="text-xs text-slate-500 font-medium">
-                    {espelhoCaixaAtual.itens.length} seriais
-                  </span>
-                </div>
-
-                <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider sticky top-0">
-                      <tr>
-                        <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Nº</th>
-                        <th className="py-2 px-4 border-r border-slate-700">Modelo Produto</th>
-                        <th className="py-2 px-4 font-mono border-r border-slate-700">EAN</th>
-                        <th className="py-2 px-4 font-mono">Número de Série (Serial)</th>
+                        <th className="py-3 px-4 text-center w-16 border-r border-amber-600">Item</th>
+                        <th className="py-3 px-5 border-r border-amber-600">Identificação do Volume</th>
+                        <th className="py-3 px-5 border-r border-amber-600">Nota Fiscal</th>
+                        <th className="py-3 px-5 text-center border-r border-amber-600">NF Conferida?</th>
+                        <th className="py-3 px-5 text-center w-40">Qtd. Total de Peças</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                      {espelhoCaixaAtual.itens.length === 0 ? (
+                    <tbody className="divide-y divide-slate-200 text-xs">
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="py-3.5 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                          01
+                        </td>
+                        <td className="py-3.5 px-5 font-black text-slate-900 text-sm border-r border-slate-200 uppercase">
+                          {espelhoCaixaAtual.caixaNome}
+                        </td>
+                        <td className="py-3.5 px-5 font-bold text-slate-700 text-sm border-r border-slate-200">
+                          {nfAtiva || 'NF 001'}
+                        </td>
+                        <td className="py-3.5 px-5 text-center border-r border-slate-200">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${
+                            nfConferidaAtiva === 'SIM' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {nfConferidaAtiva}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-5 text-center">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
+                            {espelhoCaixaAtual.totalGeral} {espelhoCaixaAtual.totalGeral === 1 ? 'unidade' : 'unidades'}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                    <tfoot className="bg-amber-50 font-black text-slate-900 border-t-2 border-amber-300">
+                      <tr>
+                        <td colSpan={4} className="py-3.5 px-5 text-right uppercase text-xs tracking-wider text-amber-950">
+                          TOTAL GERAL TRANSPORTADO NESTE VOLUME:
+                        </td>
+                        <td className="py-3.5 px-5 text-center text-sm text-amber-900 font-black">
+                          {espelhoCaixaAtual.totalGeral} peças
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              /* ========================================================================= */
+              /* ESPELHO 1: COMPLETO (OPERACIONAL COM MODELOS E EANS)                      */
+              /* ========================================================================= */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
+                    Conteúdo da Caixa (Modelo, EAN e Quantidade):
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {espelhoCaixaAtual.resumoModelos.length} item(ns) agrupado(s)
+                  </span>
+                </div>
+
+                <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
+                        <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
+                        <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
+                        <th className="py-3 px-5 text-center w-36">Quantidade</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-xs">
+                      {espelhoCaixaAtual.resumoModelos.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="py-6 text-center text-slate-400 font-sans">
-                            Nenhum serial nesta caixa.
+                          <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
+                            Nenhum produto registrado nesta caixa até o momento.
                           </td>
                         </tr>
                       ) : (
-                        espelhoCaixaAtual.itens.map((p, index) => (
-                          <tr key={p.id} className="hover:bg-slate-50">
-                            <td className="py-1.5 px-3 text-center text-slate-400 font-sans border-r border-slate-100">
-                              {(index + 1).toString().padStart(2, '0')}
+                        espelhoCaixaAtual.resumoModelos.map((item) => (
+                          <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
+                            <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
+                              {item.item.toString().padStart(2, '0')}
                             </td>
-                            <td className="py-1.5 px-4 font-sans font-bold text-slate-700 border-r border-slate-100">
-                              {p.modelo_produto}
+                            <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
+                              {item.modelo}
                             </td>
-                            <td className="py-1.5 px-4 text-slate-500 border-r border-slate-100">
-                              {p.ean}
+                            <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
+                              {item.ean}
                             </td>
-                            <td className="py-1.5 px-4 font-black text-slate-900 tracking-wider">
-                              {p.serial}
+                            <td className="py-3 px-5 text-center border-slate-200">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
+                                {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
+                              </span>
                             </td>
                           </tr>
                         ))
                       )}
                     </tbody>
+                    <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                      <tr>
+                        <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
+                          Total Geral de Produtos na Caixa:
+                        </td>
+                        <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
+                          {espelhoCaixaAtual.totalGeral} {espelhoCaixaAtual.totalGeral === 1 ? 'produto' : 'produtos'}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
+
+                {/* Opção de Controle de Seriais (Impressão e PDF) */}
+                <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
+                      Modo com Seriais:
+                    </span>
+                    <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
+                      <button
+                        type="button"
+                        onClick={() => setIncluirSeriaisEspelho(false)}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                          !incluirSeriaisEspelho
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                        }`}
+                      >
+                        📄 Sem Serial (Padrão)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIncluirSeriaisEspelho(true)}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
+                          incluirSeriaisEspelho
+                            ? 'bg-purple-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                        }`}
+                      >
+                        📋 Com Seriais
+                      </button>
+                    </div>
+                  </div>
+                  <span className="text-xs text-slate-600 font-bold">
+                    {incluirSeriaisEspelho
+                      ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão'
+                      : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade'}
+                  </span>
+                </div>
+
+                {/* Relação de Seriais (Opcional) */}
+                {incluirSeriaisEspelho && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
+                        Relação Detalhada de Seriais da {espelhoCaixaAtual.caixaNome}:
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        {espelhoCaixaAtual.itens.length} seriais
+                      </span>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider sticky top-0">
+                          <tr>
+                            <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Nº</th>
+                            <th className="py-2 px-4 border-r border-slate-700">Modelo Produto</th>
+                            <th className="py-2 px-4 font-mono border-r border-slate-700">EAN</th>
+                            <th className="py-2 px-4 font-mono">Número de Série (Serial)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                          {espelhoCaixaAtual.itens.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-6 text-center text-slate-400 font-sans">
+                                Nenhum serial nesta caixa.
+                              </td>
+                            </tr>
+                          ) : (
+                            espelhoCaixaAtual.itens.map((p, index) => (
+                              <tr key={p.id} className="hover:bg-slate-50">
+                                <td className="py-1.5 px-3 text-center text-slate-400 font-sans border-r border-slate-100">
+                                  {(index + 1).toString().padStart(2, '0')}
+                                </td>
+                                <td className="py-1.5 px-4 font-sans font-bold text-slate-700 border-r border-slate-100">
+                                  {p.modelo_produto}
+                                </td>
+                                <td className="py-1.5 px-4 text-slate-500 border-r border-slate-100">
+                                  {p.ean}
+                                </td>
+                                <td className="py-1.5 px-4 font-black text-slate-900 tracking-wider">
+                                  {p.serial}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Assinaturas no Espelho */}
+            {/* Assinaturas no Espelho (Requisito 5: Responsável Casas Bahia e Responsável Grupo Solutions) */}
             <div className="pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-center text-xs text-slate-500">
               <div>
                 <div className="border-t border-slate-300 w-3/4 mx-auto mb-1"></div>
-                <span>Auditor Responsável</span>
+                <span className="font-bold text-slate-700 block">Responsável Casas Bahia</span>
+                <span className="text-[10px] text-slate-400">Conferência e Recebimento</span>
               </div>
               <div>
                 <div className="border-t border-slate-300 w-3/4 mx-auto mb-1"></div>
-                <span>Supervisão Grupo Solutions</span>
+                <span className="font-bold text-slate-700 block">Responsável Grupo Solutions</span>
+                <span className="text-[10px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
               </div>
             </div>
 
             {/* Ações do Modal do Espelho */}
-            <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-slate-100 no-print">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 no-print">
               <button
                 onClick={() => setMostrarEspelhoModal(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
               >
                 Fechar
               </button>
-              <button
-                onClick={handleImprimirEspelho}
-                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer ${
-                  incluirSeriaisEspelho ? 'bg-purple-700 hover:bg-purple-800' : 'bg-slate-800 hover:bg-slate-900'
-                }`}
-              >
-                <Printer className="w-4 h-4" />
-                {incluirSeriaisEspelho ? 'Imprimir Espelho com Serial' : 'Imprimir Espelho (Padrão)'}
-              </button>
-              <button
-                onClick={exportarEspelhoPDF}
-                className="px-4 py-2 rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                {incluirSeriaisEspelho ? 'Baixar PDF com Serial' : 'Baixar PDF do Espelho (Padrão)'}
-              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportarEspelhoPDF}
+                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Baixar PDF do Espelho 1 (Completo com Modelos e EANs)"
+                >
+                  <Download className="w-4 h-4" />
+                  Espelho 1 (Completo)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => exportarEspelhoTransportePDF()}
+                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Baixar PDF do Espelho 2 (Transporte sem modelos de produtos)"
+                >
+                  <Lock className="w-4 h-4" />
+                  Espelho 2 (Transporte)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={baixarAmbosEspelhos}
+                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Baixar automaticamente os dois espelhos (Completo + Transporte)"
+                >
+                  <Files className="w-4 h-4" />
+                  Baixar Ambos (2 PDFs)
+                </button>
+
+                <button
+                  onClick={handleImprimirEspelho}
+                  className="px-3 py-2 rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer bg-slate-800 hover:bg-slate-900"
+                >
+                  <Printer className="w-4 h-4" />
+                  Imprimir
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2955,7 +3370,7 @@ export const BipagemRapida: React.FC = () => {
             </div>
 
             <p className="text-xs text-slate-500 font-medium leading-relaxed">
-              Defina a identificação da caixa. Cada caixa pode conter quantos produtos você decidir, sem limite.
+              Defina a identificação da caixa. Cada caixa pode conter <strong>no máximo 20 produtos</strong> conforme a regra operacional do sistema.
             </p>
 
             <div className="space-y-2">

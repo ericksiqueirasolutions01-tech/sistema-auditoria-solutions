@@ -80,6 +80,8 @@ export interface ProdutoAuditoria {
   serial: string;
   data_auditoria: string;
   numero_caixa: string;
+  numero_nf?: string; // Número da Nota Fiscal (Ex: 'NF 001', '12345')
+  nf_conferida?: SimNao; // 'SIM' ou 'NÃO' (Conferência de NF)
   produto_lacrado: SimNao;
   kit_completo: SimNao | null;
   aparelho_marcas_uso: SimNao | null;

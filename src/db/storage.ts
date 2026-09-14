@@ -739,6 +739,8 @@ class AuditoriaDatabase {
     serial: string;
     data_auditoria: string;
     numero_caixa: string;
+    numero_nf?: string;
+    nf_conferida?: SimNao;
     produto_lacrado: SimNao;
     regional?: string;
     kit_completo?: SimNao | null;
@@ -791,6 +793,21 @@ class AuditoriaDatabase {
         ? this.usuarioAtual.regional
         : (item.regional?.trim() || (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
 
+    // 4. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
+    const caixaAlvo = item.numero_caixa.trim().toUpperCase();
+    const totalNaCaixa = this.produtos.filter(
+      (p) =>
+        p.numero_caixa?.trim().toUpperCase() === caixaAlvo &&
+        (!regionalFinal || p.regional?.trim().toUpperCase() === regionalFinal.trim().toUpperCase())
+    ).length;
+
+    if (totalNaCaixa >= 20) {
+      return {
+        sucesso: false,
+        erro: `O limite máximo de 20 produtos por caixa foi atingido para a ${caixaAlvo}. Por favor, inicie ou selecione uma nova caixa.`,
+      };
+    }
+
     const compAtual = this.obterComputadorAtual(regionalFinal);
     const idLocal = Date.now();
     const novoProduto: ProdutoAuditoria = {
@@ -804,7 +821,9 @@ class AuditoriaDatabase {
       ean: item.ean.trim(),
       serial: serialNorm,
       data_auditoria: item.data_auditoria.trim(),
-      numero_caixa: item.numero_caixa.trim().toUpperCase(),
+      numero_caixa: caixaAlvo,
+      numero_nf: (item.numero_nf || '').trim(),
+      nf_conferida: item.nf_conferida || 'SIM',
       produto_lacrado: item.produto_lacrado,
       kit_completo: item.produto_lacrado === 'SIM' ? null : item.kit_completo || null,
       aparelho_marcas_uso: item.produto_lacrado === 'SIM' ? null : item.aparelho_marcas_uso || null,
@@ -867,6 +886,23 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'Este número de série já foi auditado em outro registro.' };
     }
 
+    // Validação de limite de 20 produtos por caixa se estiver trocando de caixa
+    if (dados.numero_caixa && dados.numero_caixa.trim().toUpperCase() !== anterior.numero_caixa.trim().toUpperCase()) {
+      const caixaDestino = dados.numero_caixa.trim().toUpperCase();
+      const totalDestino = this.produtos.filter(
+        (p) =>
+          p.id !== id &&
+          p.numero_caixa?.trim().toUpperCase() === caixaDestino &&
+          (!anterior.regional || p.regional?.trim().toUpperCase() === anterior.regional.trim().toUpperCase())
+      ).length;
+      if (totalDestino >= 20) {
+        return {
+          sucesso: false,
+          erro: `A ${caixaDestino} já atingiu o limite máximo de 20 produtos. Não é possível mover este item para ela.`,
+        };
+      }
+    }
+
     // Remove old serial from map if changed
     if (serialNovo !== anterior.serial) {
       this.serialMap.delete(anterior.serial);
@@ -883,6 +919,9 @@ class AuditoriaDatabase {
       ...anterior,
       ...dados,
       serial: serialNovo,
+      numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
+      numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : anterior.numero_nf,
+      nf_conferida: dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida || 'SIM'),
       kit_completo: kitCompleto,
       aparelho_marcas_uso: marcasUso,
       data_alteracao: new Date().toISOString(),
@@ -1628,11 +1667,23 @@ class AuditoriaDatabase {
     salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
 
     try {
+      // 1. Chamar endpoint serverless da API central (executa PUT sem restrições de CORS no servidor)
+      const limparApiUrl = obterApiUrl('/api/central/limpar');
+      await fetch(limparApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ solicitante: this.usuarioAtual?.nome || 'Administrador' }),
+      }).catch((err) => {
+        console.warn('[Storage] Chamada a /api/central/limpar falhou:', err);
+      });
+
+      // 2. Fallback direto caso o endpoint não esteja acessível
       const cleanPayload = JSON.stringify({
         system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
         produtos: [],
         fotos: [],
         historico_envios: [],
+        tentativas_duplicadas: [],
         ultimaAtualizacao: new Date().toISOString(),
       });
       await fetch(CLOUD_STORAGE_URL, {

@@ -141,16 +141,40 @@ function initIndexedDB(): Promise<IDBDatabase | null> {
   });
 }
 
-function salvarIndexedDB(chave: string, valor: unknown) {
-  initIndexedDB().then((idb) => {
+function salvarIndexedDB(chave: string, valor: unknown): Promise<void> {
+  return initIndexedDB().then((idb) => {
     if (!idb) return;
-    try {
-      const tx = idb.transaction(IDB_STORE, 'readwrite');
-      const store = tx.objectStore(IDB_STORE);
-      store.put(valor, chave);
-    } catch (e) {
-      console.warn('Erro ao salvar no IndexedDB:', e);
-    }
+    return new Promise((resolve) => {
+      try {
+        const tx = idb.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        store.put(valor, chave);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) {
+        console.warn('Erro ao salvar no IndexedDB:', e);
+        resolve();
+      }
+    });
+  });
+}
+
+function limparIndexedDB(): Promise<void> {
+  return initIndexedDB().then((idb) => {
+    if (!idb) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = idb.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
   });
 }
 
@@ -277,6 +301,8 @@ class AuditoriaDatabase {
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
   private seriaisLimposDaTela: Set<string> = new Set<string>();
   private tentativasDuplicadas: LogTentativaDuplicado[] = [];
+  private limpezaEmAndamento: boolean = false;
+  private sincronizando: boolean = false;
 
   constructor() {
     this.carregarDados();
@@ -450,10 +476,16 @@ class AuditoriaDatabase {
 
   // Auto-recuperação caso localStorage tenha sido limpo pelo usuário
   private async verificarRecuperacaoIndexedDB() {
+    if (this.limpezaEmAndamento) return;
     if (this.produtos.length === 0) {
       try {
+        const resetTimestamp = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
+        if (resetTimestamp) {
+          // A base foi oficialmente zerada pelo Administrador. Não restaurar resíduos antigos!
+          return;
+        }
         const idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
-        if (idbProds && idbProds.length > 0) {
+        if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
           this.produtos = idbProds;
           this.serialMap.clear();
           for (const p of this.produtos) {
@@ -1644,30 +1676,55 @@ class AuditoriaDatabase {
       };
     }
 
+    // 1. Ativar trava de exclusividade para impedir que ciclos de sincronização restaurem dados durante a limpeza
+    this.limpezaEmAndamento = true;
+    this.sincronizando = false;
+
+    const agora = new Date().toISOString();
+
+    // 2. Registrar carimbo oficial de base zerada pelo Admin
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('solutions_base_zerada_timestamp', agora);
+    }
+
+    // 3. Esvaziar completamente todas as estruturas em memória
     this.produtos = [];
     this.serialMap.clear();
     this.fotosGrupos = [];
     this.registros10Fotos = [];
     this.historico = [];
-
-    localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
-    localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
-    localStorage.removeItem('solutions_ultima_sincronizacao');
+    this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
-    localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
 
-    salvarIndexedDB(STORAGE_KEY_PRODUTOS, []);
-    salvarIndexedDB(STORAGE_KEY_FOTOS, []);
-    salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, []);
-    salvarIndexedDB(STORAGE_KEY_HISTORICO, []);
-    salvarIndexedDB(STORAGE_KEY_HISTORICO_ENVIOS, []);
+    // 4. Limpar completamente o LocalStorage
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify([]));
+      localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
+      localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
+      localStorage.removeItem('solutions_ultima_sincronizacao');
+    }
 
+    // 5. Limpar completamente o IndexedDB de forma síncrona/aguardada
+    await limparIndexedDB();
+
+    // 6. Zerar o servidor central online e repositórios de nuvem com carimbo de reset
     try {
-      // 1. Chamar endpoint serverless da API central (executa PUT sem restrições de CORS no servidor)
+      const cleanPayload = JSON.stringify({
+        system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+        produtos: [],
+        fotos: [],
+        historico_envios: [],
+        tentativas_duplicadas: [],
+        reset_timestamp: agora,
+        ultimaAtualizacao: agora,
+      });
+
+      // 6.1 Chamar endpoint serverless da API central (/api/central/limpar)
       const limparApiUrl = obterApiUrl('/api/central/limpar');
       await fetch(limparApiUrl, {
         method: 'POST',
@@ -1677,20 +1734,13 @@ class AuditoriaDatabase {
         console.warn('[Storage] Chamada a /api/central/limpar falhou:', err);
       });
 
-      // 2. Fallback direto caso o endpoint não esteja acessível
-      const cleanPayload = JSON.stringify({
-        system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-        produtos: [],
-        fotos: [],
-        historico_envios: [],
-        tentativas_duplicadas: [],
-        ultimaAtualizacao: new Date().toISOString(),
-      });
+      // 6.2 Fallback direto para ambos os repositórios em nuvem
       await fetch(CLOUD_STORAGE_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: cleanPayload,
       }).catch(() => {});
+
       await fetch(CLOUD_STORAGE_BACKUP_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1700,11 +1750,26 @@ class AuditoriaDatabase {
       console.warn('Erro ao zerar nuvem central:', e);
     }
 
+    // 7. Reconfirmar esvaziamento em memória e persistência para garantir 0 resíduos
+    this.produtos = [];
+    this.serialMap.clear();
+    this.fotosGrupos = [];
+    this.registros10Fotos = [];
+    this.historico = [];
+    this.tentativasDuplicadas = [];
+    this.seriaisLimposDaTela.clear();
+
     this.salvarTudo();
+
+    // 8. Liberar trava de sincronização
+    this.limpezaEmAndamento = false;
+
+    // 9. Notificar todos os componentes e telas reativas
     this.notificarMudanca('produtos');
     this.notificarMudanca('fotos');
     this.notificarMudanca('caixas');
     this.notificarMudanca('sync');
+    this.notificarMudanca('dados');
 
     return {
       sucesso: true,
@@ -1822,12 +1887,17 @@ class AuditoriaDatabase {
   // Requisito 8: Registra carimbo no Histórico de Envios.
   // =========================================================================
   async puxarAtualizacoesServidor(): Promise<boolean> {
+    if (this.limpezaEmAndamento || this.sincronizando) return false;
+    this.sincronizando = true;
+
     try {
       // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware) com anti-cache
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
       let historicoRemoto: RegistroSincronizacaoEnvio[] | null = null;
       let tentativasRemotas: LogTentativaDuplicado[] | null = null;
+      let resetTimestampRemoto: string | null = null;
+
       try {
         const urlProds = obterApiUrl(`/api/central/produtos?_t=${Date.now()}`);
         const res = await fetch(urlProds);
@@ -1846,6 +1916,9 @@ class AuditoriaDatabase {
             }
             if (data && Array.isArray(data.tentativas_duplicadas)) {
               tentativasRemotas = data.tentativas_duplicadas;
+            }
+            if (data && data.reset_timestamp) {
+              resetTimestampRemoto = data.reset_timestamp;
             }
           }
         }
@@ -1874,19 +1947,51 @@ class AuditoriaDatabase {
             if (cloudData && Array.isArray(cloudData.tentativas_duplicadas)) {
               tentativasRemotas = cloudData.tentativas_duplicadas;
             }
+            if (cloudData && cloudData.reset_timestamp) {
+              resetTimestampRemoto = cloudData.reset_timestamp;
+            }
           }
         } catch {}
       }
 
+      // Se durante o fetch a base foi limpa, não processar respostas antigas defasadas
+      if (this.limpezaEmAndamento) return false;
+
       let alterou = false;
-      if (produtosRemotos && produtosRemotos.length > 0) {
-        const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
-        if (alterouProds) alterou = true;
+
+      if (produtosRemotos && Array.isArray(produtosRemotos)) {
+        if (produtosRemotos.length === 0) {
+          const resetLocal = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
+          const isAdmin = this.usuarioAtual?.perfil === 'ADMINISTRADOR';
+          const todosEnviados = this.produtos.length > 0 && this.produtos.every((p) => p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO');
+
+          if (isAdmin || resetTimestampRemoto || resetLocal || todosEnviados) {
+            if (this.produtos.length > 0) {
+              this.produtos = [];
+              this.serialMap.clear();
+              alterou = true;
+            }
+          }
+        } else {
+          const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
+          if (alterouProds) alterou = true;
+        }
       }
-      if (fotosRemotas && fotosRemotas.length > 0) {
-        const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
-        if (alterouFotos) alterou = true;
+
+      if (fotosRemotas && Array.isArray(fotosRemotas)) {
+        if (fotosRemotas.length === 0) {
+          const isAdmin = this.usuarioAtual?.perfil === 'ADMINISTRADOR';
+          if (isAdmin && this.fotosGrupos.length > 0) {
+            this.fotosGrupos = [];
+            this.registros10Fotos = [];
+            alterou = true;
+          }
+        } else {
+          const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
+          if (alterouFotos) alterou = true;
+        }
       }
+
       if (historicoRemoto && historicoRemoto.length > 0) {
         const alterouHist = this.mesclarHistoricoCentral(historicoRemoto);
         if (alterouHist) alterou = true;
@@ -1900,17 +2005,49 @@ class AuditoriaDatabase {
         this.salvarTudo();
         this.notificarMudanca('produtos');
         this.notificarMudanca('fotos');
+        this.notificarMudanca('caixas');
         this.notificarMudanca('sync');
         return true;
       }
     } catch (e) {
       console.warn('[Storage] Servidor inacessível no momento (offline):', e);
+    } finally {
+      this.sincronizando = false;
     }
     return false;
   }
 
   mesclarProdutosCentral(produtosCentral: ProdutoAuditoria[]): boolean {
     let alterou = false;
+
+    // Se estiver em processo de limpeza, não mesclar nada
+    if (this.limpezaEmAndamento) return false;
+
+    const centralMap = new Map<string, ProdutoAuditoria>();
+    for (const cp of produtosCentral) {
+      const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
+      centralMap.set(chave, cp);
+    }
+
+    // 1. Remover localmente itens que já haviam sido ENVIADOS para a nuvem mas foram excluídos na central
+    const totalAntes = this.produtos.length;
+    this.produtos = this.produtos.filter((p) => {
+      // Se não foi enviado ainda (PENDENTE), mantém na fila local
+      if (p.status_sincronizacao !== 'ENVIADO' && p.sync_status !== 'ENVIADO') {
+        return true;
+      }
+      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
+      return centralMap.has(chave);
+    });
+    if (this.produtos.length !== totalAntes) {
+      this.serialMap.clear();
+      for (const p of this.produtos) {
+        this.serialMap.set(p.serial.trim().toUpperCase(), p);
+      }
+      alterou = true;
+    }
+
+    // 2. Inserir ou atualizar produtos vindos da central
     const locaisMap = new Map<string, ProdutoAuditoria>();
     for (const p of this.produtos) {
       const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;

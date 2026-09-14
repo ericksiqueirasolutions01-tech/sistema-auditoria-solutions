@@ -439,6 +439,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
       fotos: [],
       historico_envios: [],
       tentativas_duplicadas: [],
+      reset_timestamp: agora,
       ultimaAtualizacao: agora,
     });
 
@@ -459,7 +460,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
       .catch(() => {});
 
     res.statusCode = 200;
-    res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso: 0 produtos, 0 fotos, 0 sincronizações.' }));
+    res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso: 0 produtos, 0 fotos, 0 sincronizações.', reset_timestamp: agora }));
     return;
   }
 

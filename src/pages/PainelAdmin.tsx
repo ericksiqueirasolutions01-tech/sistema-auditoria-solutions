@@ -127,6 +127,14 @@ export const PainelAdmin: React.FC = () => {
     try {
       const res = await db.limparBaseOperacional();
       setAlertaLimpeza(res.mensagem);
+      setPaginaAtual(1);
+      setBusca('');
+      setFiltroCaixa('TODAS');
+      setFiltroLacrado('TODOS');
+      setFiltroMarcas('TODOS');
+      setFiltroComputador('TODOS');
+      setFiltroSync('TODOS');
+      setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
       setForcarAtualizacao((v) => v + 1);
       setMostrarModalLimpeza(false);
       setTimeout(() => setAlertaLimpeza(null), 7000);

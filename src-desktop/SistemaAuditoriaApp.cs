@@ -20,29 +20,47 @@ namespace SistemaAuditoriaSolutions
                 "app.log"
             );
 
-            try
+            bool isNewInstance;
+            using (Mutex singleInstanceMutex = new Mutex(true, "Global\\SistemaAuditoriaSolutions_SingleInstance_Mutex", out isNewInstance))
             {
+                if (!isNewInstance)
+                {
+                    try
+                    {
+                        File.AppendAllText(logPath, string.Format("[{0}] Outra instância do aplicativo já está em execução. Encerrando processo duplicado.\n", DateTime.Now));
+                    }
+                    catch {}
+                    return;
+                }
+
                 try
                 {
-                    ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)768 | SecurityProtocolType.Tls;
-                }
-                catch {}
+                    try
+                    {
+                        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)768 | SecurityProtocolType.Tls;
+                    }
+                    catch {}
 
-                File.AppendAllText(logPath, string.Format("\n[{0}] Iniciando aplicacao...\n", DateTime.Now));
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                File.AppendAllText(logPath, string.Format("[{0}] Executando AuditoriaAppContext...\n", DateTime.Now));
-                Application.Run(new AuditoriaAppContext(logPath));
-            }
-            catch (Exception ex)
-            {
-                File.AppendAllText(logPath, string.Format("[{0}] ERRO FATAL: {1}\n", DateTime.Now, ex.ToString()));
-                MessageBox.Show(
-                    "Erro ao inicializar o Sistema de Auditoria:\n" + ex.Message,
-                    "Erro",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
+                    File.AppendAllText(logPath, string.Format("\n[{0}] Iniciando aplicacao (instancia unica ativa)...\n", DateTime.Now));
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
+                    File.AppendAllText(logPath, string.Format("[{0}] Executando AuditoriaAppContext...\n", DateTime.Now));
+                    Application.Run(new AuditoriaAppContext(logPath));
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        File.AppendAllText(logPath, string.Format("[{0}] ERRO FATAL: {1}\n", DateTime.Now, ex.ToString()));
+                    }
+                    catch {}
+                    MessageBox.Show(
+                        "Erro ao inicializar o Sistema de Auditoria:\n" + ex.Message,
+                        "Erro",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                }
             }
         }
 

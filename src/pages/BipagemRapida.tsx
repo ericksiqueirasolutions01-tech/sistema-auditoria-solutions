@@ -1716,6 +1716,50 @@ export const BipagemRapida: React.FC = () => {
               )}
             </div>
 
+            {/* Conferência da Nota Fiscal (Mobile) */}
+            <div className="space-y-2 bg-white p-3.5 rounded-xl border border-emerald-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-800 uppercase">
+                  NF foi conferida?
+                </span>
+                <span className="text-[10px] text-emerald-800 font-bold uppercase">
+                  {nfAtiva}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleMudarNfConferida('SIM');
+                    focarInputSerial();
+                  }}
+                  className={`py-2.5 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    nfConferidaAtiva === 'SIM'
+                      ? 'bg-emerald-700 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  SIM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleMudarNfConferida('NÃO');
+                    focarInputSerial();
+                  }}
+                  className={`py-2.5 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    nfConferidaAtiva === 'NÃO'
+                      ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400 scale-[1.02]'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                  NÃO
+                </button>
+              </div>
+            </div>
+
             {/* Condição Física / Lacre (Botões Touch Grandes) */}
             <div className="space-y-3 bg-white p-3.5 rounded-xl border border-blue-200">
               <div className="flex items-center justify-between">
@@ -2081,20 +2125,75 @@ export const BipagemRapida: React.FC = () => {
               </button>
             </div>
 
-            {/* Alternador Rápido de Lacre Padrão */}
+            {/* Nota Fiscal */}
+            <div className="flex items-center gap-1.5 bg-emerald-50 border-2 border-emerald-300 px-2.5 py-1.5 rounded-xl">
+              <span className="text-[11px] font-black text-emerald-950 uppercase whitespace-nowrap">NF:</span>
+              <input
+                type="text"
+                value={nfAtiva}
+                onChange={(e) => handleMudarNfAtiva(e.target.value)}
+                placeholder="Ex: NF 001"
+                className="w-20 bg-white font-black text-xs text-emerald-900 border border-emerald-400 rounded px-2 py-0.5 focus:outline-none uppercase"
+                title="Número da Nota Fiscal ativa"
+              />
+            </div>
+
+            {/* 1. Botão: NF foi conferida? */}
             <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
-              <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Lacre:</span>
+              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
+                NF Conferida:
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  handleMudarNfConferida('SIM');
+                  serialInputRef.current?.focus();
+                }}
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
+                  nfConferidaAtiva === 'SIM'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Nota Fiscal foi conferida: SIM"
+              >
+                SIM
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleMudarNfConferida('NÃO');
+                  serialInputRef.current?.focus();
+                }}
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
+                  nfConferidaAtiva === 'NÃO'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Nota Fiscal NÃO foi conferida"
+              >
+                NÃO
+              </button>
+            </div>
+
+            {/* 2. Botão: O produto está lacrado? */}
+            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
+              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
+                Produto Lacrado:
+              </span>
               <button
                 type="button"
                 onClick={() => {
                   setLacreAtivo('SIM');
+                  setKitAtivo('');
+                  setMarcasAtivo('');
                   serialInputRef.current?.focus();
                 }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all ${
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
                   lacreAtivo === 'SIM'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'text-slate-600 hover:bg-slate-200'
                 }`}
+                title="Produto Lacrado de Fábrica: SIM"
               >
                 SIM (Lacrado)
               </button>
@@ -2104,11 +2203,12 @@ export const BipagemRapida: React.FC = () => {
                   setLacreAtivo('NÃO');
                   serialInputRef.current?.focus();
                 }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all ${
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
                   lacreAtivo === 'NÃO'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-slate-600 hover:bg-slate-200'
                 }`}
+                title="Produto Aberto / Sem Lacre: NÃO"
               >
                 NÃO (Aberto)
               </button>
@@ -2841,7 +2941,28 @@ export const BipagemRapida: React.FC = () => {
                   />
                 </td>
 
-                {/* PRODUTO LACRADO */}
+                {/* NF FOI CONFERIDA? (COLUNA 9) */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-emerald-50/50">
+                  <select
+                    value={nfConferidaAtiva}
+                    onChange={(e) => {
+                      const val = e.target.value as SimNao;
+                      handleMudarNfConferida(val);
+                      serialInputRef.current?.focus();
+                    }}
+                    className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
+                      nfConferidaAtiva === 'SIM'
+                        ? 'bg-emerald-700 text-white border-emerald-800'
+                        : 'bg-rose-600 text-white border-rose-700'
+                    }`}
+                    title="NF foi conferida? SIM ou NÃO"
+                  >
+                    <option value="SIM">SIM</option>
+                    <option value="NÃO">NÃO</option>
+                  </select>
+                </td>
+
+                {/* PRODUTO LACRADO (COLUNA 10) */}
                 <td className="py-2 px-2 text-center border-r border-emerald-300">
                   <select
                     value={lacreAtivo}

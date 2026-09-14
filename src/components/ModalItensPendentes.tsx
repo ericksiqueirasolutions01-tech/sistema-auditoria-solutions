@@ -1,6 +1,7 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { db } from '../db/storage';
-import { ProdutoAuditoria } from '../types';
+import { ProdutoAuditoria, DetalheImeiDuplicado } from '../types';
+import { ModalAlertaDuplicidadeServidor } from './ModalAlertaDuplicidadeServidor';
 import {
   X,
   CloudUpload,
@@ -8,6 +9,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
+  Trash2,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface ModalItensPendentesProps {
@@ -23,6 +26,8 @@ export const ModalItensPendentes: React.FC<ModalItensPendentesProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro'; msg: string } | null>(null);
+  const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
+  const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
 
   if (!isOpen) return null;
 
@@ -33,7 +38,21 @@ export const ModalItensPendentes: React.FC<ModalItensPendentesProps> = ({
     setFeedback(null);
     try {
       const res = await db.sincronizarOnline();
-      if (res.sucesso) {
+      if (res.itensDuplicados && res.itensDuplicados.length > 0) {
+        setDuplicadosAlerta(res.itensDuplicados);
+        setTotalEnviadosAlerta(res.totalSincronizados);
+        if (res.totalSincronizados > 0) {
+          setFeedback({
+            tipo: 'erro',
+            msg: `${res.totalSincronizados} serial(is) enviado(s), mas ${res.itensDuplicados.length} IMEI(s) já existem no servidor e foram bloqueados.`,
+          });
+        } else {
+          setFeedback({
+            tipo: 'erro',
+            msg: `Bloqueio: ${res.itensDuplicados.length} IMEI(s) rejeitado(s) pois já constam cadastrados no servidor.`,
+          });
+        }
+      } else if (res.sucesso) {
         setFeedback({
           tipo: 'sucesso',
           msg: `${res.totalSincronizados} registro(s) sincronizado(s) com sucesso na base central online!`,
@@ -143,44 +162,84 @@ export const ModalItensPendentes: React.FC<ModalItensPendentesProps> = ({
                         <th className="px-3 py-2.5">Estação / PC</th>
                         <th className="px-3 py-2.5">Horário Bipado</th>
                         <th className="px-3 py-2.5 text-center">Status</th>
+                        <th className="px-3 py-2.5 text-center">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {pendentes.map((prod) => (
-                        <tr key={prod.id || prod.serial} className="hover:bg-amber-50/40 transition-colors">
-                          <td className="px-3 py-2.5 font-mono font-black text-slate-900">
-                            {prod.serial}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <div className="font-bold text-slate-800">{prod.modelo_produto}</div>
-                            <div className="text-[10px] font-mono text-slate-400">{prod.ean}</div>
-                          </td>
-                          <td className="px-3 py-2.5 font-bold text-slate-700">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
-                              {prod.numero_caixa}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                              {prod.regional || 'VIA VAREJO RJ'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <span className="text-[11px] font-mono font-bold text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-                              {prod.computador_id || 'PC-001'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-500 text-[11px]">
-                            {prod.data_cadastro ? new Date(prod.data_cadastro).toLocaleTimeString('pt-BR') : '-'}
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-black text-[10px] uppercase">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
-                              Pendente
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {pendentes.map((prod) => {
+                        const isDuplicado = prod.status_sincronizacao === 'ERRO_DUPLICADO';
+                        return (
+                          <tr
+                            key={prod.id || prod.serial}
+                            className={`transition-colors ${
+                              isDuplicado ? 'bg-rose-50/70 hover:bg-rose-100/70' : 'hover:bg-amber-50/40'
+                            }`}
+                          >
+                            <td className="px-3 py-2.5 font-mono font-black text-slate-900">
+                              <div className="flex items-center gap-1.5">
+                                {isDuplicado && (
+                                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                )}
+                                <span>{prod.serial}</span>
+                              </div>
+                              {isDuplicado && prod.duplicado_servidor_info && (
+                                <div className="text-[10px] text-rose-700 font-sans font-medium mt-0.5">
+                                  Cadastrado anteriormente por:{' '}
+                                  <strong>{prod.duplicado_servidor_info.usuario_existente || 'Outro usuário'}</strong>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-bold text-slate-800">{prod.modelo_produto}</div>
+                              <div className="text-[10px] font-mono text-slate-400">{prod.ean}</div>
+                            </td>
+                            <td className="px-3 py-2.5 font-bold text-slate-700">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                                {prod.numero_caixa}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                {prod.regional || 'VIA VAREJO RJ'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className="text-[11px] font-mono font-bold text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                                {prod.computador_id || 'PC-001'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-500 text-[11px]">
+                              {prod.data_cadastro ? new Date(prod.data_cadastro).toLocaleTimeString('pt-BR') : '-'}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {isDuplicado ? (
+                                <span className="inline-flex items-center gap-1 bg-red-100 text-red-900 border border-red-300 px-2 py-0.5 rounded-md font-black text-[10px] uppercase">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
+                                  DUPLICADO NO SERVIDOR
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-black text-[10px] uppercase">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+                                  Pendente
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  db.excluirProduto(prod.id);
+                                  if (onSyncConcluido) onSyncConcluido();
+                                }}
+                                className="p-1 rounded text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+                                title="Remover este equipamento da fila local"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -219,6 +278,23 @@ export const ModalItensPendentes: React.FC<ModalItensPendentesProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Alerta de Duplicidade no Servidor */}
+      {duplicadosAlerta && (
+        <ModalAlertaDuplicidadeServidor
+          isOpen={!!duplicadosAlerta}
+          duplicados={duplicadosAlerta}
+          totalSincronizados={totalEnviadosAlerta}
+          onClose={() => setDuplicadosAlerta(null)}
+          onItensRemovidos={() => {
+            if (onSyncConcluido) onSyncConcluido();
+          }}
+          onContinuarEnvio={() => {
+            setDuplicadosAlerta(null);
+            handleEnviarOnline();
+          }}
+        />
+      )}
     </div>
   );
 };

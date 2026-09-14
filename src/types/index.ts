@@ -1,6 +1,40 @@
 export type SimNao = 'SIM' | 'NÃO';
 
-export type StatusSincronizacaoItem = 'PENDENTE' | 'ENVIADO';
+export type StatusSincronizacaoItem = 'PENDENTE' | 'ENVIADO' | 'ERRO_DUPLICADO';
+
+export interface DetalheImeiDuplicado {
+  imei: string;
+  serial: string;
+  modelo_produto?: string;
+  numero_caixa?: string;
+  data_cadastro_existente?: string;
+  usuario_existente?: string;
+  computador_existente?: string;
+  regional_existente?: string;
+  status: 'DUPLICADO NO SERVIDOR';
+  id_local?: number;
+}
+
+export interface LogTentativaDuplicado {
+  id: number;
+  usuario: string;
+  data_hora: string;
+  imei: string;
+  computador: string;
+  resultado: string; // Ex: 'BLOQUEADO: IMEI JÁ CADASTRADO NO SERVIDOR'
+  regional?: string;
+  data_cadastro_existente?: string;
+  usuario_existente?: string;
+}
+
+export interface ResultadoSincronizacao {
+  sucesso: boolean;
+  totalSincronizados: number;
+  duplicadosEvitados: number;
+  itensDuplicados: DetalheImeiDuplicado[];
+  timestamp: string;
+  mensagem: string;
+}
 
 export interface ComputadorInfo {
   id: string; // Ex: 'PC-RJ-001'
@@ -55,10 +89,12 @@ export interface ProdutoAuditoria {
   computador_id: string; // Ex: 'PC-RJ-001'
   computador_nome: string; // Ex: 'Estação 01'
   data_alteracao: string | null;
-  status_sincronizacao: StatusSincronizacaoItem; // 'PENDENTE' | 'ENVIADO'
+  status_sincronizacao: StatusSincronizacaoItem; // 'PENDENTE' | 'ENVIADO' | 'ERRO_DUPLICADO'
   data_sincronizacao: string | null;
+  erro_sincronizacao?: string | null;
+  duplicado_servidor_info?: DetalheImeiDuplicado | null;
   // Compatibilidade retroativa com campos anteriores:
-  sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO';
+  sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
   sync_data?: string | null;
 }
 

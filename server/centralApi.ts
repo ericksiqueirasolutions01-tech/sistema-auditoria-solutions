@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'central_database.json');
 const LOGS_FILE = path.join(DATA_DIR, 'central_envios.json');
+const TENTATIVAS_FILE = path.join(DATA_DIR, 'central_tentativas_duplicadas.json');
 
 // Interface for Central Store
 interface CentralData {
@@ -27,6 +28,31 @@ function ensureDataFiles() {
   }
   if (!fs.existsSync(LOGS_FILE)) {
     fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+  }
+  if (!fs.existsSync(TENTATIVAS_FILE)) {
+    fs.writeFileSync(TENTATIVAS_FILE, JSON.stringify([], null, 2), 'utf-8');
+  }
+}
+
+function readCentralTentativasDuplicadas(): any[] {
+  ensureDataFiles();
+  try {
+    const content = fs.readFileSync(TENTATIVAS_FILE, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return [];
+  }
+}
+
+function appendCentralTentativaDuplicada(item: any) {
+  ensureDataFiles();
+  try {
+    const logs = readCentralTentativasDuplicadas();
+    logs.unshift(item);
+    if (logs.length > 1000) logs.splice(1000);
+    fs.writeFileSync(TENTATIVAS_FILE, JSON.stringify(logs, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[CentralServer] Erro ao gravar tentativa duplicada:', e);
   }
 }
 
@@ -175,7 +201,60 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
     return;
   }
 
-  // 4. POST /api/central/sync (Recepção de novos seriais vindos de celulares ou outros PCs)
+  // 3.1 GET /api/central/tentativas-duplicadas
+  if (endpoint === '/api/central/tentativas-duplicadas' && req.method === 'GET') {
+    const logs = readCentralTentativasDuplicadas();
+    res.statusCode = 200;
+    res.end(JSON.stringify({ sucesso: true, logs }));
+    return;
+  }
+
+  // 3.2 POST /api/central/verificar-duplicidades
+  if (endpoint === '/api/central/verificar-duplicidades' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const seriais: string[] = Array.isArray(payload.seriais) ? payload.seriais : [];
+        const db = readCentralDb();
+        const existentesMap = new Map<string, any>();
+        for (const p of db.produtos) {
+          if (p && p.serial) {
+            existentesMap.set(p.serial.trim().toUpperCase(), p);
+          }
+        }
+        const duplicados: any[] = [];
+        for (const s of seriais) {
+          const norm = (s || '').trim().toUpperCase();
+          if (existentesMap.has(norm)) {
+            const ex = existentesMap.get(norm);
+            duplicados.push({
+              imei: s,
+              serial: s,
+              modelo_produto: ex.modelo_produto || '',
+              numero_caixa: ex.numero_caixa || '',
+              data_cadastro_existente: ex.data_cadastro || ex.data_auditoria || ex.recebido_em || 'Data anterior não informada',
+              usuario_existente: ex.usuario_cadastro || ex.usuario || 'Outro Colaborador',
+              computador_existente: ex.computador_nome || ex.computador_id || 'Estação Remota',
+              regional_existente: ex.regional || '',
+              status: 'DUPLICADO NO SERVIDOR',
+            });
+          }
+        }
+        res.statusCode = 200;
+        res.end(JSON.stringify({ sucesso: true, duplicados }));
+      } catch (err: any) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ sucesso: false, erro: err.message || 'Erro ao verificar duplicidades' }));
+      }
+    });
+    return;
+  }
+
+  // 4. POST /api/central/sync (Recepção de novos seriais com validação de duplicidade contra a base oficial)
   if (endpoint === '/api/central/sync' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => {
@@ -191,24 +270,66 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
         const regional = payload.regional || 'VIA VAREJO RJ';
 
         const db = readCentralDb();
-        const existentesMap = new Set<string>();
+        const existentesMap = new Map<string, any>();
 
-        // Re-index seriais por regional para validação estrita de duplicidade
+        // Indexar todos os seriais/IMEIs já cadastrados na base central oficial
         for (const p of db.produtos) {
-          const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
-          existentesMap.add(chave);
+          if (p && p.serial) {
+            existentesMap.set(p.serial.trim().toUpperCase(), p);
+          }
         }
 
         let adicionados = 0;
-        let duplicados = 0;
         const agora = new Date().toISOString();
         const agoraFormatada = new Date().toLocaleString('pt-BR');
         const idsGravados: (string | number)[] = [];
+        const duplicadosList: any[] = [];
 
         for (const p of novosProdutos) {
-          const chave = `${(p.regional || regional).trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
-          if (existentesMap.has(chave)) {
-            duplicados++;
+          const serialNorm = (p.serial || '').trim().toUpperCase();
+          if (!serialNorm) continue;
+
+          // Se já existe no servidor central, bloquear envio e detalhar duplicidade
+          if (existentesMap.has(serialNorm)) {
+            const existente = existentesMap.get(serialNorm);
+            const detalheDuplicado = {
+              imei: p.serial,
+              serial: p.serial,
+              modelo_produto: p.modelo_produto || existente.modelo_produto || '',
+              numero_caixa: p.numero_caixa || existente.numero_caixa || '',
+              data_cadastro_existente:
+                existente.data_cadastro ||
+                existente.data_auditoria ||
+                existente.data_sincronizacao ||
+                existente.recebido_em ||
+                'Data anterior não informada',
+              usuario_existente:
+                existente.usuario_cadastro ||
+                existente.usuario_criacao ||
+                existente.usuario ||
+                'Outro Colaborador',
+              computador_existente:
+                existente.computador_nome ||
+                existente.computador_id ||
+                'Outra Estação',
+              regional_existente: existente.regional || 'Geral',
+              status: 'DUPLICADO NO SERVIDOR',
+              id_local: p.id,
+            };
+            duplicadosList.push(detalheDuplicado);
+
+            // Gravar log de tentativa de envio duplicado no servidor central
+            appendCentralTentativaDuplicada({
+              id: Date.now() + Math.floor(Math.random() * 1000),
+              usuario: usuario,
+              data_hora: agoraFormatada,
+              imei: p.serial,
+              computador: `${computador.id} - ${computador.nome}`,
+              resultado: 'BLOQUEADO: IMEI JÁ CADASTRADO NO SERVIDOR',
+              regional: regional,
+              data_cadastro_existente: detalheDuplicado.data_cadastro_existente,
+              usuario_existente: detalheDuplicado.usuario_existente,
+            });
             continue;
           }
 
@@ -226,7 +347,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
           };
 
           db.produtos.unshift(registroCentral);
-          existentesMap.add(chave);
+          existentesMap.set(serialNorm, registroCentral);
           adicionados++;
           idsGravados.push(registroCentral.id || registroCentral.id_servidor);
         }
@@ -253,7 +374,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
         writeCentralDb(db);
 
         // Registra o envio no log central
-        if (adicionados > 0 || fotosAdicionadas > 0 || duplicados > 0) {
+        if (adicionados > 0 || fotosAdicionadas > 0 || duplicadosList.length > 0) {
           appendCentralLog({
             id: Date.now(),
             data_envio: agoraFormatada,
@@ -262,18 +383,18 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
             computador_nome: computador.nome,
             quantidade_enviada: adicionados,
             fotos_enviadas: fotosAdicionadas,
-            duplicados_rejeitados: duplicados,
+            duplicados_rejeitados: duplicadosList.length,
             status: 'OK',
             detalhes:
-              duplicados > 0
-                ? `${adicionados} novos seriais e ${fotosAdicionadas} fotos sincronizados na base central. ${duplicados} seriais rejeitados por duplicidade.`
+              duplicadosList.length > 0
+                ? `${adicionados} novos seriais e ${fotosAdicionadas} fotos sincronizados na base central. ${duplicadosList.length} IMEI(s) rejeitado(s) por duplicidade no servidor.`
                 : `${adicionados} novos seriais e ${fotosAdicionadas} fotos sincronizados na base central com sucesso pelo ${computador.nome}.`,
             produtos_ids: idsGravados,
           });
         }
 
         console.log(
-          `[CentralServer] Sync recebido de ${computador.nome} (${computador.id}): ${adicionados} adicionados, ${fotosAdicionadas} fotos, ${duplicados} duplicados. Total central: ${db.produtos.length} produtos, ${db.fotos.length} fotos.`
+          `[CentralServer] Sync recebido de ${computador.nome} (${computador.id}): ${adicionados} adicionados, ${fotosAdicionadas} fotos, ${duplicadosList.length} duplicados bloqueados. Total central: ${db.produtos.length} produtos.`
         );
 
         res.statusCode = 200;
@@ -282,14 +403,15 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
             sucesso: true,
             sincronizados: adicionados,
             fotosSincronizadas: fotosAdicionadas,
-            duplicadosEvitados: duplicados,
+            duplicadosEvitados: duplicadosList.length,
+            itensDuplicados: duplicadosList,
             totalCentral: db.produtos.length,
             produtosCentral: db.produtos,
             fotosCentral: db.fotos,
             timestamp: agora,
             mensagem:
-              duplicados > 0
-                ? `${adicionados} novos seriais e ${fotosAdicionadas} foto(s) gravados no servidor central! (${duplicados} rejeitados por já constarem no banco).`
+              duplicadosList.length > 0
+                ? `${adicionados} novos seriais sincronizados online. ${duplicadosList.length} IMEI(s) não foram enviados pois já existem no servidor.`
                 : `${adicionados} novos seriais e ${fotosAdicionadas} foto(s) gravados no servidor central com sucesso!`,
           })
         );
@@ -307,6 +429,7 @@ export function centralApiMiddleware(req: IncomingMessage, res: ServerResponse, 
     writeCentralDb({ produtos: [], fotos: [], ultimaAtualizacao: new Date().toISOString() });
     try {
       fs.writeFileSync(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+      fs.writeFileSync(TENTATIVAS_FILE, JSON.stringify([], null, 2), 'utf-8');
     } catch {}
     res.statusCode = 200;
     res.end(JSON.stringify({ sucesso: true, mensagem: 'Base central limpa com sucesso: 0 produtos, 0 fotos, 0 sincronizações.' }));

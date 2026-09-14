@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../db/storage';
-import { RegistroSincronizacaoEnvio } from '../types';
+import { RegistroSincronizacaoEnvio, DetalheImeiDuplicado, LogTentativaDuplicado } from '../types';
+import { ModalAlertaDuplicidadeServidor } from '../components/ModalAlertaDuplicidadeServidor';
 import {
   SendHorizontal,
   CloudUpload,
@@ -17,6 +18,9 @@ import {
   Filter,
   Clock,
   Barcode,
+  ShieldAlert,
+  User,
+  Trash2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -31,6 +35,8 @@ export const HistoricoEnvios: React.FC = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [notificacao, setNotificacao] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
+  const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
 
   useEffect(() => {
     return db.onMudanca(() => {
@@ -70,17 +76,49 @@ export const HistoricoEnvios: React.FC = () => {
   );
   const pcsDistintos = new Set(enviosFiltrados.map((e) => e.computador_id)).size;
 
+  const tentativasDuplicadas = db.listarTentativasDuplicadas();
+
   const handleSincronizarAgora = async () => {
     setSyncLoading(true);
     try {
       const res = await db.sincronizarOnline();
-      setNotificacao(res.mensagem);
+      if (res.itensDuplicados && res.itensDuplicados.length > 0) {
+        setDuplicadosAlerta(res.itensDuplicados);
+        setTotalEnviadosAlerta(res.totalSincronizados);
+        setNotificacao(
+          `Bloqueio de Duplicidade: ${res.itensDuplicados.length} IMEI(s) já existem no servidor central.`
+        );
+      } else {
+        setNotificacao(res.mensagem);
+      }
     } catch {
       setNotificacao('Erro ao conectar ao servidor central.');
     } finally {
       setSyncLoading(false);
       setTimeout(() => setNotificacao(null), 4000);
     }
+  };
+
+  const exportarTentativasExcel = () => {
+    const dados = tentativasDuplicadas.map((t, idx) => ({
+      'Nº': idx + 1,
+      'Data / Hora': t.data_hora,
+      'Usuário Tentativa': t.usuario,
+      'IMEI Bloqueado': t.imei,
+      'Estação / Computador': t.computador,
+      'Resultado Validação': t.resultado,
+      'Data Cadastro Anterior': t.data_cadastro_existente || '-',
+      'Usuário Anterior': t.usuario_existente || '-',
+      Regional: t.regional || '-',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dados);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tentativas_Duplicadas');
+    XLSX.writeFile(
+      wb,
+      `Tentativas_Envio_Duplicado_IMEI_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`
+    );
   };
 
   const exportarExcel = () => {
@@ -375,6 +413,134 @@ export const HistoricoEnvios: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Tabela de Tentativas de Envio Duplicado (IMEI Bloqueado no Servidor Online) */}
+      <div className="bg-white rounded-2xl border-2 border-rose-200 shadow-xs overflow-hidden space-y-3 p-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-rose-100 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-black text-rose-950 uppercase tracking-wide">
+                  Logs de Tentativas de Envio Duplicado (IMEIs Bloqueados)
+                </h3>
+                <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-rose-300 uppercase">
+                  {tentativasDuplicadas.length} {tentativasDuplicadas.length === 1 ? 'tentativa' : 'tentativas'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Auditoria de seriais que tentaram ser enviados mas já existiam na base oficial do servidor online
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {tentativasDuplicadas.length > 0 && (
+              <button
+                type="button"
+                onClick={exportarTentativasExcel}
+                className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Exportar log de duplicidades para Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span>Exportar Excel</span>
+              </button>
+            )}
+            {isAdmin && tentativasDuplicadas.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Deseja limpar o histórico de tentativas duplicadas locais?')) {
+                    db.limparTentativasDuplicadas();
+                  }
+                }}
+                className="p-1.5 rounded-xl border border-slate-300 text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                title="Limpar histórico de tentativas"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider">
+              <tr>
+                <th className="py-2.5 px-3 text-center w-12">Nº</th>
+                <th className="py-2.5 px-3">Data / Hora</th>
+                <th className="py-2.5 px-3">Usuário Tentativa</th>
+                <th className="py-2.5 px-3 font-mono">IMEI Bloqueado</th>
+                <th className="py-2.5 px-3">Estação / PC</th>
+                <th className="py-2.5 px-3 text-center">Resultado</th>
+                <th className="py-2.5 px-3">Cadastro Anterior Existente</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
+              {tentativasDuplicadas.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-400 font-sans">
+                    Nenhuma tentativa de envio de IMEI duplicado registrada. Integridade 100% preservada.
+                  </td>
+                </tr>
+              ) : (
+                tentativasDuplicadas.map((t, idx) => (
+                  <tr key={t.id} className="hover:bg-rose-50/50 transition-colors">
+                    <td className="py-2.5 px-3 text-center text-slate-400 font-sans">
+                      {idx + 1}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-700 font-bold font-sans whitespace-nowrap">
+                      {t.data_hora}
+                    </td>
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900">
+                      <div className="flex items-center gap-1">
+                        <User className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{t.usuario}</span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 font-black text-rose-700 tracking-wider">
+                      <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded border border-rose-300">
+                        {t.imei}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-700">
+                      💻 {t.computador}
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-sans">
+                      <span className="bg-red-600 text-white font-black text-[9px] uppercase px-2 py-0.5 rounded-full tracking-wide">
+                        DUPLICADO NO SERVIDOR
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
+                      Cadastrado por <strong>{t.usuario_existente || 'Outro Colaborador'}</strong> em{' '}
+                      <strong>{t.data_cadastro_existente || 'Data anterior'}</strong>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal de Alerta de Duplicidade */}
+      {duplicadosAlerta && (
+        <ModalAlertaDuplicidadeServidor
+          isOpen={!!duplicadosAlerta}
+          duplicados={duplicadosAlerta}
+          totalSincronizados={totalEnviadosAlerta}
+          onClose={() => setDuplicadosAlerta(null)}
+          onItensRemovidos={() => {
+            setRefreshKey((k) => k + 1);
+          }}
+          onContinuarEnvio={() => {
+            setDuplicadosAlerta(null);
+            handleSincronizarAgora();
+          }}
+        />
+      )}
     </div>
   );
 };

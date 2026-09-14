@@ -17,6 +17,9 @@ import {
   FotoCaixa10Item,
   Registro10FotosCaixa,
   ROTULOS_10_FOTOS_CAIXA,
+  DetalheImeiDuplicado,
+  LogTentativaDuplicado,
+  ResultadoSincronizacao,
 } from '../types';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
@@ -30,6 +33,7 @@ const STORAGE_KEY_SERVIDOR_CENTRAL = 'solutions_servidor_central_produtos_v1';
 const STORAGE_KEY_FOTOS = 'solutions_auditoria_fotos_grupos_v1';
 const STORAGE_KEY_FOTOS_10_CAIXAS = 'solutions_auditoria_10_fotos_caixas_v1';
 const STORAGE_KEY_SERIAIS_LIMPOS_TELA = 'solutions_seriais_limpos_tela_v1';
+const STORAGE_KEY_TENTATIVAS_DUPLICADAS = 'solutions_tentativas_envio_duplicado_v1';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -235,6 +239,7 @@ class AuditoriaDatabase {
   private usuarioAtual: Usuario | null = null;
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
   private seriaisLimposDaTela: Set<string> = new Set<string>();
+  private tentativasDuplicadas: LogTentativaDuplicado[] = [];
 
   constructor() {
     this.carregarDados();
@@ -350,6 +355,9 @@ class AuditoriaDatabase {
       const fotos10Raw = localStorage.getItem(STORAGE_KEY_FOTOS_10_CAIXAS);
       this.registros10Fotos = fotos10Raw ? JSON.parse(fotos10Raw) : [];
 
+      const tentRaw = localStorage.getItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS);
+      this.tentativasDuplicadas = tentRaw ? JSON.parse(tentRaw) : [];
+
       // Rebuild high-speed serial index (O(1) lookups)
       this.serialMap.clear();
       for (const p of this.produtos) {
@@ -451,6 +459,7 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
       localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify(this.fotosGrupos));
       localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify(this.registros10Fotos));
+      localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify(this.tentativasDuplicadas));
 
       // 2. Gravação redundante no IndexedDB (Zero Data Loss)
       salvarIndexedDB(STORAGE_KEY_PRODUTOS, this.produtos);
@@ -458,6 +467,7 @@ class AuditoriaDatabase {
       salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
       salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
       salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, this.registros10Fotos);
+      salvarIndexedDB(STORAGE_KEY_TENTATIVAS_DUPLICADAS, this.tentativasDuplicadas);
     } catch (e) {
       console.error('Erro ao salvar no storage:', e);
     }
@@ -604,6 +614,56 @@ class AuditoriaDatabase {
 
   listarHistorico(limite = 200): HistoricoAuditoria[] {
     return this.historico.slice(0, limite);
+  }
+
+  // =========================================================================
+  // LOGS E GESTÃO DE TENTATIVAS DE ENVIO DUPLICADO (IMEI BLOQUEADO NO SERVIDOR)
+  // =========================================================================
+  registrarTentativaEnvioDuplicado(log: Omit<LogTentativaDuplicado, 'id'>) {
+    const novoLog: LogTentativaDuplicado = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      ...log,
+    };
+    this.tentativasDuplicadas.unshift(novoLog);
+    if (this.tentativasDuplicadas.length > 2000) {
+      this.tentativasDuplicadas = this.tentativasDuplicadas.slice(0, 2000);
+    }
+    this.salvarTudo();
+    this.notificarMudanca('tentativas-duplicadas');
+  }
+
+  listarTentativasDuplicadas(limite = 500): LogTentativaDuplicado[] {
+    return this.tentativasDuplicadas.slice(0, limite);
+  }
+
+  limparTentativasDuplicadas() {
+    this.tentativasDuplicadas = [];
+    this.salvarTudo();
+    this.notificarMudanca('tentativas-duplicadas');
+  }
+
+  removerItensDuplicadosFila(idsOuSeriais: (number | string)[]): { removidos: number } {
+    let count = 0;
+    const targets = new Set(idsOuSeriais.map((item) => String(item).trim().toUpperCase()));
+    for (let i = this.produtos.length - 1; i >= 0; i--) {
+      const p = this.produtos[i];
+      const matchId = targets.has(String(p.id));
+      const matchSerial = targets.has(p.serial.trim().toUpperCase());
+      if (matchId || matchSerial) {
+        // Apenas remover se não estiver confirmado como ENVIADO (evitar acidentes)
+        if (p.status_sincronizacao !== 'ENVIADO') {
+          this.produtos.splice(i, 1);
+          this.serialMap.delete(p.serial.trim().toUpperCase());
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      this.salvarTudo();
+      this.notificarMudanca('produtos');
+      this.notificarMudanca('sync');
+    }
+    return { removidos: count };
   }
 
   // Product Audit Core
@@ -1040,7 +1100,7 @@ class AuditoriaDatabase {
       ).length;
       // Produtos abertos c/ avaria ou faltante NÃO são pendências:
       const pendencias = produtosReg.filter(
-        (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
+        (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE' || p.status_sincronizacao === 'ERRO_DUPLICADO'
       ).length;
       const taxaQualidade =
         totalProdutos > 0 ? Math.round((produtosLacrados / totalProdutos) * 100) : 100;
@@ -1068,7 +1128,7 @@ class AuditoriaDatabase {
       if (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO' || p.sync_status === 'SINCRONIZADO') {
         return false;
       }
-      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
+      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE' || p.status_sincronizacao === 'ERRO_DUPLICADO';
       if (!isPendente) return false;
       if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
       return true;
@@ -1781,24 +1841,18 @@ class AuditoriaDatabase {
     return alterou;
   }
 
-  async sincronizarOnline(): Promise<{
-    sucesso: boolean;
-    totalSincronizados: number;
-    duplicadosEvitados: number;
-    timestamp: string;
-    mensagem: string;
-  }> {
+  async sincronizarOnline(): Promise<ResultadoSincronizacao> {
     const agora = new Date().toISOString();
     const agoraFormatada = new Date().toLocaleString('pt-BR');
     const compAtual = this.obterComputadorAtual();
     const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
 
-    // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE)
+    // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE ou ERRO_DUPLICADO)
     const pendentes = this.produtos.filter((p) => {
       if (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO' || p.sync_status === 'SINCRONIZADO') {
         return false;
       }
-      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE';
+      const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE' || p.status_sincronizacao === 'ERRO_DUPLICADO';
       if (!isPendente) return false;
       if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
       return true;
@@ -1816,6 +1870,7 @@ class AuditoriaDatabase {
         sucesso: true,
         totalSincronizados: 0,
         duplicadosEvitados: 0,
+        itensDuplicados: [],
         timestamp: agora,
         mensagem: 'Não há novos seriais ou fotos pendentes neste dispositivo. Base sincronizada com o servidor central.',
       };
@@ -1885,22 +1940,43 @@ class AuditoriaDatabase {
         const mapExistentes = new Map<string, any>();
         if (Array.isArray(cloudData.produtos)) {
           for (const p of cloudData.produtos) {
-            const reg = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
             const sn = (p.serial || '').trim().toUpperCase();
-            mapExistentes.set(`${reg}:::${sn}`, p);
+            if (sn) mapExistentes.set(sn, p);
           }
         } else {
           cloudData.produtos = [];
         }
 
         let novosCount = 0;
-        let duplicadosCount = 0;
+        const duplicadosList: DetalheImeiDuplicado[] = [];
         for (const p of pendentes) {
-          const reg = (p.regional || compAtual.regional || 'VIA VAREJO RJ').trim().toUpperCase();
           const sn = (p.serial || '').trim().toUpperCase();
-          const chave = `${reg}:::${sn}`;
-          if (mapExistentes.has(chave)) {
-            duplicadosCount++;
+          if (!sn) continue;
+          if (mapExistentes.has(sn)) {
+            const existente = mapExistentes.get(sn);
+            duplicadosList.push({
+              imei: p.serial,
+              serial: p.serial,
+              modelo_produto: p.modelo_produto || existente.modelo_produto || '',
+              numero_caixa: p.numero_caixa || existente.numero_caixa || '',
+              data_cadastro_existente:
+                existente.data_cadastro ||
+                existente.data_auditoria ||
+                existente.data_sincronizacao ||
+                'Data anterior não informada',
+              usuario_existente:
+                existente.usuario_cadastro ||
+                existente.usuario_criacao ||
+                existente.usuario ||
+                'Outro Colaborador',
+              computador_existente:
+                existente.computador_nome ||
+                existente.computador_id ||
+                'Outra Estação',
+              regional_existente: existente.regional || 'Geral',
+              status: 'DUPLICADO NO SERVIDOR',
+              id_local: p.id,
+            });
           } else {
             const normalizado = {
               ...p,
@@ -1915,7 +1991,7 @@ class AuditoriaDatabase {
               id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             };
             cloudData.produtos.unshift(normalizado);
-            mapExistentes.set(chave, normalizado);
+            mapExistentes.set(sn, normalizado);
             novosCount++;
           }
         }
@@ -1948,7 +2024,7 @@ class AuditoriaDatabase {
           usuario: this.usuarioAtual?.nome || 'Operador',
           quantidade_enviada: novosCount,
           status: 'OK',
-          detalhes: `${novosCount} novos seriais sincronizados na nuvem central (${duplicadosCount} duplicados evitados).`,
+          detalhes: `${novosCount} novos seriais sincronizados na nuvem central (${duplicadosList.length} duplicados evitados).`,
           timestamp: agora,
         });
 
@@ -1975,11 +2051,15 @@ class AuditoriaDatabase {
             sucesso: true,
             sincronizados: novosCount,
             fotosSincronizadas: fotosCount,
-            duplicadosEvitados: duplicadosCount,
+            duplicadosEvitados: duplicadosList.length,
+            itensDuplicados: duplicadosList,
             totalNaBaseCentral: cloudData.produtos.length,
             produtosCentral: cloudData.produtos,
             fotosCentral: cloudData.fotos,
-            mensagem: `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
+            mensagem:
+              duplicadosList.length > 0
+                ? `${novosCount} novo(s) serial(is) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`
+                : `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
             timestamp: agora,
           };
         }
@@ -1988,22 +2068,67 @@ class AuditoriaDatabase {
       }
     }
 
-    // 4. Conclusão da Sincronização com Sucesso
+    // 4. Conclusão da Sincronização
     if (sincronizouComSucesso && dataResposta) {
+      const itensDuplicados: DetalheImeiDuplicado[] = Array.isArray(dataResposta.itensDuplicados)
+        ? dataResposta.itensDuplicados
+        : [];
+      const seriaisDuplicados = new Set(
+        itensDuplicados.map((d) => (d.serial || d.imei).trim().toUpperCase())
+      );
+
       const pendentesSeriais = new Set(pendentes.map((p) => p.serial.trim().toUpperCase()));
       const idsSincronizados: number[] = [];
 
+      // 1. Processar itens duplicados (REJEITADOS PELO SERVIDOR ONLINE)
+      for (const dup of itensDuplicados) {
+        const norm = (dup.serial || dup.imei).trim().toUpperCase();
+        const prodLocal = this.produtos.find((p) => p.serial.trim().toUpperCase() === norm);
+        if (prodLocal) {
+          prodLocal.status_sincronizacao = 'ERRO_DUPLICADO';
+          prodLocal.sync_status = 'ERRO_DUPLICADO';
+          prodLocal.erro_sincronizacao = 'IMEI NÃO FOI ENVIADO, POIS JÁ SE ENCONTRA CADASTRADO NA BASE DO SERVIDOR.';
+          prodLocal.duplicado_servidor_info = {
+            ...dup,
+            status: 'DUPLICADO NO SERVIDOR',
+          };
+        }
+
+        // Registrar no log local de tentativas duplicadas
+        this.registrarTentativaEnvioDuplicado({
+          usuario: this.usuarioAtual?.nome || 'Operador',
+          data_hora: agoraFormatada,
+          imei: dup.serial || dup.imei,
+          computador: `${compAtual.id} (${compAtual.nome})`,
+          resultado: 'BLOQUEADO: IMEI JÁ CADASTRADO NO SERVIDOR',
+          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          data_cadastro_existente: dup.data_cadastro_existente,
+          usuario_existente: dup.usuario_existente,
+        });
+
+        this.registrarHistorico(
+          this.usuarioAtual?.nome || 'Operador',
+          'BLOQUEIO_DUPLICIDADE_ONLINE',
+          `Tentativa de envio bloqueada pelo servidor online: IMEI ${dup.serial || dup.imei} já cadastrado por ${dup.usuario_existente || 'outro usuário'} em ${dup.data_cadastro_existente || 'data anterior'}.`,
+          compAtual.regional
+        );
+      }
+
+      // 2. Processar itens válidos enviados com sucesso
       for (const p of this.produtos) {
-        if (pendentesSeriais.has(p.serial.trim().toUpperCase())) {
+        const norm = p.serial.trim().toUpperCase();
+        if (pendentesSeriais.has(norm) && !seriaisDuplicados.has(norm)) {
           p.status_sincronizacao = 'ENVIADO';
           p.sync_status = 'ENVIADO';
           p.data_sincronizacao = agora;
           p.sync_data = agora;
+          p.erro_sincronizacao = null;
+          p.duplicado_servidor_info = null;
           idsSincronizados.push(p.id);
         }
       }
 
-      // Marcar fotos enviadas
+      // 3. Marcar fotos enviadas
       for (const f of this.fotosGrupos) {
         if (pendentesFotos.some((pf) => pf.id === f.id)) {
           f.status_sincronizacao = 'ENVIADO';
@@ -2011,7 +2136,7 @@ class AuditoriaDatabase {
         }
       }
 
-      // Ingerir e mesclar todos os produtos do servidor central
+      // 4. Ingerir e mesclar todos os produtos do servidor central
       if (Array.isArray(dataResposta.produtosCentral)) {
         this.mesclarProdutosCentral(dataResposta.produtosCentral);
       }
@@ -2024,29 +2149,32 @@ class AuditoriaDatabase {
       this.notificarMudanca('produtos');
       this.notificarMudanca('fotos');
 
-      this.salvarRegistroEnvio({
-        data_envio: agoraFormatada,
-        regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-        computador_id: compAtual.id,
-        computador_nome: compAtual.nome,
-        quantidade_enviada: dataResposta.sincronizados,
-        status: 'OK',
-        detalhes: dataResposta.mensagem,
-        produtos_ids: idsSincronizados,
-      });
+      if (idsSincronizados.length > 0) {
+        this.salvarRegistroEnvio({
+          data_envio: agoraFormatada,
+          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          computador_id: compAtual.id,
+          computador_nome: compAtual.nome,
+          quantidade_enviada: dataResposta.sincronizados,
+          status: 'OK',
+          detalhes: dataResposta.mensagem,
+          produtos_ids: idsSincronizados,
+        });
 
-      const usuarioNome = this.usuarioAtual?.nome || 'Operador';
-      this.registrarHistorico(
-        usuarioNome,
-        'ENVIAR_PARA_ONLINE',
-        `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${dataResposta.sincronizados} novos seriais sincronizados no servidor central.`,
-        compAtual.regional
-      );
+        const usuarioNome = this.usuarioAtual?.nome || 'Operador';
+        this.registrarHistorico(
+          usuarioNome,
+          'ENVIAR_PARA_ONLINE',
+          `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${dataResposta.sincronizados} novos seriais sincronizados no servidor central.`,
+          compAtual.regional
+        );
+      }
 
       return {
-        sucesso: true,
+        sucesso: itensDuplicados.length === 0,
         totalSincronizados: dataResposta.sincronizados,
-        duplicadosEvitados: dataResposta.duplicadosEvitados,
+        duplicadosEvitados: itensDuplicados.length,
+        itensDuplicados: itensDuplicados,
         timestamp: agora,
         mensagem: dataResposta.mensagem,
       };
@@ -2057,6 +2185,7 @@ class AuditoriaDatabase {
       sucesso: false,
       totalSincronizados: 0,
       duplicadosEvitados: 0,
+      itensDuplicados: [],
       timestamp: agora,
       mensagem: 'Sem conexão com o servidor central no momento. Seus registros estão salvos localmente e serão sincronizados assim que a conexão for restabelecida.',
     };

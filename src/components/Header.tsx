@@ -4,7 +4,8 @@ import { SolutionsLogo } from './SolutionsLogo';
 import { db } from '../db/storage';
 import { ModalIdentificacaoComputador } from './ModalIdentificacaoComputador';
 import { ModalItensPendentes } from './ModalItensPendentes';
-import { ComputadorInfo } from '../types';
+import { ModalAlertaDuplicidadeServidor } from './ModalAlertaDuplicidadeServidor';
+import { ComputadorInfo, DetalheImeiDuplicado } from '../types';
 import {
   LogOut,
   ShieldCheck,
@@ -20,15 +21,17 @@ import {
 
 interface HeaderProps {
   onLogout: () => void;
-  activeTab: string;
+  activeTab?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
-  const usuario = db.getUsuarioAtual();
+  const [usuario] = useState(() => db.getUsuarioAtual());
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [mostrarModalComputador, setMostrarModalComputador] = useState(false);
   const [mostrarModalPendentes, setMostrarModalPendentes] = useState(false);
+  const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
+  const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
   const [computadorAtual, setComputadorAtual] = useState<ComputadorInfo>(() =>
     db.obterComputadorAtual(usuario?.regional || undefined)
   );
@@ -45,7 +48,15 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
     setSyncLoading(true);
     try {
       const res = await db.sincronizarOnline();
-      setSyncFeedback(res.mensagem);
+      if (res.itensDuplicados && res.itensDuplicados.length > 0) {
+        setDuplicadosAlerta(res.itensDuplicados);
+        setTotalEnviadosAlerta(res.totalSincronizados);
+        setSyncFeedback(
+          `Bloqueio: ${res.itensDuplicados.length} IMEI(s) já existem no servidor central.`
+        );
+      } else {
+        setSyncFeedback(res.mensagem);
+      }
     } catch {
       setSyncFeedback('Erro ao conectar com o servidor central.');
     } finally {
@@ -274,6 +285,23 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
           setStatusSync(db.obterStatusSincronizacao());
         }}
       />
+
+      {/* Modal de Alerta de Bloqueio por Duplicidade no Servidor */}
+      {duplicadosAlerta && (
+        <ModalAlertaDuplicidadeServidor
+          isOpen={!!duplicadosAlerta}
+          duplicados={duplicadosAlerta}
+          totalSincronizados={totalEnviadosAlerta}
+          onClose={() => setDuplicadosAlerta(null)}
+          onItensRemovidos={() => {
+            setStatusSync(db.obterStatusSincronizacao());
+          }}
+          onContinuarEnvio={() => {
+            setDuplicadosAlerta(null);
+            handleSincronizar();
+          }}
+        />
+      )}
     </header>
   );
 };

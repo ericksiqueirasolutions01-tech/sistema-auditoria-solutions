@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA } from '../types';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa';
+import { ModalAlertaDuplicidadeServidor } from '../components/ModalAlertaDuplicidadeServidor';
 import {
   FileSpreadsheet,
   Plus,
@@ -150,13 +151,25 @@ export const BipagemRapida: React.FC = () => {
     return 'excel';
   });
   const [syncMobileLoading, setSyncMobileLoading] = useState(false);
+  const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
+  const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
 
   const handleSyncMobile = async () => {
     setSyncMobileLoading(true);
     try {
       const res = await db.sincronizarOnline();
-      setSucessoNotif(res.mensagem);
       recarregarDados(filtroCaixa);
+      if (res.itensDuplicados && res.itensDuplicados.length > 0) {
+        setDuplicadosAlerta(res.itensDuplicados);
+        setTotalEnviadosAlerta(res.totalSincronizados);
+        setAlertaValidacao(
+          `Bloqueio de Envio: ${res.itensDuplicados.length} IMEI(s) já cadastrado(s) no servidor central online.`
+        );
+      } else if (res.sucesso) {
+        setSucessoNotif(res.mensagem);
+      } else {
+        setAlertaValidacao(res.mensagem);
+      }
     } catch {
       setAlertaValidacao('Erro ao sincronizar com o servidor central.');
     } finally {
@@ -2393,22 +2406,32 @@ export const BipagemRapida: React.FC = () => {
                       {item.observacao || '-'}
                     </td>
                     <td className="py-2 px-2 text-center border-r border-slate-200 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full ${
-                          item.status_sincronizacao === 'ENVIADO'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
+                      {item.status_sincronizacao === 'ERRO_DUPLICADO' ? (
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
+                          className="inline-flex items-center gap-1 font-black text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 animate-pulse"
+                          title={item.erro_sincronizacao || 'IMEI duplicado no servidor online'}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
+                          Duplicado Servidor
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full ${
                             item.status_sincronizacao === 'ENVIADO'
-                              ? 'bg-emerald-600'
-                              : 'bg-amber-600 animate-pulse'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
                           }`}
-                        />
-                        {item.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
-                      </span>
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              item.status_sincronizacao === 'ENVIADO'
+                                ? 'bg-emerald-600'
+                                : 'bg-amber-600 animate-pulse'
+                            }`}
+                          />
+                          {item.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
@@ -3329,6 +3352,23 @@ export const BipagemRapida: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Bloqueio por Duplicidade no Servidor Online */}
+      {duplicadosAlerta && (
+        <ModalAlertaDuplicidadeServidor
+          isOpen={!!duplicadosAlerta}
+          duplicados={duplicadosAlerta}
+          totalSincronizados={totalEnviadosAlerta}
+          onClose={() => setDuplicadosAlerta(null)}
+          onItensRemovidos={() => {
+            recarregarDados(filtroCaixa);
+          }}
+          onContinuarEnvio={() => {
+            setDuplicadosAlerta(null);
+            handleSyncMobile();
+          }}
+        />
       )}
 
     </div>

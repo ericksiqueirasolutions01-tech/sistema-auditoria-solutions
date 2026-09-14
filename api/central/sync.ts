@@ -51,14 +51,15 @@ export default async function handler(req: any, res: any) {
 
     const agora = new Date().toISOString();
     let novosCount = 0;
-    let duplicadosCount = 0;
+    const duplicadosList: any[] = [];
 
     const mapExistentes = new Map<string, any>();
     if (Array.isArray(cloudData.produtos)) {
       for (const p of cloudData.produtos) {
-        const reg = (p.regional || 'VIA VAREJO RJ').trim().toUpperCase();
         const sn = (p.serial || '').trim().toUpperCase();
-        mapExistentes.set(`${reg}:::${sn}`, p);
+        if (sn) {
+          mapExistentes.set(sn, p);
+        }
       }
     } else {
       cloudData.produtos = [];
@@ -66,12 +67,34 @@ export default async function handler(req: any, res: any) {
 
     if (Array.isArray(produtos)) {
       for (const p of produtos) {
-        const reg = (p.regional || regional || 'VIA VAREJO RJ').trim().toUpperCase();
         const sn = (p.serial || '').trim().toUpperCase();
-        const chave = `${reg}:::${sn}`;
+        if (!sn) continue;
 
-        if (mapExistentes.has(chave)) {
-          duplicadosCount++;
+        if (mapExistentes.has(sn)) {
+          const existente = mapExistentes.get(sn);
+          duplicadosList.push({
+            imei: p.serial,
+            serial: p.serial,
+            modelo_produto: p.modelo_produto || existente.modelo_produto || '',
+            numero_caixa: p.numero_caixa || existente.numero_caixa || '',
+            data_cadastro_existente:
+              existente.data_cadastro ||
+              existente.data_auditoria ||
+              existente.data_sincronizacao ||
+              'Data anterior não informada',
+            usuario_existente:
+              existente.usuario_cadastro ||
+              existente.usuario_criacao ||
+              existente.usuario ||
+              'Outro Colaborador',
+            computador_existente:
+              existente.computador_nome ||
+              existente.computador_id ||
+              'Outra Estação',
+            regional_existente: existente.regional || 'Geral',
+            status: 'DUPLICADO NO SERVIDOR',
+            id_local: p.id,
+          });
         } else {
           const itemNormalizado = {
             ...p,
@@ -86,7 +109,7 @@ export default async function handler(req: any, res: any) {
             id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           };
           cloudData.produtos.unshift(itemNormalizado);
-          mapExistentes.set(chave, itemNormalizado);
+          mapExistentes.set(sn, itemNormalizado);
           novosCount++;
         }
       }
@@ -124,7 +147,7 @@ export default async function handler(req: any, res: any) {
       usuario: usuario || 'Operador',
       quantidade_enviada: novosCount,
       status: 'OK',
-      detalhes: `${novosCount} novos seriais e ${fotosCount} fotos sincronizados na nuvem central (${duplicadosCount} duplicados evitados).`,
+      detalhes: `${novosCount} novos seriais e ${fotosCount} fotos sincronizados na nuvem central (${duplicadosList.length} duplicados evitados).`,
       timestamp: agora,
     };
 
@@ -159,11 +182,15 @@ export default async function handler(req: any, res: any) {
       sucesso: true,
       sincronizados: novosCount,
       fotosSincronizadas: fotosCount,
-      duplicadosEvitados: duplicadosCount,
+      duplicadosEvitados: duplicadosList.length,
+      itensDuplicados: duplicadosList,
       totalNaBaseCentral: cloudData.produtos.length,
       produtosCentral: cloudData.produtos,
       fotosCentral: cloudData.fotos,
-      mensagem: `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
+      mensagem:
+        duplicadosList.length > 0
+          ? `${novosCount} novo(s) serial(is) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`
+          : `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
       timestamp: agora,
     });
   } catch (err: any) {

@@ -51,6 +51,28 @@ export const REGIONAIS_PADRAO = [
 export const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
 export const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
 
+export const SERVIDOR_CENTRAL_PADRAO = 'https://sistema-auditoria-solutions.vercel.app';
+
+export function obterUrlServidorCentral(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('solutions_servidor_url');
+    if (custom && custom.startsWith('http')) return custom.replace(/\/+$/, '');
+  }
+  return SERVIDOR_CENTRAL_PADRAO;
+}
+
+export function obterApiUrl(endpoint: string): string {
+  const rotaLimpa = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // Quando executado no app desktop local (127.0.0.1, localhost) ou sem hostname, direciona para o servidor central oficial
+    if (host === 'localhost' || host === '127.0.0.1' || !host) {
+      return `${obterUrlServidorCentral()}${rotaLimpa}`;
+    }
+  }
+  return rotaLimpa;
+}
+
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
   if (!dataUri) return '';
   if (!dataUri.startsWith('data:image') || dataUri.length < 2000) return dataUri;
@@ -1728,7 +1750,8 @@ class AuditoriaDatabase {
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
       try {
-        const res = await fetch(`/api/central/produtos?_t=${Date.now()}`);
+        const urlProds = obterApiUrl(`/api/central/produtos?_t=${Date.now()}`);
+        const res = await fetch(urlProds);
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
@@ -1893,30 +1916,44 @@ class AuditoriaDatabase {
     let dataResposta: any = null;
 
     // 2. ENVIAR PARA O SERVIDOR CENTRAL VIA HTTP REAL (REDE / NUVEM)
-    try {
-      const response = await fetch('/api/central/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          produtos: pendentes,
-          fotos: pendentesFotosSync,
-          computador: compAtual,
-          usuario: this.usuarioAtual?.nome || 'Operador',
-          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-        }),
-      });
+    const endpointsParaTentar: string[] = [
+      obterApiUrl('/api/central/sync'),
+    ];
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      if (!endpointsParaTentar.includes('/api/central/sync')) {
+        endpointsParaTentar.push('/api/central/sync');
+      }
+    }
 
-      if (response.ok) {
-        const ct = response.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          dataResposta = await response.json();
-          if (dataResposta && dataResposta.sucesso) {
-            sincronizouComSucesso = true;
+    for (const endpoint of endpointsParaTentar) {
+      if (sincronizouComSucesso) break;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            produtos: pendentes,
+            fotos: pendentesFotosSync,
+            computador: compAtual,
+            usuario: this.usuarioAtual?.nome || 'Operador',
+            regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          }),
+        });
+
+        if (response.ok) {
+          const ct = response.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const data = await response.json();
+            if (data && data.sucesso) {
+              dataResposta = data;
+              sincronizouComSucesso = true;
+              break;
+            }
           }
         }
+      } catch (err) {
+        console.warn(`[Storage] Tentativa de sync em ${endpoint} falhou:`, err);
       }
-    } catch (err) {
-      console.warn('[Storage] /api/central/sync indisponível, acionando fallback direto na nuvem:', err);
     }
 
     // 3. Fallback Nuvem Direta caso a rota /api/central/sync não responda (hospedagem estática, Vercel timeout, etc.)
@@ -2289,7 +2326,7 @@ class AuditoriaDatabase {
       // 1. Validar status do servidor
       let statusOk = false;
       try {
-        const resStatus = await fetch('/api/central/status', { cache: 'no-store' });
+        const resStatus = await fetch(obterApiUrl('/api/central/status'), { cache: 'no-store' });
         if (resStatus.ok) {
           statusOk = true;
         }

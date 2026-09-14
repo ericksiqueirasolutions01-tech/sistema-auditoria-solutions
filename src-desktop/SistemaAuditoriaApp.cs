@@ -22,6 +22,12 @@ namespace SistemaAuditoriaSolutions
 
             try
             {
+                try
+                {
+                    ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)768 | SecurityProtocolType.Tls;
+                }
+                catch {}
+
                 File.AppendAllText(logPath, string.Format("\n[{0}] Iniciando aplicacao...\n", DateTime.Now));
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
@@ -306,6 +312,13 @@ namespace SistemaAuditoriaSolutions
                     return;
                 }
 
+                // Proxy transparente para requisições de API central online (/api/...)
+                if (req.Url.AbsolutePath.StartsWith("/api/"))
+                {
+                    ProxyApiRequest(context);
+                    return;
+                }
+
                 string urlPath = req.Url.AbsolutePath.TrimStart('/');
                 if (string.IsNullOrEmpty(urlPath))
                 {
@@ -340,6 +353,85 @@ namespace SistemaAuditoriaSolutions
             catch
             {
                 try { context.Response.Close(); } catch {}
+            }
+        }
+
+        private void ProxyApiRequest(HttpListenerContext context)
+        {
+            try
+            {
+                var req = context.Request;
+                var res = context.Response;
+
+                string targetUrl = "https://sistema-auditoria-solutions.vercel.app" + req.Url.PathAndQuery;
+                Log("ProxyApiRequest: " + req.HttpMethod + " -> " + targetUrl);
+
+                var targetReq = (HttpWebRequest)WebRequest.Create(targetUrl);
+                targetReq.Method = req.HttpMethod;
+                targetReq.Timeout = 20000;
+                targetReq.ReadWriteTimeout = 20000;
+
+                if (req.HasEntityBody && req.HttpMethod != "GET" && req.HttpMethod != "HEAD")
+                {
+                    targetReq.ContentType = req.ContentType;
+                    using (var inStream = req.InputStream)
+                    using (var outStream = targetReq.GetRequestStream())
+                    {
+                        byte[] buf = new byte[8192];
+                        int r;
+                        while ((r = inStream.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            outStream.Write(buf, 0, r);
+                        }
+                    }
+                }
+
+                HttpWebResponse targetRes = null;
+                try
+                {
+                    targetRes = (HttpWebResponse)targetReq.GetResponse();
+                }
+                catch (WebException wex)
+                {
+                    targetRes = wex.Response as HttpWebResponse;
+                    if (targetRes == null)
+                    {
+                        Log("ProxyApi falha sem resposta HTTP: " + wex.Message);
+                        res.StatusCode = 502;
+                        byte[] errBytes = Encoding.UTF8.GetBytes("{\"sucesso\":false,\"erro\":\"Servidor central indisponível no momento.\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.OutputStream.Write(errBytes, 0, errBytes.Length);
+                        res.Close();
+                        return;
+                    }
+                }
+
+                res.StatusCode = (int)targetRes.StatusCode;
+                res.ContentType = targetRes.ContentType;
+                using (var inStream = targetRes.GetResponseStream())
+                {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = inStream.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        res.OutputStream.Write(buf, 0, r);
+                    }
+                }
+                targetRes.Close();
+                res.Close();
+            }
+            catch (Exception ex)
+            {
+                Log("ProxyApi Excecao: " + ex.Message);
+                try
+                {
+                    context.Response.StatusCode = 500;
+                    byte[] errBytes = Encoding.UTF8.GetBytes("{\"sucesso\":false,\"erro\":\"" + ex.Message.Replace("\"", "'") + "\"}");
+                    context.Response.ContentType = "application/json; charset=utf-8";
+                    context.Response.OutputStream.Write(errBytes, 0, errBytes.Length);
+                    context.Response.Close();
+                }
+                catch {}
             }
         }
 

@@ -24,18 +24,19 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
   // 6. MENU DINÂMICO POR PERFIL CONFORME ESPECIFICAÇÃO
   const menuItems = isAdmin
     ? [
+        { id: 'admin-regionais', label: 'Servidor Central', icon: Building2, badge: 'Nuvem' },
         { id: 'dashboard', label: 'Dashboard Geral', icon: LayoutDashboard },
-        { id: 'admin-regionais', label: 'Regionais', icon: Building2, badge: 'Multi' },
-        { id: 'relatorios', label: 'Relatórios', icon: Search },
-        { id: 'graficos', label: 'Gráficos', icon: BarChart3 },
-        { id: 'exportacoes', label: 'Exportações', icon: HardDrive },
-        { id: 'usuarios', label: 'Usuários', icon: Users },
+        { id: 'relatorios', label: 'Consulta & Seriais', icon: Search },
+        { id: 'graficos', label: 'Estatísticas & Fotos', icon: BarChart3 },
+        { id: 'historico-envios', label: 'Histórico de Envios', icon: SendHorizontal, badge: 'Estações' },
+        { id: 'usuarios', label: 'Usuários & Operadores', icon: Users },
+        { id: 'exportacoes', label: 'Backup & Limpeza', icon: HardDrive },
       ]
     : [
-        { id: 'dashboard', label: 'Dashboard Regional', icon: LayoutDashboard },
         { id: 'bipagem', label: 'Bipagem / Auditoria', icon: Barcode, badge: 'Planilha' },
-        { id: 'consulta', label: 'Consulta', icon: Search },
-        { id: 'espelhos', label: 'Espelhos', icon: FileText },
+        { id: 'dashboard', label: 'Dashboard Regional', icon: LayoutDashboard },
+        { id: 'consulta', label: 'Consulta Local', icon: Search },
+        { id: 'espelhos', label: 'Espelhos de Caixas', icon: FileText },
         { id: 'sincronizacao', label: 'Sincronização', icon: SendHorizontal, badge: 'Online' },
       ];
 

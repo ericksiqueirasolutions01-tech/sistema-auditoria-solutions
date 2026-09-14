@@ -159,6 +159,27 @@ export default async function handler(req: any, res: any) {
       cloudData.historico_envios = cloudData.historico_envios.slice(0, 200);
     }
 
+    if (duplicadosList.length > 0) {
+      if (!Array.isArray((cloudData as any).tentativas_duplicadas)) {
+        (cloudData as any).tentativas_duplicadas = [];
+      }
+      for (const d of duplicadosList) {
+        (cloudData as any).tentativas_duplicadas.unshift({
+          usuario: usuario || 'Operador',
+          data_hora: new Date().toLocaleString('pt-BR'),
+          imei: d.serial || d.imei,
+          computador: `${computador?.id || 'PC-001'} (${computador?.nome || 'Estacao'})`,
+          resultado: 'BLOQUEADO: IMEI JÁ CADASTRADO NO SERVIDOR',
+          regional: regional || computador?.regional || 'VIA VAREJO RJ',
+          data_cadastro_existente: d.data_cadastro_existente,
+          usuario_existente: d.usuario_existente,
+        });
+      }
+      if ((cloudData as any).tentativas_duplicadas.length > 300) {
+        (cloudData as any).tentativas_duplicadas = (cloudData as any).tentativas_duplicadas.slice(0, 300);
+      }
+    }
+
     cloudData.ultimaAtualizacao = agora;
 
     // Salva no storage principal e espelha no backup

@@ -73,6 +73,16 @@ export function obterApiUrl(endpoint: string): string {
   return rotaLimpa;
 }
 
+export function isDesktopApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || !host;
+}
+
+export function isServidorOnlineWeb(): boolean {
+  return !isDesktopApp();
+}
+
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
   if (!dataUri) return '';
   if (!dataUri.startsWith('data:image') || dataUri.length < 2000) return dataUri;
@@ -601,6 +611,15 @@ class AuditoriaDatabase {
     const loginNorm = login.trim().toUpperCase();
     const passTrim = pass.trim();
 
+    // REGRA FUNDAMENTAL: O Painel Administrativo / Servidor Central funciona exclusivamente ONLINE na Web
+    // O aplicativo instalado no computador é exclusivo para operação e bipagem dos operadores nas bancadas
+    if ((loginNorm === 'ADMIN' || loginNorm === 'ADMINISTRADOR') && isDesktopApp()) {
+      return {
+        sucesso: false,
+        erro: 'Acesso Restrito: O Painel de Administrador (Servidor Central) deve ser acessado exclusivamente pela versão Web Online (https://sistema-auditoria-solutions.vercel.app). Este aplicativo instalado no computador é exclusivo para operadores nas bancadas.',
+      };
+    }
+
     const user = this.usuarios.find((u) => {
       const uLogin = u.login.trim().toUpperCase();
       const loginMatches = uLogin === loginNorm;
@@ -611,6 +630,13 @@ class AuditoriaDatabase {
 
     if (!user) {
       return { sucesso: false, erro: 'Usuário ou senha incorretos, ou usuário inativo.' };
+    }
+
+    if (user.perfil === 'ADMINISTRADOR' && isDesktopApp()) {
+      return {
+        sucesso: false,
+        erro: 'Acesso Restrito: O Painel de Administrador (Servidor Central) deve ser acessado exclusivamente pela versão Web Online (https://sistema-auditoria-solutions.vercel.app). Este aplicativo instalado no computador é exclusivo para operadores nas bancadas.',
+      };
     }
     this.setUsuarioAtual(user);
     this.registrarHistorico(
@@ -1749,6 +1775,8 @@ class AuditoriaDatabase {
       // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware) com anti-cache
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
+      let historicoRemoto: RegistroSincronizacaoEnvio[] | null = null;
+      let tentativasRemotas: LogTentativaDuplicado[] | null = null;
       try {
         const urlProds = obterApiUrl(`/api/central/produtos?_t=${Date.now()}`);
         const res = await fetch(urlProds);
@@ -1761,6 +1789,12 @@ class AuditoriaDatabase {
             }
             if (data && Array.isArray(data.fotos)) {
               fotosRemotas = data.fotos;
+            }
+            if (data && Array.isArray(data.historico_envios)) {
+              historicoRemoto = data.historico_envios;
+            }
+            if (data && Array.isArray(data.tentativas_duplicadas)) {
+              tentativasRemotas = data.tentativas_duplicadas;
             }
           }
         }
@@ -1783,6 +1817,12 @@ class AuditoriaDatabase {
             if (cloudData && Array.isArray(cloudData.fotos)) {
               fotosRemotas = cloudData.fotos;
             }
+            if (cloudData && Array.isArray(cloudData.historico_envios)) {
+              historicoRemoto = cloudData.historico_envios;
+            }
+            if (cloudData && Array.isArray(cloudData.tentativas_duplicadas)) {
+              tentativasRemotas = cloudData.tentativas_duplicadas;
+            }
           }
         } catch {}
       }
@@ -1795,6 +1835,14 @@ class AuditoriaDatabase {
       if (fotosRemotas && fotosRemotas.length > 0) {
         const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
         if (alterouFotos) alterou = true;
+      }
+      if (historicoRemoto && historicoRemoto.length > 0) {
+        const alterouHist = this.mesclarHistoricoCentral(historicoRemoto);
+        if (alterouHist) alterou = true;
+      }
+      if (tentativasRemotas && tentativasRemotas.length > 0) {
+        const alterouTent = this.mesclarTentativasDuplicadasCentral(tentativasRemotas);
+        if (alterouTent) alterou = true;
       }
 
       if (alterou) {
@@ -2484,6 +2532,58 @@ class AuditoriaDatabase {
     lista.unshift(novo);
     if (lista.length > 500) lista.length = 500;
     localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify(lista));
+  }
+
+  mesclarHistoricoCentral(historicoCentral: RegistroSincronizacaoEnvio[]): boolean {
+    let raw = localStorage.getItem(STORAGE_KEY_HISTORICO_ENVIOS);
+    let locais: RegistroSincronizacaoEnvio[] = [];
+    try {
+      if (raw) locais = JSON.parse(raw);
+    } catch {}
+
+    const map = new Map<string | number, RegistroSincronizacaoEnvio>();
+    // Priorizar itens do servidor central
+    for (const ch of historicoCentral) {
+      if (ch && (ch.id || (ch as any).timestamp)) {
+        const k = ch.id || (ch as any).timestamp;
+        map.set(k, ch);
+      }
+    }
+    for (const lh of locais) {
+      if (lh && lh.id && !map.has(lh.id)) {
+        map.set(lh.id, lh);
+      }
+    }
+
+    const consolidado = Array.from(map.values()).sort((a, b) => {
+      const idA = Number(a.id) || 0;
+      const idB = Number(b.id) || 0;
+      return idB - idA;
+    });
+
+    localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify(consolidado));
+    return true;
+  }
+
+  mesclarTentativasDuplicadasCentral(tentativasCentral: LogTentativaDuplicado[]): boolean {
+    let alterou = false;
+    const map = new Map<string, LogTentativaDuplicado>();
+    for (const t of this.tentativasDuplicadas) {
+      const k = `${t.imei}:::${t.data_hora}:::${t.computador}`;
+      map.set(k, t);
+    }
+    for (const ct of tentativasCentral) {
+      const k = `${ct.imei}:::${ct.data_hora}:::${ct.computador}`;
+      if (!map.has(k)) {
+        map.set(k, ct);
+        this.tentativasDuplicadas.unshift(ct);
+        alterou = true;
+      }
+    }
+    if (alterou) {
+      localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify(this.tentativasDuplicadas));
+    }
+    return alterou;
   }
 
   // =========================================================================

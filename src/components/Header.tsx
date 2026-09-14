@@ -18,6 +18,7 @@ import {
   MapPin,
   Monitor,
   Layers,
+  Globe,
   X,
 } from 'lucide-react';
 import { PainelStatusSistema } from './PainelStatusSistema';
@@ -97,67 +98,101 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shrink-0 h-10 shadow-2xs">
               <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Regional</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">
+                  {usuario?.perfil === 'ADMINISTRADOR' ? 'Escopo' : 'Regional'}
+                </span>
                 <span className="text-xs font-black text-slate-900 uppercase tracking-tight whitespace-nowrap">
                   {usuario?.regional || 'TODAS (ADMIN)'}
                 </span>
               </div>
             </div>
 
-            {/* Workstation (Computador) Card */}
-            <button
-              onClick={() => setMostrarModalComputador(true)}
-              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl border border-slate-800 shrink-0 h-10 shadow-xs transition-all cursor-pointer"
-              title="Identificação única desta máquina (Clique para alterar o computador/estação)"
-            >
-              <Monitor className="w-4 h-4 text-amber-400 shrink-0" />
-              <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Estação</span>
-                <span className="text-xs font-mono font-black text-amber-300 tracking-wide whitespace-nowrap">
-                  {computadorAtual.id}
-                </span>
+            {/* Workstation (Computador) Card para Operador OU Badge Servidor Central para Administrador */}
+            {usuario?.perfil === 'ADMINISTRADOR' ? (
+              <div className="flex items-center gap-2 bg-purple-950 text-white px-3 py-1.5 rounded-xl border border-purple-800 shrink-0 h-10 shadow-xs">
+                <Globe className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[9px] font-black text-purple-300 uppercase leading-none">Servidor</span>
+                  <span className="text-xs font-mono font-black text-white tracking-wide whitespace-nowrap">
+                    CENTRAL ONLINE
+                  </span>
+                </div>
               </div>
-            </button>
+            ) : (
+              <button
+                onClick={() => setMostrarModalComputador(true)}
+                className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-xl border border-slate-800 shrink-0 h-10 shadow-xs transition-all cursor-pointer"
+                title="Identificação única desta máquina (Clique para alterar o computador/estação)"
+              >
+                <Monitor className="w-4 h-4 text-amber-400 shrink-0" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Estação</span>
+                  <span className="text-xs font-mono font-black text-amber-300 tracking-wide whitespace-nowrap">
+                    {computadorAtual.id}
+                  </span>
+                </div>
+              </button>
+            )}
           </div>
 
           {/* Status, Sync Engine & User Actions */}
           <div className="flex items-center gap-2 py-1 shrink-0">
-            {/* Sync Status Button (Clicável com modal de pendências) */}
-            <button
-              onClick={() => setMostrarModalPendentes(true)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 shadow-2xs whitespace-nowrap transition-all cursor-pointer hover:shadow-sm active:scale-95 ${
-                statusSync.pendentes === 0
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/70'
-                  : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/70 ring-1 ring-amber-300 animate-subtle-pulse'
-              }`}
-              title="Clique para ver os detalhes dos itens pendentes de sincronização"
-            >
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-              <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black text-slate-500 uppercase leading-none">Status</span>
-                <span className="text-xs font-black uppercase tracking-tight flex items-center gap-1">
-                  {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pendente${statusSync.pendentes > 1 ? 's' : ''}`}
-                  {statusSync.pendentes > 0 && (
-                    <span className="text-[9px] underline font-bold text-amber-700 ml-0.5">(Ver)</span>
-                  )}
-                </span>
-              </div>
-            </button>
+            {usuario?.perfil === 'ADMINISTRADOR' ? (
+              <button
+                onClick={async () => {
+                  setSyncLoading(true);
+                  await db.puxarAtualizacoesServidor();
+                  setSyncLoading(false);
+                  setSyncFeedback('Dados do servidor central atualizados com sucesso.');
+                  setTimeout(() => setSyncFeedback(null), 3000);
+                }}
+                disabled={syncLoading}
+                className="bg-purple-700 hover:bg-purple-800 active:scale-95 text-white px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 h-10 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                title="Sincronizar e consultar os lançamentos mais recentes das bancadas no servidor central"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncLoading ? 'animate-spin' : ''}`} />
+                <span>Atualizar Servidor</span>
+              </button>
+            ) : (
+              <>
+                {/* Sync Status Button (Clicável com modal de pendências) */}
+                <button
+                  onClick={() => setMostrarModalPendentes(true)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 shadow-2xs whitespace-nowrap transition-all cursor-pointer hover:shadow-sm active:scale-95 ${
+                    statusSync.pendentes === 0
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/70'
+                      : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/70 ring-1 ring-amber-300 animate-subtle-pulse'
+                  }`}
+                  title="Clique para ver os detalhes dos itens pendentes de sincronização"
+                >
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                  <div className="flex flex-col text-left">
+                    <span className="text-[9px] font-black text-slate-500 uppercase leading-none">Status</span>
+                    <span className="text-xs font-black uppercase tracking-tight flex items-center gap-1">
+                      {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pendente${statusSync.pendentes > 1 ? 's' : ''}`}
+                      {statusSync.pendentes > 0 && (
+                        <span className="text-[9px] underline font-bold text-amber-700 ml-0.5">(Ver)</span>
+                      )}
+                    </span>
+                  </div>
+                </button>
 
-            {/* Botão ENVIAR PARA ONLINE */}
-            <button
-              onClick={handleSincronizar}
-              disabled={syncLoading}
-              className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:opacity-60 text-white px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 h-10 shadow-xs transition-all cursor-pointer whitespace-nowrap"
-              title="Enviar novos registros deste computador para a base online central"
-            >
-              {syncLoading ? (
-                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-              ) : (
-                <CloudUpload className="w-4 h-4 shrink-0" />
-              )}
-              <span>Enviar para Online</span>
-            </button>
+                {/* Botão ENVIAR PARA ONLINE */}
+                <button
+                  onClick={handleSincronizar}
+                  disabled={syncLoading}
+                  className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:opacity-60 text-white px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 h-10 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                  title="Enviar novos registros deste computador para a base online central"
+                >
+                  {syncLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                  ) : (
+                    <CloudUpload className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>Enviar para Online</span>
+                </button>
+              </>
+            )}
 
             {/* Botão Painel de Status do Sistema (Requisito 11) */}
             <button

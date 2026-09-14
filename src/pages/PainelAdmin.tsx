@@ -65,6 +65,10 @@ export const PainelAdmin: React.FC = () => {
   // Seletor de visualização: 'CONSOLIDADO' ou nome de uma regional específica
   const [regionalAtiva, setRegionalAtiva] = useState<string>('CONSOLIDADO');
   
+  // Estados de Sincronização em Tempo Real com o Servidor Central
+  const [atualizandoServidor, setAtualizandoServidor] = useState(false);
+  const [ultimaAtualizacaoServidor, setUltimaAtualizacaoServidor] = useState<string>('');
+  
   // Estados para tabela estilo Excel
   const [busca, setBusca] = useState('');
   const [filtroCaixa, setFiltroCaixa] = useState('TODAS');
@@ -77,11 +81,29 @@ export const PainelAdmin: React.FC = () => {
   const [ordemCampo, setOrdemCampo] = useState<keyof ProdutoAuditoria>('id');
   const [ordemDirecao, setOrdemDirecao] = useState<'asc' | 'desc'>('desc');
 
-  // Atualização reativa automática
+  // Atualização reativa automática e sincronização contínua com o servidor central
   useEffect(() => {
-    return db.onMudanca(() => {
+    setAtualizandoServidor(true);
+    db.puxarAtualizacoesServidor().finally(() => {
+      setAtualizandoServidor(false);
+      setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
       setForcarAtualizacao((v) => v + 1);
     });
+
+    const intervalId = setInterval(() => {
+      db.puxarAtualizacoesServidor().then(() => {
+        setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
+      });
+    }, 5000);
+
+    const unsub = db.onMudanca(() => {
+      setForcarAtualizacao((v) => v + 1);
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      unsub();
+    };
   }, []);
 
   const estatisticasRegionais = useMemo(() => db.obterEstatisticasRegionais(), [forcarAtualizacao]);
@@ -327,26 +349,47 @@ export const PainelAdmin: React.FC = () => {
       <div className="bg-white rounded-2xl border-2 border-slate-300 p-6 shadow-xs no-print">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="bg-purple-100 text-purple-800 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider border border-purple-200">
                 Acesso Exclusivo Administrador
               </span>
-              <span className="text-xs text-slate-400 font-bold">•</span>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Controle Multi Regional Samsung
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider border border-emerald-200 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Servidor Central Online
               </span>
+              {ultimaAtualizacaoServidor && (
+                <span className="text-[10px] text-slate-400 font-bold">
+                  • Atualizado às {ultimaAtualizacaoServidor}
+                </span>
+              )}
             </div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
               <Building2 className="w-6 h-6 text-purple-600" />
-              Painel Administrativo de Regionais
+              Servidor Central • Painel Administrativo
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Visão integrada de auditorias por regional, indicadores consolidados, gráficos e exportações.
+              Base consolidada do servidor central online: recepção de lotes, indicadores por regional, estações e fotos Samsung.
             </p>
           </div>
 
           {/* Botões de Ação Rápida no Topo */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Botão de Atualização em Tempo Real do Servidor */}
+            <button
+              onClick={async () => {
+                setAtualizandoServidor(true);
+                await db.puxarAtualizacoesServidor();
+                setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
+                setForcarAtualizacao((v) => v + 1);
+                setAtualizandoServidor(false);
+              }}
+              disabled={atualizandoServidor}
+              className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-60 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title="Consultar e sincronizar os lançamentos mais recentes das bancadas no servidor central"
+            >
+              <RefreshCw className={`w-4 h-4 ${atualizandoServidor ? 'animate-spin' : ''}`} />
+              <span>{atualizandoServidor ? 'Atualizando...' : 'Atualizar Dados do Servidor'}</span>
+            </button>
             {regionalAtiva !== 'CONSOLIDADO' && (
               <button
                 onClick={() => setRegionalAtiva('CONSOLIDADO')}

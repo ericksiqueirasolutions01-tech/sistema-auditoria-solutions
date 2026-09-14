@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
       getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
     }
     if (!getRes.ok) {
-      return res.status(200).json({ produtos: [], fotos: [], historico_envios: [] });
+      return res.status(200).json({ produtos: [], fotos: [], historico_envios: [], tentativas_duplicadas: [] });
     }
     const data = await getRes.json();
     return res.status(200).json({
@@ -25,10 +25,11 @@ export default async function handler(req: any, res: any) {
       produtos: data.produtos || [],
       fotos: data.fotos || [],
       historico_envios: data.historico_envios || [],
+      tentativas_duplicadas: data.tentativas_duplicadas || [],
       ultimaAtualizacao: data.ultimaAtualizacao || new Date().toISOString(),
     });
   } catch (err: any) {
     console.error('Erro ao buscar produtos da nuvem:', err);
-    return res.status(200).json({ produtos: [], fotos: [], historico_envios: [] });
+    return res.status(200).json({ produtos: [], fotos: [], historico_envios: [], tentativas_duplicadas: [] });
   }
 }

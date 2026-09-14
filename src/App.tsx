@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from './db/storage';
+import { db, isDesktopApp } from './db/storage';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
 import { LoginModal } from './components/LoginModal';
@@ -22,15 +22,15 @@ export const App: React.FC = () => {
     () => !db.isConfiguracaoInicialConcluida()
   );
   const [activeTab, setActiveTab] = useState(() =>
-    usuario?.perfil === 'ADMINISTRADOR' ? 'dashboard' : 'bipagem'
+    usuario?.perfil === 'ADMINISTRADOR' ? 'admin-regionais' : 'bipagem'
   );
 
-  // Route Guard: impedir acesso de operador a áreas administrativas
+  // Route Guard: impedir acesso a áreas administrativas no aplicativo desktop ou por operador
   useEffect(() => {
     if (!usuario) {
       return;
     }
-    if (usuario.perfil === 'OPERADOR') {
+    if (isDesktopApp() || usuario.perfil === 'OPERADOR') {
       const forbiddenForOperator = [
         'admin-regionais',
         'relatorios',
@@ -72,13 +72,13 @@ export const App: React.FC = () => {
         setActiveTab('espelhos');
       } else if (e.key === 'F4') {
         e.preventDefault();
-        setActiveTab('dashboard');
+        setActiveTab(usuario?.perfil === 'ADMINISTRADOR' ? 'admin-regionais' : 'dashboard');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [usuario]);
 
   const handleLogout = () => {
     db.setUsuarioAtual(null);
@@ -90,7 +90,7 @@ export const App: React.FC = () => {
     const u = db.getUsuarioAtual();
     setUsuario(u);
     if (u?.perfil === 'ADMINISTRADOR') {
-      setActiveTab('dashboard');
+      setActiveTab('admin-regionais');
     } else {
       setActiveTab('bipagem');
     }
@@ -101,7 +101,9 @@ export const App: React.FC = () => {
   }
 
   // REQUISITO 4: PRIMEIRA INSTALAÇÃO E SINCRONIZAÇÃO INICIAL OBRIGATÓRIA
-  if (precisaSincronizacaoInicial) {
+  // Apenas no aplicativo instalado no computador (desktop app) para operadores.
+  // Nunca deve ser exibido para o Administrador nem na versão web online!
+  if (isDesktopApp() && usuario?.perfil !== 'ADMINISTRADOR' && precisaSincronizacaoInicial) {
     return (
       <ModalPrimeiraSincronizacao
         onConcluido={() => setPrecisaSincronizacaoInicial(false)}

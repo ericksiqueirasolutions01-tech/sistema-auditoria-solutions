@@ -1,10 +1,11 @@
 {
   "rewrites": [
     {
-      "source": "/((?!api/|sw\\.js|manifest\\.json).*)",
+      "source": "/((?!api/|downloads/|sw\\.js|manifest\\.json).*)",
       "destination": "/"
     }
   ],
+
   "headers": [
     {
       "source": "/sw.js",

@@ -157,13 +157,42 @@ export interface EstatisticasRegional {
   ultimaAuditoria: string | null;
 }
 
+export type StatusConexao = 'ONLINE' | 'OFFLINE';
+
+export interface LogAcessoUsuario {
+  id: number;
+  usuario: string;
+  perfil: string;
+  regional?: string | null;
+  maquina_id: string;
+  maquina_nome: string;
+  data_hora: string;
+  dispositivo: string;
+  ip?: string;
+}
+
+export interface ConfiguracaoInicialInfo {
+  realizada: boolean;
+  data_hora: string | null;
+  usuario: string | null;
+  parametros_baixados: boolean;
+  total_modelos_catalogo: number;
+}
+
 export interface StatusSincronizacao {
   pendentes: number;
   sincronizados: number;
   enviados?: number;
   total: number;
   ultimaSincronizacao: string | null;
+  // Campos detalhados para o Painel de Status do Sistema:
+  statusConexao: StatusConexao;
+  registrosPendentes: number;
+  ultimoEnvio: string | null;
+  quantidadeEnviada: number;
+  quantidadeBloqueada: number;
 }
+
 
 export interface FiltroConsulta {
   termoBusca?: string;

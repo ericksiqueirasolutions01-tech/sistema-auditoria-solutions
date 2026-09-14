@@ -17,12 +17,16 @@ import {
   AlertCircle,
   MapPin,
   Monitor,
+  Layers,
+  X,
 } from 'lucide-react';
+import { PainelStatusSistema } from './PainelStatusSistema';
 
 interface HeaderProps {
   onLogout: () => void;
   activeTab?: string;
 }
+
 
 export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   const [usuario] = useState(() => db.getUsuarioAtual());
@@ -32,9 +36,11 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   const [mostrarModalPendentes, setMostrarModalPendentes] = useState(false);
   const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
   const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
+  const [mostrarPainelStatusModal, setMostrarPainelStatusModal] = useState(false);
   const [computadorAtual, setComputadorAtual] = useState<ComputadorInfo>(() =>
     db.obterComputadorAtual(usuario?.regional || undefined)
   );
+
 
   const [statusSync, setStatusSync] = useState(() => db.obterStatusSincronizacao());
 
@@ -153,14 +159,30 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               <span>Enviar para Online</span>
             </button>
 
-            {/* 100% Offline Engine Box */}
-            <div className="hidden xl:flex items-center gap-2 bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl border border-slate-200 shrink-0 h-10 text-xs font-bold shadow-2xs whitespace-nowrap">
-              <WifiOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            {/* Botão Painel de Status do Sistema (Requisito 11) */}
+            <button
+              onClick={() => setMostrarPainelStatusModal(true)}
+              className={`hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 text-xs font-bold shadow-2xs whitespace-nowrap cursor-pointer transition-all hover:shadow-sm active:scale-95 ${
+                statusSync.statusConexao === 'ONLINE'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/70'
+                  : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100/70'
+              }`}
+              title="Abrir Painel de Status Geral do Sistema (Conexão, Pendências, Envios e Bloqueios)"
+            >
+              <Layers className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black text-slate-400 uppercase leading-none">Rede</span>
-                <span className="text-xs font-bold text-slate-700">Central Ativo</span>
+                <span className="text-[9px] font-black uppercase leading-none text-slate-500">Painel Status</span>
+                <span className="text-xs font-black tracking-tight flex items-center gap-1.5">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      statusSync.statusConexao === 'ONLINE' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                    }`}
+                  />
+                  {statusSync.statusConexao}
+                </span>
               </div>
-            </div>
+            </button>
+
 
             {/* User Info Box */}
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 pl-2.5 pr-1 py-1 rounded-xl shrink-0 h-10 shadow-2xs">
@@ -302,7 +324,36 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
           }}
         />
       )}
+
+      {/* Modal do Painel de Status do Sistema (Requisito 11) */}
+      {mostrarPainelStatusModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-blue-600" />
+                Painel Geral de Status do Sistema
+              </h3>
+              <button
+                onClick={() => setMostrarPainelStatusModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <PainelStatusSistema
+              compacto={false}
+              onAbrirPendentes={() => {
+                setMostrarPainelStatusModal(false);
+                setMostrarModalPendentes(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </header>
   );
+
 };
 

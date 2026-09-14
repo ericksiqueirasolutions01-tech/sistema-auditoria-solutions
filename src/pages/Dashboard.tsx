@@ -13,6 +13,8 @@ import {
   ArrowUpRight,
   CloudUpload,
 } from 'lucide-react';
+import { PainelStatusSistema } from '../components/PainelStatusSistema';
+
 
 interface DashboardProps {
   onNavigate: (tab: string) => void;
@@ -69,6 +71,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </div>
         </div>
       </div>
+
+      {/* REQUISITO 11: PAINEL DE STATUS DO SISTEMA */}
+      <PainelStatusSistema onAbrirPendentes={() => onNavigate('bipagem')} />
 
       {/* KPI Cards Grid (Requisito 17) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">

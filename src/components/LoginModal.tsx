@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { db } from '../db/storage';
 import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
-import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound } from 'lucide-react';
+import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound, Download } from 'lucide-react';
+import { ModalDownloadApp } from './ModalDownloadApp';
 
 interface LoginModalProps {
   onLoginSucesso: () => void;
@@ -12,6 +13,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
   const [login, setLogin] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState<string | null>(null);
+  const [mostrarModalDownload, setMostrarModalDownload] = useState(false);
   const senhaInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -20,12 +22,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
 
     const res = db.autenticar(login, senha);
     if (res.sucesso) {
+      if (res.usuario) {
+        db.registrarAcessoUsuario(res.usuario.nome, res.usuario.perfil, res.usuario.regional);
+      }
       onLoginSucesso();
     } else {
       setErro(res.erro || 'Usuário ou senha incorretos.');
       senhaInputRef.current?.select();
     }
   };
+
 
   const selecionarUsuario = (loginNome: string) => {
     setLogin(loginNome);
@@ -197,8 +203,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
             <span>Selecionar <strong>ADMIN</strong> (Administrador Geral)</span>
           </button>
         </div>
+
+        {/* REQUISITO 2: DOWNLOAD DO APLICATIVO NA TELA DE LOGIN */}
+        <div className="border-t border-slate-100 pt-3">
+          <button
+            type="button"
+            onClick={() => setMostrarModalDownload(true)}
+            className="w-full bg-slate-900 hover:bg-slate-800 active:scale-98 text-white py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-all border border-slate-800"
+          >
+            <Download className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>⬇ Baixar Aplicativo para Computador</span>
+          </button>
+          <p className="text-[10px] text-center text-slate-400 mt-1 font-medium">
+            Versão instalável para Windows • 100% Offline • Atalhos na Área de Trabalho
+          </p>
+        </div>
       </div>
+
+      {mostrarModalDownload && (
+        <ModalDownloadApp onClose={() => setMostrarModalDownload(false)} />
+      )}
     </div>
   );
 };
+
 

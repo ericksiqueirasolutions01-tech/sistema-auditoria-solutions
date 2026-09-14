@@ -33,3 +33,6 @@ dist-ssr
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Build Installer temp
+build-installer/

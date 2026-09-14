@@ -14,12 +14,17 @@ import { PainelAdmin } from './pages/PainelAdmin';
 import { HistoricoEnvios } from './pages/HistoricoEnvios';
 import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
+import { ModalPrimeiraSincronizacao } from './components/ModalPrimeiraSincronizacao';
 
 export const App: React.FC = () => {
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
+  const [precisaSincronizacaoInicial, setPrecisaSincronizacaoInicial] = useState(
+    () => !db.isConfiguracaoInicialConcluida()
+  );
   const [activeTab, setActiveTab] = useState(() =>
     usuario?.perfil === 'ADMINISTRADOR' ? 'dashboard' : 'bipagem'
   );
+
   // Route Guard: impedir acesso de operador a áreas administrativas
   useEffect(() => {
     if (!usuario) {
@@ -95,7 +100,17 @@ export const App: React.FC = () => {
     return <LoginModal onLoginSucesso={handleLoginSucesso} />;
   }
 
+  // REQUISITO 4: PRIMEIRA INSTALAÇÃO E SINCRONIZAÇÃO INICIAL OBRIGATÓRIA
+  if (precisaSincronizacaoInicial) {
+    return (
+      <ModalPrimeiraSincronizacao
+        onConcluido={() => setPrecisaSincronizacaoInicial(false)}
+      />
+    );
+  }
+
   return (
+
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900 font-sans">
       {/* Official Header */}
       <Header onLogout={handleLogout} activeTab={activeTab} />

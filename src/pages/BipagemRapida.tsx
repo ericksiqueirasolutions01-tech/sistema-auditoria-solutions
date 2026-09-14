@@ -284,11 +284,20 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
 
-    // Validação Serial
+    // Validação IMEI (15 dígitos numéricos)
     if (!serialLimpo) {
-      setAlertaValidacao('Posicione o cursor na coluna SERIAL e bipe o produto.');
+      setAlertaValidacao('Posicione o cursor na coluna IMEI e bipe o produto.');
       sounds.playError();
       focarInputSerial();
+      return;
+    }
+
+    if (!/^\d{15}$/.test(serialLimpo)) {
+      setAlertaValidacao(
+        'IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).'
+      );
+      sounds.playError();
+      selecionarInputSerial();
       return;
     }
 
@@ -314,7 +323,7 @@ export const BipagemRapida: React.FC = () => {
     if (check.duplicado && check.produto) {
       sounds.playError();
       setErroDuplicado(
-        `SERIAL DUPLICADO: O serial ${serialLimpo} já foi auditado na ${check.produto.numero_caixa} em ${check.produto.data_auditoria}.`
+        `IMEI DUPLICADO: O IMEI ${serialLimpo} já foi auditado na ${check.produto.numero_caixa} em ${check.produto.data_auditoria}.`
       );
       selecionarInputSerial();
       return;
@@ -341,6 +350,7 @@ export const BipagemRapida: React.FC = () => {
       modelo_produto: modeloLimpo,
       ean: eanLimpo,
       serial: serialLimpo,
+      imei: serialLimpo,
       data_auditoria: dataLimpa,
       numero_caixa: caixaLimpa,
       numero_nf: nfAtiva.trim(),
@@ -353,7 +363,7 @@ export const BipagemRapida: React.FC = () => {
 
     if (res.sucesso && res.produto) {
       sounds.playSuccess();
-      setSucessoNotif(`Serial ${serialLimpo} registrado na ${caixaLimpa}!`);
+      setSucessoNotif(`IMEI ${serialLimpo} registrado na ${caixaLimpa}!`);
       setTimeout(() => setSucessoNotif(null), 2000);
 
       // Limpar células para a próxima linha contínua
@@ -420,7 +430,11 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
     if (!editSerial.trim()) {
-      alert('O número de série é obrigatório.');
+      alert('O IMEI do produto é obrigatório.');
+      return;
+    }
+    if (!/^\d{15}$/.test(editSerial.trim())) {
+      alert('IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).');
       return;
     }
     if (!editCaixa.trim()) {
@@ -442,7 +456,8 @@ export const BipagemRapida: React.FC = () => {
     const res = db.atualizarProduto(id, {
       modelo_produto: editModelo.trim(),
       ean: editEan.trim(),
-      serial: editSerial.trim().toUpperCase(),
+      serial: editSerial.trim(),
+      imei: editSerial.trim(),
       data_auditoria: editData.trim(),
       numero_caixa: editCaixa.trim(),
       numero_nf: editNf.trim(),
@@ -475,7 +490,7 @@ export const BipagemRapida: React.FC = () => {
       setAlertaValidacao('Este produto já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.');
       return;
     }
-    if (window.confirm(`Deseja remover o serial ${serial}?`)) {
+    if (window.confirm(`Deseja remover o IMEI ${serial}?`)) {
       const res = db.excluirProduto(id);
       if (!res.sucesso) {
         sounds.playError();
@@ -877,18 +892,18 @@ export const BipagemRapida: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
-      doc.text('RELAÇÃO DE NÚMEROS DE SÉRIE BIPADOS NESTA CAIXA:', 14, currentY);
+      doc.text('RELAÇÃO DE IMEIS BIPADOS NESTA CAIXA:', 14, currentY);
 
       const serialsData = itens.map((p, idx) => [
         (idx + 1).toString().padStart(2, '0'),
         p.modelo_produto,
         p.ean,
-        p.serial,
+        p.imei || p.serial,
       ]);
 
       autoTable(doc, {
         startY: currentY + 3,
-        head: [['Nº', 'Modelo Produto', 'EAN', 'Número de Série (Serial)']],
+        head: [['Nº', 'Modelo Produto', 'EAN', 'Número IMEI (15 Dígitos)']],
         body: serialsData,
         theme: 'grid',
         headStyles: {
@@ -1066,7 +1081,7 @@ export const BipagemRapida: React.FC = () => {
       Fabricante: p.fabricante,
       'Modelo Produto': p.modelo_produto,
       EAN: p.ean,
-      Serial: p.serial,
+      IMEI: p.imei || p.serial,
       'Data Auditoria': p.data_auditoria,
       Caixa: p.numero_caixa,
       'Produto Lacrado': p.produto_lacrado,
@@ -1137,7 +1152,7 @@ export const BipagemRapida: React.FC = () => {
       p.numero_caixa,
       p.modelo_produto,
       p.ean,
-      p.serial,
+      p.imei || p.serial,
       p.produto_lacrado,
       p.kit_completo || '-',
       p.aparelho_marcas_uso || '-',
@@ -1147,7 +1162,7 @@ export const BipagemRapida: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'Serial', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -1684,33 +1699,35 @@ export const BipagemRapida: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 3: BIPAGEM PRINCIPAL - NÚMERO DE SÉRIE (SERIAL) */}
+          {/* Card 3: BIPAGEM PRINCIPAL - CÓDIGO IMEI (15 DÍGITOS) */}
           <div className="bg-blue-50 border-2 border-blue-500 rounded-2xl p-4 sm:p-5 shadow-md space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-sm font-black text-blue-950 uppercase flex items-center gap-2">
                 <CornerDownLeft className="w-4 h-4 text-blue-600" />
-                Bipagem de Serial (Código de Barras)
+                Bipagem de IMEI (15 Dígitos Numéricos)
               </label>
               <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                Posicione o leitor ou digite
+                Posicione o leitor ou digite (15 dígitos)
               </span>
             </div>
 
-            {/* Input de Serial Gigante */}
+            {/* Input de IMEI Gigante */}
             <div className="relative">
               <input
                 ref={serialMobileInputRef}
                 type="text"
+                inputMode="numeric"
+                maxLength={15}
                 value={serialInput}
-                onChange={(e) => setSerialInput(e.target.value.toUpperCase())}
+                onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     processarBipagemLinha();
                   }
                 }}
-                placeholder="BIPAR SERIAL AQUI..."
-                autoCapitalize="characters"
+                placeholder="BIPAR IMEI (15 NÚMEROS)..."
+                autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck="false"
                 className="w-full font-mono font-black text-xl sm:text-2xl text-slate-950 bg-white border-3 border-blue-600 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 focus:ring-blue-300 placeholder:text-slate-300 uppercase shadow-inner"
@@ -1942,7 +1959,7 @@ export const BipagemRapida: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-mono font-black text-slate-900 truncate">
-                          {item.serial}
+                          {item.imei || item.serial}
                         </span>
                         <span
                           className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
@@ -2535,7 +2552,7 @@ export const BipagemRapida: React.FC = () => {
           </div>
           <div className="flex items-center gap-4 text-emerald-100 text-[11px]">
             <span>{produtos.length} aparelhos listados</span>
-            <span className="hidden sm:inline">• EAN, Serial e Caixa 100% editáveis</span>
+            <span className="hidden sm:inline">• EAN, IMEI e Caixa 100% editáveis</span>
           </div>
         </div>
 
@@ -2549,7 +2566,7 @@ export const BipagemRapida: React.FC = () => {
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[140px]">Modelo Produto ✏️</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[120px]">EAN ✏️</th>
                 <th className="py-1.5 px-3 border-r border-slate-300 min-w-[160px] bg-blue-100 text-blue-950">
-                  Serial (Bipar / Editar) ⚡
+                  IMEI (Bipar / Editar) ⚡
                 </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Data Auditoria</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-indigo-50 text-indigo-950">
@@ -2605,12 +2622,14 @@ export const BipagemRapida: React.FC = () => {
                         />
                       </td>
 
-                      {/* Serial */}
+                      {/* IMEI */}
                       <td className="py-2 px-2 border-r border-amber-200 bg-amber-100/50">
                         <input
                           type="text"
+                          inputMode="numeric"
+                          maxLength={15}
                           value={editSerial}
-                          onChange={(e) => setEditSerial(e.target.value.toUpperCase())}
+                          onChange={(e) => setEditSerial(e.target.value.replace(/\D/g, '').slice(0, 15))}
                           className="w-full font-mono text-xs font-black text-slate-950 bg-white border-2 border-amber-500 rounded px-2 py-1 uppercase tracking-wider"
                         />
                       </td>
@@ -2759,7 +2778,7 @@ export const BipagemRapida: React.FC = () => {
                       {item.ean}
                     </td>
                     <td className="py-2 px-4 font-mono font-black text-slate-900 tracking-wider border-r border-slate-200 bg-blue-50/30">
-                      {item.serial}
+                      {item.imei || item.serial}
                     </td>
                     <td className="py-2 px-3 text-center text-slate-600 border-r border-slate-200">
                       {item.data_auditoria}
@@ -2915,18 +2934,20 @@ export const BipagemRapida: React.FC = () => {
                   />
                 </td>
 
-                {/* SERIAL */}
+                {/* IMEI */}
                 <td className="py-2 px-2 border-r border-emerald-300 bg-white">
                   <input
                     ref={serialInputRef}
                     type="text"
+                    inputMode="numeric"
+                    maxLength={15}
                     value={serialInput}
-                    onChange={(e) => setSerialInput(e.target.value.toUpperCase())}
+                    onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
                     onKeyDown={handleKeyDown}
-                    placeholder="Bipe o serial aqui..."
-                    className="w-full font-mono font-black text-sm text-slate-950 bg-blue-50/50 border-2 border-blue-600 rounded px-2.5 py-1.5 focus:outline-none tracking-wider placeholder:text-slate-400 uppercase"
+                    placeholder="Bipe o IMEI (15 dígitos)..."
+                    className="w-full font-mono font-black text-sm text-slate-950 bg-blue-50/50 border-2 border-blue-600 rounded px-2.5 py-1.5 focus:outline-none tracking-wider placeholder:text-slate-400"
                     autoFocus
-                    title="Posicione o cursor aqui e bipe com o leitor"
+                    title="Posicione o cursor aqui e bipe o IMEI (15 dígitos)"
                   />
                 </td>
 
@@ -3093,7 +3114,7 @@ export const BipagemRapida: React.FC = () => {
             <span>Quantidade: <strong className="text-slate-900">{produtos.length} aparelhos</strong> (sem limite)</span>
           </div>
           <div className="text-slate-500 font-normal">
-            💡 EAN, Serial e Caixa podem ser alterados diretamente em cada linha ou com duplo clique.
+            💡 EAN, IMEI e Caixa podem ser alterados diretamente em cada linha ou com duplo clique.
           </div>
         </div>
       </div>
@@ -3316,7 +3337,7 @@ export const BipagemRapida: React.FC = () => {
                 <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
-                      Modo com Seriais:
+                      Modo com IMEI:
                     </span>
                     <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
                       <button
@@ -3328,7 +3349,7 @@ export const BipagemRapida: React.FC = () => {
                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                         }`}
                       >
-                        📄 Sem Serial (Padrão)
+                        📄 Sem IMEI (Padrão)
                       </button>
                       <button
                         type="button"
@@ -3339,26 +3360,26 @@ export const BipagemRapida: React.FC = () => {
                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                         }`}
                       >
-                        📋 Com Seriais
+                        📋 Com IMEI
                       </button>
                     </div>
                   </div>
                   <span className="text-xs text-slate-600 font-bold">
                     {incluirSeriaisEspelho
-                      ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão'
+                      ? '🟢 Modo com IMEI Ativo: Os códigos IMEI sairão na impressão'
                       : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade'}
                   </span>
                 </div>
 
-                {/* Relação de Seriais (Opcional) */}
+                {/* Relação de IMEIs (Opcional) */}
                 {incluirSeriaisEspelho && (
                   <div className="space-y-2 pt-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
-                        Relação Detalhada de Seriais da {espelhoCaixaAtual.caixaNome}:
+                        Relação Detalhada de IMEIs da {espelhoCaixaAtual.caixaNome}:
                       </span>
                       <span className="text-xs text-slate-500 font-medium">
-                        {espelhoCaixaAtual.itens.length} seriais
+                        {espelhoCaixaAtual.itens.length} IMEIs
                       </span>
                     </div>
 
@@ -3369,14 +3390,14 @@ export const BipagemRapida: React.FC = () => {
                             <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Nº</th>
                             <th className="py-2 px-4 border-r border-slate-700">Modelo Produto</th>
                             <th className="py-2 px-4 font-mono border-r border-slate-700">EAN</th>
-                            <th className="py-2 px-4 font-mono">Número de Série (Serial)</th>
+                            <th className="py-2 px-4 font-mono">Número IMEI (15 Dígitos)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
                           {espelhoCaixaAtual.itens.length === 0 ? (
                             <tr>
                               <td colSpan={4} className="py-6 text-center text-slate-400 font-sans">
-                                Nenhum serial nesta caixa.
+                                Nenhum IMEI nesta caixa.
                               </td>
                             </tr>
                           ) : (
@@ -3392,7 +3413,7 @@ export const BipagemRapida: React.FC = () => {
                                   {p.ean}
                                 </td>
                                 <td className="py-1.5 px-4 font-black text-slate-900 tracking-wider">
-                                  {p.serial}
+                                  {p.imei || p.serial}
                                 </td>
                               </tr>
                             ))
@@ -3551,7 +3572,7 @@ export const BipagemRapida: React.FC = () => {
 
             <p className="text-xs text-slate-500 leading-relaxed font-medium">
               Selecione um arquivo Excel (.xlsx, .xls ou .csv) contendo as colunas: <strong>Modelo</strong>,{' '}
-              <strong>EAN</strong>, <strong>Serial</strong>, <strong>Caixa</strong> e <strong>Data</strong>.
+              <strong>EAN</strong>, <strong>IMEI</strong>, <strong>Caixa</strong> e <strong>Data</strong>.
             </p>
 
             <div className="border-2 border-dashed border-slate-300 hover:border-emerald-600 rounded-2xl p-8 text-center bg-slate-50 transition-colors">
@@ -3574,7 +3595,7 @@ export const BipagemRapida: React.FC = () => {
                         const normalizado = raw.map((r) => ({
                           modelo: String(r['Modelo'] || r['modelo'] || modeloAtivo),
                           ean: String(r['EAN'] || r['ean'] || eanAtivo),
-                          serial: String(r['Serial'] || r['serial'] || ''),
+                          serial: String(r['IMEI'] || r['imei'] || r['Serial'] || r['serial'] || ''),
                           caixa: String(r['Caixa'] || r['caixa'] || caixaAtiva),
                           data: String(r['Data'] || r['data'] || getDataAtualFormatada()),
                           lacrado: String(r['Lacrado'] || r['lacrado'] || 'SIM'),

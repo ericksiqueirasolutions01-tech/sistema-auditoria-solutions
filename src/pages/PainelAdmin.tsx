@@ -194,7 +194,7 @@ export const PainelAdmin: React.FC = () => {
       if (busca) {
         const termo = busca.toLowerCase();
         const match =
-          (p.serial || '').toLowerCase().includes(termo) ||
+          (p.imei || p.serial || '').toLowerCase().includes(termo) ||
           (p.modelo_produto || '').toLowerCase().includes(termo) ||
           (p.ean || '').toLowerCase().includes(termo) ||
           (p.numero_caixa || '').toLowerCase().includes(termo) ||
@@ -207,11 +207,43 @@ export const PainelAdmin: React.FC = () => {
       if (filtroCaixa !== 'TODAS' && p.numero_caixa !== filtroCaixa) return false;
       if (filtroLacrado !== 'TODOS' && p.produto_lacrado !== filtroLacrado) return false;
       if (filtroMarcas !== 'TODOS' && p.aparelho_marcas_uso !== filtroMarcas) return false;
-      if (filtroComputador !== 'TODOS' && (p.computador_id || '') !== filtroComputador) return false;
       if (filtroSync !== 'TODOS' && (p.status_sincronizacao || 'PENDENTE') !== filtroSync) return false;
       return true;
     });
   }, [todosProdutosRegional, busca, filtroCaixa, filtroLacrado, filtroMarcas, filtroComputador, filtroSync]);
+
+  // Exportar Relatório Excel Geral do Painel Admin
+  const exportarRelatorioExcel = () => {
+    const lista = produtosOrdenados;
+    const dadosExcel = lista.map((p, idx) => ({
+      'Nº': idx + 1,
+      Regional: p.regional,
+      'Computador ID': p.computador_id || 'PC-01',
+      'Nome Estação': p.computador_nome || 'Estação 01',
+      Fabricante: p.fabricante,
+      'Modelo Produto': p.modelo_produto,
+      EAN: p.ean,
+      IMEI: p.imei || p.serial,
+      Caixa: p.numero_caixa,
+      'Nota Fiscal': p.numero_nf || 'NF 001',
+      'NF foi conferida?': p.nf_conferida || 'SIM',
+      'Data Auditoria': p.data_auditoria,
+      'Produto Lacrado': p.produto_lacrado,
+      'Kit Completo': p.kit_completo || '-',
+      'Marcas de Uso': p.aparelho_marcas_uso || '-',
+      Observações: p.observacao || '-',
+      Auditor: p.usuario_cadastro,
+      'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'ENVIADO' : 'PENDENTE',
+      'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
+      'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
+      'ID Servidor': p.id_servidor || '-',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dadosExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatorio_Geral');
+    XLSX.writeFile(wb, `Relatorio_Geral_Auditoria_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   // Ordenação
   const produtosOrdenados = useMemo(() => {
@@ -328,7 +360,7 @@ export const PainelAdmin: React.FC = () => {
       p.numero_caixa,
       p.modelo_produto,
       p.ean,
-      p.serial,
+      p.imei || p.serial,
       p.produto_lacrado,
       p.status_sincronizacao === 'ENVIADO' ? '🟢 OK' : '🟡 Pend',
       p.data_auditoria,
@@ -336,7 +368,7 @@ export const PainelAdmin: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Computador', 'Caixa', 'Modelo', 'EAN', 'Serial', 'Lacrado', 'Sync', 'Data']],
+      head: [['Nº', 'Regional', 'Computador', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'Sync', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -1147,7 +1179,7 @@ export const PainelAdmin: React.FC = () => {
                     type="text"
                     value={busca}
                     onChange={(e) => { setBusca(e.target.value); setPaginaAtual(1); }}
-                    placeholder="Buscar serial, modelo, EAN..."
+                    placeholder="Buscar IMEI, modelo, EAN..."
                     className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
@@ -1224,7 +1256,7 @@ export const PainelAdmin: React.FC = () => {
                       className="py-2.5 px-4 font-mono border-r border-blue-600 cursor-pointer select-none hover:bg-blue-800"
                     >
                       <div className="flex items-center gap-1">
-                        <span>Serial</span>
+                        <span>IMEI</span>
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
@@ -1281,7 +1313,7 @@ export const PainelAdmin: React.FC = () => {
                           {p.ean}
                         </td>
                         <td className="py-2 px-4 font-black text-slate-900 tracking-wider border-r border-slate-200">
-                          {p.serial}
+                          {p.imei || p.serial}
                         </td>
                         <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase border-r border-slate-200">
                           {p.numero_caixa}

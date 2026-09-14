@@ -769,6 +769,7 @@ class AuditoriaDatabase {
     modelo_produto: string;
     ean: string;
     serial: string;
+    imei?: string;
     data_auditoria: string;
     numero_caixa: string;
     numero_nf?: string;
@@ -789,7 +790,13 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'O código EAN é obrigatório.' };
     }
     if (!serialNorm) {
-      return { sucesso: false, erro: 'O número de série é obrigatório.' };
+      return { sucesso: false, erro: 'O IMEI do produto é obrigatório.' };
+    }
+    if (!/^\d{15}$/.test(serialNorm)) {
+      return {
+        sucesso: false,
+        erro: 'IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).',
+      };
     }
     if (!item.numero_caixa.trim()) {
       return { sucesso: false, erro: 'O número da caixa é obrigatório.' };
@@ -813,7 +820,7 @@ class AuditoriaDatabase {
     if (check.duplicado && check.produto) {
       return {
         sucesso: false,
-        erro: `Este número de série já foi auditado na ${check.produto.numero_caixa} (${check.produto.regional}) em ${check.produto.data_auditoria}.`,
+        erro: `Este IMEI já foi auditado na ${check.produto.numero_caixa} (${check.produto.regional}) em ${check.produto.data_auditoria}.`,
         produto: check.produto,
       };
     }
@@ -852,6 +859,7 @@ class AuditoriaDatabase {
       modelo_produto: item.modelo_produto.trim(),
       ean: item.ean.trim(),
       serial: serialNorm,
+      imei: serialNorm,
       data_auditoria: item.data_auditoria.trim(),
       numero_caixa: caixaAlvo,
       numero_nf: (item.numero_nf || '').trim(),
@@ -885,7 +893,7 @@ class AuditoriaDatabase {
     this.registrarHistorico(
       usuarioNome,
       'CADASTRO',
-      `Usuário ${usuarioNome} cadastrou serial ${serialNorm} na ${novoProduto.numero_caixa} [${regionalFinal}]`,
+      `Usuário ${usuarioNome} cadastrou IMEI ${serialNorm} na ${novoProduto.numero_caixa} [${regionalFinal}]`,
       regionalFinal
     );
 
@@ -907,15 +915,24 @@ class AuditoriaDatabase {
     if (anterior.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       return {
         sucesso: false,
-        erro: 'Este número de série já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode editar registros sincronizados.',
+        erro: 'Este IMEI já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode editar registros sincronizados.',
       };
     }
 
-    const serialNovo = dados.serial ? dados.serial.trim().toUpperCase() : anterior.serial;
+    const candidatoImei = (dados.imei || dados.serial)?.trim();
+    if (candidatoImei) {
+      if (!/^\d{15}$/.test(candidatoImei)) {
+        return {
+          sucesso: false,
+          erro: 'IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).',
+        };
+      }
+    }
+    const serialNovo = candidatoImei || anterior.serial;
 
-    // Check serial uniqueness if changing serial
+    // Check IMEI uniqueness if changing
     if (serialNovo !== anterior.serial && this.serialMap.has(serialNovo)) {
-      return { sucesso: false, erro: 'Este número de série já foi auditado em outro registro.' };
+      return { sucesso: false, erro: 'Este IMEI já foi auditado em outro registro.' };
     }
 
     // Validação de limite de 20 produtos por caixa se estiver trocando de caixa
@@ -951,6 +968,7 @@ class AuditoriaDatabase {
       ...anterior,
       ...dados,
       serial: serialNovo,
+      imei: serialNovo,
       numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
       numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : anterior.numero_nf,
       nf_conferida: dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida || 'SIM'),
@@ -968,7 +986,7 @@ class AuditoriaDatabase {
     this.registrarHistorico(
       usuarioNome,
       'ALTERACAO',
-      `Usuário ${usuarioNome} alterou produto serial ${serialNovo} (${anterior.numero_caixa}) [${atualizado.regional}]`,
+      `Usuário ${usuarioNome} alterou produto IMEI ${serialNovo} (${anterior.numero_caixa}) [${atualizado.regional}]`,
       atualizado.regional
     );
 
@@ -987,7 +1005,7 @@ class AuditoriaDatabase {
     if (removido.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       return {
         sucesso: false,
-        erro: 'Este número de série já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.',
+        erro: 'Este IMEI já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.',
       };
     }
 
@@ -999,7 +1017,7 @@ class AuditoriaDatabase {
     this.registrarHistorico(
       usuarioNome,
       'EXCLUSAO',
-      `Usuário ${usuarioNome} excluiu serial ${removido.serial} da ${removido.numero_caixa} [${removido.regional}]`,
+      `Usuário ${usuarioNome} excluiu IMEI ${removido.serial} da ${removido.numero_caixa} [${removido.regional}]`,
       removido.regional
     );
 
@@ -2336,8 +2354,8 @@ class AuditoriaDatabase {
             fotosCentral: cloudData.fotos,
             mensagem:
               duplicadosList.length > 0
-                ? `${novosCount} novo(s) serial(is) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`
-                : `${novosCount} novo(s) serial(is) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
+                ? `${novosCount} novo(s) IMEI(s) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`
+                : `${novosCount} novo(s) IMEI(s) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
             timestamp: agora,
           };
         }
@@ -2915,7 +2933,7 @@ class AuditoriaDatabase {
       const item = linhas[i];
       if (!item.serial || !item.modelo || !item.caixa) {
         errosCount++;
-        detalhes.push(`Linha ${i + 1}: dados incompletos (modelo, serial e caixa obrigatórios).`);
+        detalhes.push(`Linha ${i + 1}: dados incompletos (modelo, IMEI e caixa obrigatórios).`);
         continue;
       }
 
@@ -2935,10 +2953,10 @@ class AuditoriaDatabase {
         sucessoCount++;
       } else if (res.erro?.includes('já foi auditado')) {
         duplicadosCount++;
-        detalhes.push(`Serial duplicado: ${item.serial}`);
+        detalhes.push(`IMEI duplicado: ${item.serial}`);
       } else {
         errosCount++;
-        detalhes.push(`Erro no serial ${item.serial}: ${res.erro}`);
+        detalhes.push(`Erro no IMEI ${item.serial}: ${res.erro}`);
       }
     }
 
@@ -2955,34 +2973,34 @@ class AuditoriaDatabase {
   carregarDadosDemonstracaoMultiRegionais(): number {
     const demos = [
       // VIA VAREJO RJ - PC-RJ-001 (Estação 01)
-      { mod: 'Galaxy S24 Ultra', ean: '7892509133456', sn: 'RJS24U001', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy S24 Ultra', ean: '7892509133456', sn: 'RJS24U002', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy S24', ean: '7892509133470', sn: 'RJS240003', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24 Ultra', ean: '7892509133456', sn: '357847400282001', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24 Ultra', ean: '7892509133456', sn: '357847400282002', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24', ean: '7892509133470', sn: '357847400282003', cx: 'Caixa RJ-01', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-001', pcNome: 'Estação 01 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
       // VIA VAREJO RJ - PC-RJ-002 (Estação 02)
-      { mod: 'Galaxy A55 5G', ean: '7892509134125', sn: 'RJA550004', cx: 'Caixa RJ-02', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-002', pcNome: 'Estação 02 - RJ', lacre: 'NÃO' as SimNao, kit: 'SIM' as SimNao, marcas: 'SIM' as SimNao, obs: 'Leve risco na tela', sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy A55 5G', ean: '7892509134125', sn: 'RJA550005', cx: 'Caixa RJ-02', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-002', pcNome: 'Estação 02 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A55 5G', ean: '7892509134125', sn: '357847400282004', cx: 'Caixa RJ-02', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-002', pcNome: 'Estação 02 - RJ', lacre: 'NÃO' as SimNao, kit: 'SIM' as SimNao, marcas: 'SIM' as SimNao, obs: 'Leve risco na tela', sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A55 5G', ean: '7892509134125', sn: '357847400282005', cx: 'Caixa RJ-02', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-002', pcNome: 'Estação 02 - RJ', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
       // VIA VAREJO RJ - PC-RJ-003 (Estação 03)
-      { mod: 'Galaxy S24+', ean: '7892509133463', sn: 'RJS24P006', cx: 'Caixa RJ-03', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-003', pcNome: 'Estação 03 - RJ', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24+', ean: '7892509133463', sn: '357847400282006', cx: 'Caixa RJ-03', reg: 'VIA VAREJO RJ', pcId: 'PC-RJ-003', pcNome: 'Estação 03 - RJ', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
 
       // VIA VAREJO SP - PC-SP-001
-      { mod: 'Galaxy S24+', ean: '7892509133463', sn: 'SPS24P001', cx: 'Caixa SP-01', reg: 'VIA VAREJO SP', pcId: 'PC-SP-001', pcNome: 'Estação 01 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy S24+', ean: '7892509133463', sn: 'SPS24P002', cx: 'Caixa SP-01', reg: 'VIA VAREJO SP', pcId: 'PC-SP-001', pcNome: 'Estação 01 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24+', ean: '7892509133463', sn: '357847400282007', cx: 'Caixa SP-01', reg: 'VIA VAREJO SP', pcId: 'PC-SP-001', pcNome: 'Estação 01 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24+', ean: '7892509133463', sn: '357847400282008', cx: 'Caixa SP-01', reg: 'VIA VAREJO SP', pcId: 'PC-SP-001', pcNome: 'Estação 01 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
       // VIA VAREJO SP - PC-SP-002
-      { mod: 'Galaxy S23 FE', ean: '7892509129848', sn: 'SPS230003', cx: 'Caixa SP-02', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy S23 FE', ean: '7892509129848', sn: 'SPS230004', cx: 'Caixa SP-02', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'NÃO' as SimNao, kit: 'NÃO' as SimNao, marcas: 'SIM' as SimNao, obs: 'Faltando cabo', sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy Z Fold5', ean: '7892509130110', sn: 'SPFOLD005', cx: 'Caixa SP-03', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S23 FE', ean: '7892509129848', sn: '357847400282009', cx: 'Caixa SP-02', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S23 FE', ean: '7892509129848', sn: '357847400282010', cx: 'Caixa SP-02', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'NÃO' as SimNao, kit: 'NÃO' as SimNao, marcas: 'SIM' as SimNao, obs: 'Faltando cabo', sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy Z Fold5', ean: '7892509130110', sn: '357847400282011', cx: 'Caixa SP-03', reg: 'VIA VAREJO SP', pcId: 'PC-SP-002', pcNome: 'Estação 02 - SP', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
 
       // VIA VAREJO MG - PC-MG-001
-      { mod: 'Galaxy A35 5G', ean: '7892509134132', sn: 'MGA350001', cx: 'Caixa MG-01', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy A35 5G', ean: '7892509134132', sn: 'MGA350002', cx: 'Caixa MG-01', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy A15 5G', ean: '7892509134149', sn: 'MGA150003', cx: 'Caixa MG-02', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy A15 5G', ean: '7892509134149', sn: 'MGA150004', cx: 'Caixa MG-02', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'NÃO' as SimNao, kit: 'SIM' as SimNao, marcas: 'NÃO' as SimNao, obs: 'Lacre rompido no transporte', sync: 'PENDENTE' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A35 5G', ean: '7892509134132', sn: '357847400282012', cx: 'Caixa MG-01', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A35 5G', ean: '7892509134132', sn: '357847400282013', cx: 'Caixa MG-01', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A15 5G', ean: '7892509134149', sn: '357847400282014', cx: 'Caixa MG-02', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A15 5G', ean: '7892509134149', sn: '357847400282015', cx: 'Caixa MG-02', reg: 'VIA VAREJO MG', pcId: 'PC-MG-001', pcNome: 'Estação 01 - MG', lacre: 'NÃO' as SimNao, kit: 'SIM' as SimNao, marcas: 'NÃO' as SimNao, obs: 'Lacre rompido no transporte', sync: 'PENDENTE' as StatusSincronizacaoItem },
 
       // VIA VAREJO BA - PC-BA-001
-      { mod: 'Galaxy S24', ean: '7892509133470', sn: 'BAS240001', cx: 'Caixa BA-01', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy S24', ean: '7892509133470', sn: 'BAS240002', cx: 'Caixa BA-01', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy A05s', ean: '7892509134156', sn: 'BAA050003', cx: 'Caixa BA-02', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
-      { mod: 'Galaxy Buds2 Pro', ean: '7892509125581', sn: 'BABUDS004', cx: 'Caixa BA-03', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24', ean: '7892509133470', sn: '357847400282016', cx: 'Caixa BA-01', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy S24', ean: '7892509133470', sn: '357847400282017', cx: 'Caixa BA-01', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy A05s', ean: '7892509134156', sn: '357847400282018', cx: 'Caixa BA-02', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'ENVIADO' as StatusSincronizacaoItem },
+      { mod: 'Galaxy Buds2 Pro', ean: '7892509125581', sn: '357847400282019', cx: 'Caixa BA-03', reg: 'VIA VAREJO BA', pcId: 'PC-BA-001', pcNome: 'Estação 01 - BA', lacre: 'SIM' as SimNao, sync: 'PENDENTE' as StatusSincronizacaoItem },
     ];
 
     const dataHoje = new Date().toLocaleDateString('pt-BR');

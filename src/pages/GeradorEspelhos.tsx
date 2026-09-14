@@ -214,18 +214,18 @@ export const GeradorEspelhos: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
-      doc.text('RELAÇÃO DE NÚMEROS DE SÉRIE BIPADOS NESTA CAIXA:', 14, currentY);
+      doc.text('RELAÇÃO DE IMEIS BIPADOS NESTA CAIXA:', 14, currentY);
 
       const serialsData = produtosCaixa.map((p, idx) => [
         (idx + 1).toString().padStart(2, '0'),
         p.modelo_produto,
         p.ean,
-        p.serial,
+        p.imei || p.serial,
       ]);
 
       autoTable(doc, {
         startY: currentY + 3,
-        head: [['Nº', 'Modelo Produto', 'EAN', 'Número de Série (Serial)']],
+        head: [['Nº', 'Modelo Produto', 'EAN', 'Número IMEI (15 Dígitos)']],
         body: serialsData,
         theme: 'grid',
         headStyles: {
@@ -381,7 +381,7 @@ export const GeradorEspelhos: React.FC = () => {
       Fabricante: p.fabricante,
       'Modelo Produto': p.modelo_produto,
       EAN: p.ean,
-      Serial: p.serial,
+      IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
       'Nota Fiscal': p.numero_nf || 'NF 001',
       'NF foi conferida?': p.nf_conferida || 'SIM',
@@ -446,7 +446,7 @@ export const GeradorEspelhos: React.FC = () => {
       p.numero_caixa,
       p.modelo_produto,
       p.ean,
-      p.serial,
+      p.imei || p.serial,
       p.produto_lacrado,
       p.kit_completo || '-',
       p.aparelho_marcas_uso || '-',
@@ -456,7 +456,7 @@ export const GeradorEspelhos: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'Serial', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -527,7 +527,7 @@ export const GeradorEspelhos: React.FC = () => {
                 }`}
                 title="Apenas Modelo, EAN e Quantidade"
               >
-                📄 Padrão (Sem Serial)
+                📄 Padrão (Sem IMEI)
               </button>
               <button
                 type="button"
@@ -537,9 +537,9 @@ export const GeradorEspelhos: React.FC = () => {
                     ? 'bg-purple-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="Incluir relação de Seriais no Espelho"
+                title="Incluir relação de IMEIs no Espelho"
               >
-                📋 Com Serial
+                📋 Com IMEI
               </button>
             </div>
 
@@ -957,7 +957,7 @@ export const GeradorEspelhos: React.FC = () => {
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    📄 Espelho Padrão (Sem Serial)
+                    📄 Espelho Padrão (Sem IMEI)
                   </button>
                   <button
                     type="button"
@@ -968,26 +968,26 @@ export const GeradorEspelhos: React.FC = () => {
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    📋 Espelho com Serial
+                    📋 Espelho com IMEI
                   </button>
                 </div>
               </div>
               <span className="text-xs text-slate-600 font-bold">
                 {incluirSeriaisEspelho
-                  ? '🟢 Modo com Seriais Ativo: Os números de série sairão na impressão e no PDF'
-                  : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem números de série)'}
+                  ? '🟢 Modo com IMEI Ativo: Os códigos IMEI sairão na impressão e no PDF'
+                  : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade (sem códigos IMEI)'}
               </span>
             </div>
 
-            {/* Relação de Seriais (Exibida caso o usuário ative a opção) */}
+            {/* Relação de IMEIs (Exibida caso o usuário ative a opção) */}
             {incluirSeriaisEspelho && (
               <div className="space-y-2 mb-8">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
-                    Relação Detalhada de Seriais da {caixaSelecionada}:
+                    Relação Detalhada de IMEIs da {caixaSelecionada}:
                   </span>
                   <span className="text-xs text-slate-500 font-medium">
-                    {produtosCaixa.length} seriais
+                    {produtosCaixa.length} IMEIs
                   </span>
                 </div>
 
@@ -998,14 +998,14 @@ export const GeradorEspelhos: React.FC = () => {
                         <th className="py-2.5 px-4 text-center w-14 border-r border-slate-700">Nº</th>
                         <th className="py-2.5 px-4 border-r border-slate-700">Modelo Produto</th>
                         <th className="py-2.5 px-4 font-mono border-r border-slate-700">EAN</th>
-                        <th className="py-2.5 px-4 font-mono">Número de Série (Serial)</th>
+                        <th className="py-2.5 px-4 font-mono">Número IMEI (15 Dígitos)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 font-mono text-xs">
                       {produtosCaixa.length === 0 ? (
                         <tr>
                           <td colSpan={4} className="py-8 text-center text-slate-400 font-sans">
-                            Nenhum serial gravado nesta caixa.
+                            Nenhum IMEI gravado nesta caixa.
                           </td>
                         </tr>
                       ) : (
@@ -1021,7 +1021,7 @@ export const GeradorEspelhos: React.FC = () => {
                               {p.ean}
                             </td>
                             <td className="py-2 px-4 font-black text-slate-900 tracking-wider">
-                              {p.serial}
+                              {p.imei || p.serial}
                             </td>
                           </tr>
                         ))

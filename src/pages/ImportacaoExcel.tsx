@@ -26,7 +26,7 @@ export const ImportacaoExcel: React.FC = () => {
       {
         Modelo: 'Galaxy A55 5G',
         EAN: '7892509134125',
-        Serial: 'R5CW10ABCDE',
+        IMEI: '357847400282342',
         Caixa: 'CAIXA 01',
         Data: new Date().toISOString().split('T')[0],
         Lacrado: 'SIM',
@@ -34,7 +34,7 @@ export const ImportacaoExcel: React.FC = () => {
       {
         Modelo: 'Galaxy S24 Ultra',
         EAN: '7892509133456',
-        Serial: 'R5CW20FGHIJ',
+        IMEI: '357847400282343',
         Caixa: 'CAIXA 01',
         Data: new Date().toISOString().split('T')[0],
         Lacrado: 'SIM',
@@ -67,7 +67,7 @@ export const ImportacaoExcel: React.FC = () => {
           // Normalize column names
           const modelo = String(row['Modelo'] || row['modelo'] || row['MODELO'] || '');
           const ean = String(row['EAN'] || row['ean'] || row['Ean'] || '');
-          const serial = String(row['Serial'] || row['serial'] || row['SERIAL'] || row['Número de Série'] || '');
+          const serial = String(row['IMEI'] || row['imei'] || row['Serial'] || row['serial'] || row['SERIAL'] || row['Número de Série'] || '');
           const caixa = String(row['Caixa'] || row['caixa'] || row['CAIXA'] || row['Numero_Caixa'] || '');
           const data = String(row['Data'] || row['data'] || row['DATA'] || '');
           const lacrado = String(row['Lacrado'] || row['lacrado'] || row['LACRADO'] || 'SIM');
@@ -119,7 +119,7 @@ export const ImportacaoExcel: React.FC = () => {
           </h3>
           <p className="text-xs text-slate-500 max-w-md mx-auto mb-5 font-medium">
             A planilha deve conter as colunas: <strong>Modelo</strong>, <strong>EAN</strong>,{' '}
-            <strong>Serial</strong>, <strong>Caixa</strong> e <strong>Data</strong>.
+            <strong>IMEI</strong>, <strong>Caixa</strong> e <strong>Data</strong>.
           </p>
 
           <label className="inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-6 py-3 rounded-xl cursor-pointer shadow-sm transition-transform active:scale-95">

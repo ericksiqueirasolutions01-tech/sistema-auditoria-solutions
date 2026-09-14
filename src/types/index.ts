@@ -77,7 +77,8 @@ export interface ProdutoAuditoria {
   fabricante: string; // 'SAMSUNG' fixo
   modelo_produto: string;
   ean: string;
-  serial: string;
+  serial: string; // Mantido para compatibilidade de sincronização e banco legado
+  imei?: string; // Código IMEI oficial (15 dígitos numéricos)
   data_auditoria: string;
   numero_caixa: string;
   numero_nf?: string; // Número da Nota Fiscal (Ex: 'NF 001', '12345')

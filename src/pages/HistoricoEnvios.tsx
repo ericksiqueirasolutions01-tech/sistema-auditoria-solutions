@@ -348,7 +348,7 @@ export const HistoricoEnvios: React.FC = () => {
             <thead className="bg-slate-900 text-white uppercase text-[10px] font-black tracking-wider">
               <tr>
                 <th className="py-2.5 px-3 text-center w-12">Nº</th>
-                <th className="py-2.5 px-3 font-mono">Serial</th>
+                <th className="py-2.5 px-3 font-mono">IMEI</th>
                 <th className="py-2.5 px-3">Modelo</th>
                 <th className="py-2.5 px-3">Caixa</th>
                 <th className="py-2.5 px-3">Regional</th>
@@ -371,7 +371,7 @@ export const HistoricoEnvios: React.FC = () => {
                       {idx + 1}
                     </td>
                     <td className="py-2 px-3 font-black text-slate-900 tracking-wider">
-                      {p.serial}
+                      {p.imei || p.serial}
                     </td>
                     <td className="py-2 px-3 font-sans font-bold text-slate-800">
                       {p.modelo_produto}

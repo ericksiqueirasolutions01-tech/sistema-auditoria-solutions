@@ -169,7 +169,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   <div className="flex flex-col text-left">
                     <span className="text-[9px] font-black text-slate-500 uppercase leading-none">Status</span>
                     <span className="text-xs font-black uppercase tracking-tight flex items-center gap-1">
-                      {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pendente${statusSync.pendentes > 1 ? 's' : ''}`}
+                      {statusSync.pendentes === 0 ? 'Enviado para Online' : `${statusSync.pendentes} Aguardando Envio`}
                       {statusSync.pendentes > 0 && (
                         <span className="text-[9px] underline font-bold text-amber-700 ml-0.5">(Ver)</span>
                       )}
@@ -322,7 +322,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${statusSync.pendentes === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
                 <span className="truncate">
-                  {statusSync.pendentes === 0 ? 'Enviado' : `${statusSync.pendentes} Pend.`}
+                  {statusSync.pendentes === 0 ? 'Enviado Online' : `${statusSync.pendentes} Aguardando`}
                 </span>
               </button>
 

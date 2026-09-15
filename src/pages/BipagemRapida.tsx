@@ -1089,7 +1089,12 @@ export const BipagemRapida: React.FC = () => {
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observação: p.observacao || '-',
       Auditor: p.usuario_cadastro,
-      'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'ENVIADO' : 'PENDENTE',
+      'Status Sincronização':
+        p.status_sincronizacao === 'ENVIADO'
+          ? 'Enviado para Online'
+          : p.status_sincronizacao === 'ERRO_DUPLICADO'
+          ? 'Duplicado Servidor'
+          : 'Aguardando envio para Online',
       'Data Sincronização': p.data_sincronizacao || '-',
       'ID Servidor': p.id_servidor || '-',
     }));
@@ -1206,6 +1211,7 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const espelhoCaixaAtual = obterDadosEspelhoCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
+  const statusCaixaAtiva = db.obterStatusEnvioCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa, regionalAtiva);
   const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
   const contagemStatusRegistros = db.obterContagemStatusRegistros(regionalAtiva);
   const gruposFotosCaixaAtiva = db.obterGruposFotosCaixa(caixaAtiva, regionalAtiva);
@@ -1275,16 +1281,16 @@ export const BipagemRapida: React.FC = () => {
             disabled={syncMobileLoading}
             className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
               produtosPendentesCount > 0
-                ? 'bg-amber-600 hover:bg-amber-700 text-white animate-pulse'
+                ? 'bg-amber-600 hover:bg-amber-700 text-white'
                 : 'bg-emerald-700 hover:bg-emerald-800 text-white'
             }`}
           >
             <Upload className={`w-4 h-4 ${syncMobileLoading ? 'animate-spin' : ''}`} />
             {syncMobileLoading
-              ? 'Sincronizando com PC Central...'
+              ? 'Enviando para o Online...'
               : produtosPendentesCount > 0
-              ? `Enviar para o Online (${produtosPendentesCount} pendente${produtosPendentesCount > 1 ? 's' : ''})`
-              : 'Online Sincronizado ✓'}
+              ? `Enviar para Online (${produtosPendentesCount} aguardando)`
+              : 'Enviar para Online'}
           </button>
         </div>
       </div>
@@ -1457,6 +1463,22 @@ export const BipagemRapida: React.FC = () => {
                 <span className="text-[10px] text-emerald-700 font-bold block">
                   {contadores.produtosLacrados} lacrados • {contadores.produtosNaoLacrados} abertos
                 </span>
+                <div className="mt-1">
+                  <span
+                    className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                      statusCaixaAtiva === 'Enviado Online'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        statusCaixaAtiva === 'Enviado Online' ? 'bg-emerald-600' : 'bg-amber-600 animate-pulse'
+                      }`}
+                    />
+                    {statusCaixaAtiva}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1971,13 +1993,19 @@ export const BipagemRapida: React.FC = () => {
                           {item.produto_lacrado === 'SIM' ? 'LACRADO' : 'ABERTO'}
                         </span>
                         <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                             item.status_sincronizacao === 'ENVIADO'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-100 text-amber-700'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : item.status_sincronizacao === 'ERRO_DUPLICADO'
+                              ? 'bg-rose-100 text-rose-800 border-rose-300'
+                              : 'bg-amber-100 text-amber-700 border-amber-300'
                           }`}
                         >
-                          {item.status_sincronizacao === 'ENVIADO' ? '✓ Online' : 'Pendente'}
+                          {item.status_sincronizacao === 'ENVIADO'
+                            ? 'Enviado para Online'
+                            : item.status_sincronizacao === 'ERRO_DUPLICADO'
+                            ? 'Duplicado Servidor'
+                            : 'Aguardando envio para Online'}
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-500 font-bold truncate">
@@ -2493,7 +2521,7 @@ export const BipagemRapida: React.FC = () => {
 
 
         {/* Linha 2: Indicadores em Tempo Real e Status de Proteção */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
           <div className="border-r border-slate-200 last:border-0">
             <span className="text-[10px] font-bold text-slate-500 uppercase block">
               {filtroCaixa === 'TODAS' ? 'Total Todas Caixas' : `Total ${caixaAtiva}`}
@@ -2501,12 +2529,32 @@ export const BipagemRapida: React.FC = () => {
             <span className="text-xl font-black text-slate-900">
               {filtroCaixa === 'TODAS' ? db.listarProdutos().length : contadores.totalAuditados}
             </span>
-            <span className="text-[9px] text-slate-400 block">sem limite de capacidade</span>
+            <span className="text-[9px] text-slate-400 block">produtos na caixa</span>
           </div>
           <div className="border-r border-slate-200 last:border-0">
             <span className="text-[10px] font-bold text-slate-500 uppercase block">Caixa Ativa</span>
             <span className="text-xl font-black text-blue-700 uppercase truncate px-1 block">{caixaAtiva}</span>
             <span className="text-[9px] text-blue-500 font-bold block">100% editável</span>
+          </div>
+          <div className="border-r border-slate-200 last:border-0">
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">Status da Caixa</span>
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-black px-2 py-0.5 rounded-full border mt-1 ${
+                statusCaixaAtiva === 'Enviado Online'
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-amber-100 text-amber-800 border-amber-300'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  statusCaixaAtiva === 'Enviado Online' ? 'bg-emerald-600' : 'bg-amber-600 animate-pulse'
+                }`}
+              />
+              {statusCaixaAtiva}
+            </span>
+            <span className="text-[9px] text-slate-400 block mt-0.5">
+              {statusCaixaAtiva === 'Enviado Online' ? 'Disponível no Online' : 'Sistema Interno'}
+            </span>
           </div>
           <div className="border-r border-slate-200 last:border-0">
             <span className="text-[10px] font-bold text-emerald-700 uppercase block">Lacrados (SIM)</span>
@@ -2840,10 +2888,10 @@ export const BipagemRapida: React.FC = () => {
                         </span>
                       ) : (
                         <span
-                          className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full ${
+                          className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full border ${
                             item.status_sincronizacao === 'ENVIADO'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border-amber-300'
                           }`}
                         >
                           <span
@@ -2853,7 +2901,9 @@ export const BipagemRapida: React.FC = () => {
                                 : 'bg-amber-600 animate-pulse'
                             }`}
                           />
-                          {item.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
+                          {item.status_sincronizacao === 'ENVIADO'
+                            ? 'Enviado para Online'
+                            : 'Aguardando envio para Online'}
                         </span>
                       )}
                     </td>

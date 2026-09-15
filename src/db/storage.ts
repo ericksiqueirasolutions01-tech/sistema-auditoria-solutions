@@ -311,24 +311,7 @@ class AuditoriaDatabase {
   }
 
   iniciarSincronizacaoAutomatica() {
-    if (typeof window === 'undefined') return;
-    this.puxarAtualizacoesServidor();
-    setInterval(() => {
-      this.puxarAtualizacoesServidor();
-    }, 4000);
-    window.addEventListener('focus', () => {
-      this.puxarAtualizacoesServidor();
-    });
-    window.addEventListener('online', () => {
-      this.puxarAtualizacoesServidor();
-    });
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          this.puxarAtualizacoesServidor();
-        }
-      });
-    }
+    // Requisito: Envio para Online 100% manual. Nenhum processo automático ou timer deve disparar integração em background.
   }
 
   private carregarDados() {
@@ -1148,6 +1131,24 @@ class AuditoriaDatabase {
       avariasFaltantes,
       pendencias,
     };
+  }
+
+  obterStatusEnvioCaixa(numeroCaixa: string, regional?: string): 'Aguardando envio Online' | 'Enviado Online' | 'Vazia' {
+    const caixaNorm = numeroCaixa.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    const itens = this.produtos.filter((p) => {
+      const matchCaixa = p.numero_caixa.toUpperCase() === caixaNorm;
+      if (!regAlvo || regAlvo === 'TODAS') return matchCaixa;
+      return matchCaixa && (p.regional || 'VIA VAREJO RJ') === regAlvo;
+    });
+
+    if (itens.length === 0) return 'Vazia';
+    const todosEnviados = itens.every(
+      (p) => p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO'
+    );
+    return todosEnviados ? 'Enviado Online' : 'Aguardando envio Online';
   }
 
   obterMetricasDashboard(regional?: string): MetricasDashboard {
@@ -1980,10 +1981,8 @@ class AuditoriaDatabase {
       if (produtosRemotos && Array.isArray(produtosRemotos)) {
         if (produtosRemotos.length === 0) {
           const resetLocal = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
-          const isAdmin = this.usuarioAtual?.perfil === 'ADMINISTRADOR';
-          const todosEnviados = this.produtos.length > 0 && this.produtos.every((p) => p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO');
-
-          if (isAdmin || resetTimestampRemoto || resetLocal || todosEnviados) {
+          // Somente limpa os produtos locais se houver solicitação explícita de reset (Limpar Base pelo Admin)
+          if (resetTimestampRemoto || resetLocal) {
             if (this.produtos.length > 0) {
               this.produtos = [];
               this.serialMap.clear();
@@ -1998,8 +1997,8 @@ class AuditoriaDatabase {
 
       if (fotosRemotas && Array.isArray(fotosRemotas)) {
         if (fotosRemotas.length === 0) {
-          const isAdmin = this.usuarioAtual?.perfil === 'ADMINISTRADOR';
-          if (isAdmin && this.fotosGrupos.length > 0) {
+          const resetLocal = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
+          if ((resetTimestampRemoto || resetLocal) && this.fotosGrupos.length > 0) {
             this.fotosGrupos = [];
             this.registros10Fotos = [];
             alterou = true;
@@ -2041,31 +2040,7 @@ class AuditoriaDatabase {
     // Se estiver em processo de limpeza, não mesclar nada
     if (this.limpezaEmAndamento) return false;
 
-    const centralMap = new Map<string, ProdutoAuditoria>();
-    for (const cp of produtosCentral) {
-      const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
-      centralMap.set(chave, cp);
-    }
-
-    // 1. Remover localmente itens que já haviam sido ENVIADOS para a nuvem mas foram excluídos na central
-    const totalAntes = this.produtos.length;
-    this.produtos = this.produtos.filter((p) => {
-      // Se não foi enviado ainda (PENDENTE), mantém na fila local
-      if (p.status_sincronizacao !== 'ENVIADO' && p.sync_status !== 'ENVIADO') {
-        return true;
-      }
-      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
-      return centralMap.has(chave);
-    });
-    if (this.produtos.length !== totalAntes) {
-      this.serialMap.clear();
-      for (const p of this.produtos) {
-        this.serialMap.set(p.serial.trim().toUpperCase(), p);
-      }
-      alterou = true;
-    }
-
-    // 2. Inserir ou atualizar produtos vindos da central
+    // Inserir ou atualizar produtos vindos da central sem remover itens locais existentes
     const locaisMap = new Map<string, ProdutoAuditoria>();
     for (const p of this.produtos) {
       const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
@@ -2089,12 +2064,6 @@ class AuditoriaDatabase {
         this.produtos.unshift(novo);
         this.serialMap.set(cp.serial.trim().toUpperCase(), novo);
         locaisMap.set(chave, novo);
-        alterou = true;
-      } else if (local.status_sincronizacao !== 'ENVIADO') {
-        // Já existe no servidor central, então marca como ENVIADO localmente também
-        local.status_sincronizacao = 'ENVIADO';
-        local.sync_status = 'ENVIADO';
-        local.data_sincronizacao = cp.data_sincronizacao || new Date().toISOString();
         alterou = true;
       }
     }

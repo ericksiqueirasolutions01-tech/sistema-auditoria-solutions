@@ -121,7 +121,12 @@ export const ConsultaProdutos: React.FC = () => {
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observação: p.observacao,
       Auditor: p.usuario_cadastro,
-      'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'ENVIADO' : 'PENDENTE',
+      'Status Sincronização':
+        p.status_sincronizacao === 'ENVIADO'
+          ? 'Enviado para Online'
+          : p.status_sincronizacao === 'ERRO_DUPLICADO'
+          ? 'Duplicado Servidor'
+          : 'Aguardando envio para Online',
       'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
       'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
       'Data Cadastro': p.data_cadastro,
@@ -263,8 +268,8 @@ export const ConsultaProdutos: React.FC = () => {
               title="Status de sincronização online"
             >
               <option value="TODOS">Sync: Todos</option>
-              <option value="ENVIADO">🟢 Enviados</option>
-              <option value="PENDENTE">🟡 Pendentes</option>
+              <option value="ENVIADO">🟢 Enviados para Online</option>
+              <option value="PENDENTE">🟡 Aguardando envio para Online</option>
             </select>
           </div>
 
@@ -384,10 +389,12 @@ export const ConsultaProdutos: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span
-                        className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full ${
+                        className={`inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full border ${
                           p.status_sincronizacao === 'ENVIADO'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : p.status_sincronizacao === 'ERRO_DUPLICADO'
+                            ? 'bg-rose-100 text-rose-800 border-rose-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
                         }`}
                       >
                         <span
@@ -397,7 +404,11 @@ export const ConsultaProdutos: React.FC = () => {
                               : 'bg-amber-600 animate-pulse'
                           }`}
                         />
-                        {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente'}
+                        {p.status_sincronizacao === 'ENVIADO'
+                          ? 'Enviado para Online'
+                          : p.status_sincronizacao === 'ERRO_DUPLICADO'
+                          ? 'Duplicado Servidor'
+                          : 'Aguardando envio para Online'}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">

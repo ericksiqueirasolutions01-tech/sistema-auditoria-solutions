@@ -690,23 +690,10 @@ export const PainelAdmin: React.FC = () => {
 
     const clienteNome = rel.cliente.includes('VIA VAREJO') ? 'VIA VAREJO' : (rel.cliente || 'SAMSUNG');
     const regionalNome = rel.cliente.replace(/VIA VAREJO\s*/i, '').trim() || rel.cliente;
+    const colaboradorFechamento = loteFinalizadoAtual?.colaborador_fechamento || rel.colaboradorResponsavel || 'Operador';
+    const numeroLoteFormatado = rel.lote.startsWith('LOTE') ? rel.lote : `LOTE ${rel.lote}`;
 
-    // Aba 1: Resumo do Lote (Requisito 5 exato)
-    const resumoData = [
-      { Campo: 'Número do lote', Valor: `LOTE ${rel.lote}` },
-      { Campo: 'Cliente', Valor: clienteNome },
-      { Campo: 'Regional', Valor: regionalNome },
-      { Campo: 'Status', Valor: statusLoteTexto },
-      { Campo: 'Data do fechamento', Valor: dataFechamento },
-      { Campo: 'Hora do fechamento', Valor: horaFechamento },
-      { Campo: 'Colaborador responsável', Valor: loteFinalizadoAtual?.colaborador_fechamento || rel.colaboradorResponsavel },
-      { Campo: 'Quantidade de caixas', Valor: rel.totalCaixas },
-      { Campo: 'Quantidade total de produtos', Valor: rel.totalProdutos },
-    ];
-    const wsResumo = XLSX.utils.json_to_sheet(resumoData);
-    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo do Lote');
-
-    // Aba 2: Produtos do Lote (Requisito 5 e 9 exatos)
+    // Aba 1 (Principal): Produtos do Lote Completo (Abre diretamente ao carregar o arquivo no Excel)
     const produtosData = rel.produtos.map((p, idx) => {
       let dataHoraLancamento = p.data_auditoria;
       if (p.data_cadastro) {
@@ -720,22 +707,91 @@ export const PainelAdmin: React.FC = () => {
 
       return {
         'Nº': idx + 1,
-        'Número do lote': p.numero_lote || rel.lote,
+        'Número do Lote': p.numero_lote || numeroLoteFormatado,
         'Caixa': p.numero_caixa,
-        'Modelo': p.modelo_produto,
-        'IMEI': p.imei || p.serial,
-        'Data e hora do lançamento': dataHoraLancamento,
-        'Colaborador responsável pelo lançamento': p.usuario_cadastro || 'Operador',
+        'Cliente': clienteNome,
+        'Regional': p.regional || regionalNome,
+        'Fabricante': p.fabricante || 'SAMSUNG',
+        'Modelo Produto': p.modelo_produto,
+        'EAN': p.ean,
+        'IMEI / Serial': p.imei || p.serial,
         'Produto Lacrado': p.produto_lacrado,
         'NF Conferida': p.nf_conferida || 'SIM',
+        'Kit Completo': p.kit_completo || '-',
+        'Marcas de Uso': p.aparelho_marcas_uso || '-',
+        'Observações': p.observacao || '-',
+        'Data/Hora Lançamento': dataHoraLancamento,
+        'Colaborador Lançamento': p.usuario_cadastro || 'Operador',
+        'Data Fechamento': dataFechamento,
+        'Hora Fechamento': horaFechamento,
+        'Colaborador Fechamento': colaboradorFechamento,
+        'Status do Lote': statusLoteTexto,
+        'Status Sincronização':
+          p.status_sincronizacao === 'ENVIADO'
+            ? 'Enviado para Online'
+            : p.status_sincronizacao === 'ERRO_DUPLICADO'
+            ? 'Duplicado Servidor'
+            : 'Aguardando envio para Online',
       };
     });
     const wsProdutos = XLSX.utils.json_to_sheet(produtosData);
+    wsProdutos['!cols'] = [
+      { wch: 6 },  // Nº
+      { wch: 16 }, // Número do Lote
+      { wch: 12 }, // Caixa
+      { wch: 16 }, // Cliente
+      { wch: 18 }, // Regional
+      { wch: 14 }, // Fabricante
+      { wch: 26 }, // Modelo Produto
+      { wch: 16 }, // EAN
+      { wch: 18 }, // IMEI / Serial
+      { wch: 16 }, // Produto Lacrado
+      { wch: 16 }, // NF Conferida
+      { wch: 14 }, // Kit Completo
+      { wch: 14 }, // Marcas de Uso
+      { wch: 20 }, // Observações
+      { wch: 22 }, // Data/Hora Lançamento
+      { wch: 24 }, // Colaborador Lançamento
+      { wch: 16 }, // Data Fechamento
+      { wch: 16 }, // Hora Fechamento
+      { wch: 24 }, // Colaborador Fechamento
+      { wch: 20 }, // Status do Lote
+      { wch: 22 }, // Status Sincronização
+    ];
     XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos do Lote');
+
+    // Aba 2: Resumo do Lote (Tabela com colunas completas)
+    const resumoData = [
+      {
+        'Número do Lote': numeroLoteFormatado,
+        'Cliente': clienteNome,
+        'Regional': regionalNome,
+        'Status do Lote': statusLoteTexto,
+        'Data do Fechamento': dataFechamento,
+        'Hora do Fechamento': horaFechamento,
+        'Colaborador Responsável': colaboradorFechamento,
+        'Quantidade de Caixas': rel.totalCaixas,
+        'Quantidade Total de Produtos': rel.totalProdutos,
+      },
+    ];
+    const wsResumo = XLSX.utils.json_to_sheet(resumoData);
+    wsResumo['!cols'] = [
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 25 },
+      { wch: 22 },
+      { wch: 26 },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo do Lote');
 
     // Aba 3: Caixas que Compõem o Lote
     const caixasData = rel.caixas.map((c, idx) => ({
       'Nº': idx + 1,
+      'Número do Lote': numeroLoteFormatado,
       'Volume / Caixa': c.caixa,
       'Total de Produtos': c.totalProdutos,
       'Produtos Lacrados': c.lacrados,
@@ -743,6 +799,15 @@ export const PainelAdmin: React.FC = () => {
       'Status de Envio': c.statusEnvio,
     }));
     const wsCaixas = XLSX.utils.json_to_sheet(caixasData);
+    wsCaixas['!cols'] = [
+      { wch: 6 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 20 },
+    ];
     XLSX.utils.book_append_sheet(wb, wsCaixas, 'Caixas do Lote');
 
     XLSX.writeFile(wb, `Relatorio_Consolidado_Lote_${rel.lote}_${rel.cliente.replace(/\s+/g, '_')}.xlsx`);

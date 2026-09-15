@@ -223,8 +223,7 @@ export const PainelAdmin: React.FC = () => {
       EAN: p.ean,
       IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
-      'Nota Fiscal': p.numero_nf || 'NF 001',
-      'NF foi conferida?': p.nf_conferida || 'SIM',
+      Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
@@ -296,8 +295,7 @@ export const PainelAdmin: React.FC = () => {
       EAN: p.ean,
       Serial: p.serial,
       Caixa: p.numero_caixa,
-      'Nota Fiscal': p.numero_nf || 'NF 001',
-      'NF foi conferida?': p.nf_conferida || 'SIM',
+      Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
@@ -480,8 +478,6 @@ export const PainelAdmin: React.FC = () => {
       'Modelo Produto': p.modelo_produto,
       EAN: p.ean,
       IMEI: p.imei || p.serial,
-      'Nota Fiscal': p.numero_nf || 'NF 001',
-      'NF foi conferida?': p.nf_conferida || 'SIM',
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
@@ -1506,8 +1502,7 @@ export const PainelAdmin: React.FC = () => {
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
-                    <th className="py-2.5 px-3 border-r border-blue-600">NF</th>
-                    <th className="py-2.5 px-3 text-center border-r border-blue-600">NF Conferida?</th>
+                    <th className="py-2.5 px-3 text-center border-r border-blue-600">Lote</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Lacrado</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Kit Compl.</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Marcas Uso</th>
@@ -1528,7 +1523,7 @@ export const PainelAdmin: React.FC = () => {
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   {produtosPaginados.length === 0 ? (
                     <tr>
-                      <td colSpan={15} className="py-12 text-center text-slate-400 font-sans">
+                      <td colSpan={14} className="py-12 text-center text-slate-400 font-sans">
                         Nenhum registro encontrado com os filtros aplicados.
                       </td>
                     </tr>
@@ -1555,18 +1550,9 @@ export const PainelAdmin: React.FC = () => {
                         <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase border-r border-slate-200">
                           {p.numero_caixa}
                         </td>
-                        <td className="py-2 px-3 font-sans font-bold text-slate-800 border-r border-slate-200">
-                          {p.numero_nf || 'NF 001'}
-                        </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                              p.nf_conferida === 'NÃO'
-                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            }`}
-                          >
-                            {p.nf_conferida || 'SIM'}
+                          <span className="bg-amber-50 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded text-[10px] uppercase">
+                            LOTE {p.numero_lote || '01'}
                           </span>
                         </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200">

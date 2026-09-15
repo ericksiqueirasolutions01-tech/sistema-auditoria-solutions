@@ -225,10 +225,6 @@ namespace SistemaAuditoriaSolutions
                 // 4. Abre a janela do aplicativo nativa
                 OpenAppWindow();
                 Log("Janela do aplicativo acionada.");
-
-                // 5. Inicia a thread Sentinela (Watchdog) para monitorar fechamento da janela
-                StartWatchdog();
-                Log("Thread Watchdog de ciclo de vida iniciada.");
             }
             catch (Exception ex)
             {
@@ -324,16 +320,6 @@ namespace SistemaAuditoriaSolutions
                         if (proc != null)
                         {
                             launchedEdgePid = proc.Id;
-                            proc.EnableRaisingEvents = true;
-                            proc.Exited += (s, e) =>
-                            {
-                                Log(string.Format("Processo Edge principal (PID {0}) finalizado pelo usuario. Iniciando desligamento completo...", proc.Id));
-                                ThreadPool.QueueUserWorkItem((st) =>
-                                {
-                                    Thread.Sleep(250);
-                                    ExecuteFullShutdown();
-                                });
-                            };
                             launched = true;
                             break;
                         }
@@ -357,59 +343,6 @@ namespace SistemaAuditoriaSolutions
                     MessageBox.Show("Não foi possível abrir o navegador: " + ex.Message, "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
-        }
-
-        private void StartWatchdog()
-        {
-            watchdogThread = new Thread(() =>
-            {
-                // Carência inicial para carregamento do Edge e inicialização do frontend
-                Thread.Sleep(12000);
-
-                while (isRunning && !isShuttingDown)
-                {
-                    try
-                    {
-                        Thread.Sleep(1500);
-
-                        if (!isRunning || isShuttingDown) break;
-
-                        // Checagem 1: Janela fechada detectada por falta de heartbeat do frontend (> 6.5 segundos)
-                        double secondsSinceHeartbeat = (DateTime.UtcNow - lastHeartbeatUtc).TotalSeconds;
-                        if (secondsSinceHeartbeat > 6.5)
-                        {
-                            Log(string.Format("Watchdog: Heartbeat nao recebido ha {0:0.0}s. A janela foi fechada. Encerrando aplicativo...", secondsSinceHeartbeat));
-                            ExecuteFullShutdown();
-                            break;
-                        }
-
-                        // Checagem 2: Processo principal do Edge encerrou
-                        if (launchedEdgePid > 0)
-                        {
-                            bool vivo = false;
-                            try
-                            {
-                                var proc = Process.GetProcessById(launchedEdgePid);
-                                if (!proc.HasExited) vivo = true;
-                            }
-                            catch
-                            {
-                                vivo = false;
-                            }
-
-                            if (!vivo)
-                            {
-                                Log("Watchdog: Processo Edge (PID " + launchedEdgePid + ") encerrou. Encerrando sistema...");
-                                ExecuteFullShutdown();
-                                break;
-                            }
-                        }
-                    }
-                    catch {}
-                }
-            });
-            watchdogThread.IsBackground = true;
-            watchdogThread.Start();
         }
 
         private int FindFreePort(int startPort)

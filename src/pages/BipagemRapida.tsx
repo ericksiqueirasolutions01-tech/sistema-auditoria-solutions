@@ -77,14 +77,6 @@ export const BipagemRapida: React.FC = () => {
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
 
-  // Estados da Nota Fiscal e Conferência de NF (Requisitos 3 e 4)
-  const [nfAtiva, setNfAtiva] = useState<string>(() => {
-    return localStorage.getItem('solutions_nf_ativa') || 'NF 001';
-  });
-  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao>(() => {
-    return (localStorage.getItem('solutions_nf_conferida_ativa') as SimNao) || 'SIM';
-  });
-
   // Estado do Número do Lote (Obrigatório e Memorizado no Navegador)
   const [loteAtivo, setLoteAtivo] = useState<string>(() => {
     return db.obterUltimoLote() || '01';
@@ -95,16 +87,6 @@ export const BipagemRapida: React.FC = () => {
     db.salvarUltimoLote(novoLote);
   };
 
-  const handleMudarNfConferida = (novoValor: SimNao) => {
-    setNfConferidaAtiva(novoValor);
-    localStorage.setItem('solutions_nf_conferida_ativa', novoValor);
-  };
-
-  const handleMudarNfAtiva = (novaNf: string) => {
-    setNfAtiva(novaNf);
-    localStorage.setItem('solutions_nf_ativa', novaNf);
-  };
-
   // Editing state for previously recorded rows (full inline editing of any cell)
   const [linhaEditandoId, setLinhaEditandoId] = useState<number | null>(null);
   const [editModelo, setEditModelo] = useState('');
@@ -113,8 +95,6 @@ export const BipagemRapida: React.FC = () => {
   const [editData, setEditData] = useState('');
   const [editCaixa, setEditCaixa] = useState('');
   const [editLote, setEditLote] = useState('');
-  const [editNf, setEditNf] = useState('');
-  const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
   const [editLacre, setEditLacre] = useState<SimNao>('SIM');
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
@@ -379,8 +359,8 @@ export const BipagemRapida: React.FC = () => {
       numero_lote: loteLimpo,
       data_auditoria: dataLimpa,
       numero_caixa: caixaLimpa,
-      numero_nf: nfAtiva.trim(),
-      nf_conferida: nfConferidaAtiva,
+      numero_nf: '',
+      nf_conferida: 'SIM',
       produto_lacrado: lacreAtivo,
       kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
       aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
@@ -438,8 +418,7 @@ export const BipagemRapida: React.FC = () => {
     setEditSerial(item.serial);
     setEditData(item.data_auditoria);
     setEditCaixa(item.numero_caixa);
-    setEditNf(item.numero_nf || '');
-    setEditNfConferida(item.nf_conferida || 'SIM');
+    setEditLote(item.numero_lote || db.obterUltimoLote() || '01');
     setEditLacre(item.produto_lacrado);
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
@@ -486,8 +465,9 @@ export const BipagemRapida: React.FC = () => {
       imei: editSerial.trim(),
       data_auditoria: editData.trim(),
       numero_caixa: editCaixa.trim(),
-      numero_nf: editNf.trim(),
-      nf_conferida: editNfConferida,
+      numero_lote: editLote.trim() || '01',
+      numero_nf: '',
+      nf_conferida: 'SIM',
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
@@ -1407,13 +1387,12 @@ export const BipagemRapida: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* BARRA SUPERIOR: NOTA FISCAL, CONFERÊNCIA AUTOMÁTICA DA NF E LIMITE DA CAIXA */}
-      {/* REQUISITOS 2, 3 E 4 DO CLIENTE */}
+      {/* BARRA SUPERIOR: NÚMERO DO LOTE E LIMITE DA CAIXA */}
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-4 border-2 border-blue-600/50">
         <div className="flex flex-wrap items-center gap-4">
           {/* Campo Obrigatório: Número do Lote (Memorizado e Obrigatório) */}
-          <div className="flex items-center gap-2 pr-3 border-r border-blue-700/60">
+          <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-amber-500/25 border border-amber-400/60 flex items-center justify-center text-amber-400 shrink-0">
               <Layers className="w-4 h-4" />
             </div>
@@ -1426,67 +1405,13 @@ export const BipagemRapida: React.FC = () => {
                 value={loteAtivo}
                 onChange={(e) => handleMudarLoteAtivo(e.target.value)}
                 placeholder="Ex: 01"
-                className={`text-sm font-black text-white bg-blue-950/80 border rounded-xl px-3 py-1 focus:outline-none focus:ring-2 w-32 uppercase tracking-wider shadow-inner transition-all ${
+                className={`text-sm font-black text-white bg-blue-950/80 border rounded-xl px-3 py-1 focus:outline-none focus:ring-2 w-36 uppercase tracking-wider shadow-inner transition-all ${
                   !loteAtivo.trim()
                     ? 'border-rose-500 ring-2 ring-rose-500/60 placeholder-rose-400'
                     : 'border-amber-400/80 focus:ring-amber-400'
                 }`}
                 title="Número do Lote (Obrigatório para bipagem e espelho)"
               />
-            </div>
-          </div>
-
-          {/* Campo da Nota Fiscal (NF) */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/50 flex items-center justify-center text-amber-400 shrink-0">
-              <FileText className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-blue-200 block">
-                Nota Fiscal (NF):
-              </span>
-              <input
-                type="text"
-                value={nfAtiva}
-                onChange={(e) => handleMudarNfAtiva(e.target.value)}
-                placeholder="Ex: NF 00123"
-                className="text-sm font-black text-white bg-blue-950/80 border border-blue-400/60 rounded-xl px-3 py-1 focus:outline-none focus:ring-2 focus:ring-amber-400 w-36 uppercase tracking-wider shadow-inner"
-              />
-            </div>
-          </div>
-
-          {/* Seletor Automático de Conferência da NF: [ SIM ] [ NÃO ] */}
-          <div className="flex items-center gap-2 pl-3 border-l border-blue-700/60">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-blue-200 block mb-1">
-                NF foi conferida?
-              </span>
-              <div className="inline-flex bg-blue-950/90 rounded-xl p-1 border border-blue-600/60 shadow-inner">
-                <button
-                  type="button"
-                  onClick={() => handleMudarNfConferida('SIM')}
-                  className={`px-3 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
-                    nfConferidaAtiva === 'SIM'
-                      ? 'bg-emerald-600 text-white shadow-xs scale-105 ring-2 ring-emerald-400'
-                      : 'text-blue-200 hover:text-white'
-                  }`}
-                  title="Todos os próximos seriais bipados assumirão NF Conferida: SIM"
-                >
-                  <Check className="w-3.5 h-3.5" /> SIM
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMudarNfConferida('NÃO')}
-                  className={`px-3 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1 transition-all cursor-pointer ${
-                    nfConferidaAtiva === 'NÃO'
-                      ? 'bg-rose-600 text-white shadow-xs scale-105 ring-2 ring-rose-400'
-                      : 'text-blue-200 hover:text-white'
-                  }`}
-                  title="Todos os próximos seriais bipados assumirão NF Conferida: NÃO"
-                >
-                  <X className="w-3.5 h-3.5" /> NÃO
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -1905,49 +1830,6 @@ export const BipagemRapida: React.FC = () => {
               />
             </div>
 
-            {/* Conferência da Nota Fiscal (Mobile) */}
-            <div className="space-y-2 bg-white p-3.5 rounded-xl border border-emerald-200">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-800 uppercase">
-                  NF foi conferida?
-                </span>
-                <span className="text-[10px] text-emerald-800 font-bold uppercase">
-                  {nfAtiva}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleMudarNfConferida('SIM');
-                    focarInputSerial();
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    nfConferidaAtiva === 'SIM'
-                      ? 'bg-emerald-700 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <Check className="w-4 h-4" />
-                  SIM
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleMudarNfConferida('NÃO');
-                    focarInputSerial();
-                  }}
-                  className={`py-2.5 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    nfConferidaAtiva === 'NÃO'
-                      ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400 scale-[1.02]'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                  NÃO
-                </button>
-              </div>
-            </div>
 
             {/* Condição Física / Lacre (Botões Touch Grandes) */}
             <div className="space-y-3 bg-white p-3.5 rounded-xl border border-blue-200">
@@ -2340,55 +2222,7 @@ export const BipagemRapida: React.FC = () => {
               />
             </div>
 
-            {/* Nota Fiscal */}
-            <div className="flex items-center gap-1.5 bg-emerald-50 border-2 border-emerald-300 px-2.5 py-1.5 rounded-xl">
-              <span className="text-[11px] font-black text-emerald-950 uppercase whitespace-nowrap">NF:</span>
-              <input
-                type="text"
-                value={nfAtiva}
-                onChange={(e) => handleMudarNfAtiva(e.target.value)}
-                placeholder="Ex: NF 001"
-                className="w-20 bg-white font-black text-xs text-emerald-900 border border-emerald-400 rounded px-2 py-0.5 focus:outline-none uppercase"
-                title="Número da Nota Fiscal ativa"
-              />
-            </div>
 
-            {/* 1. Botão: NF foi conferida? */}
-            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
-              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
-                NF Conferida:
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  handleMudarNfConferida('SIM');
-                  serialInputRef.current?.focus();
-                }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
-                  nfConferidaAtiva === 'SIM'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200'
-                }`}
-                title="Nota Fiscal foi conferida: SIM"
-              >
-                SIM
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  handleMudarNfConferida('NÃO');
-                  serialInputRef.current?.focus();
-                }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
-                  nfConferidaAtiva === 'NÃO'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200'
-                }`}
-                title="Nota Fiscal NÃO foi conferida"
-              >
-                NÃO
-              </button>
-            </div>
 
             {/* 2. Botão: O produto está lacrado? */}
             <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
@@ -2777,8 +2611,8 @@ export const BipagemRapida: React.FC = () => {
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-indigo-50 text-indigo-950">
                   Caixa ✏️
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[105px] bg-emerald-50 text-emerald-950">
-                  NF foi conferida? ✏️
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-amber-50 text-amber-950">
+                  Lote ✏️
                 </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
@@ -2860,16 +2694,16 @@ export const BipagemRapida: React.FC = () => {
                         />
                       </td>
 
-                      {/* NF foi conferida? */}
-                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-emerald-50/40">
-                        <select
-                          value={editNfConferida}
-                          onChange={(e) => setEditNfConferida(e.target.value as SimNao)}
-                          className="text-[11px] font-black px-1.5 py-1 rounded border border-amber-400 bg-white cursor-pointer"
-                        >
-                          <option value="SIM">SIM</option>
-                          <option value="NÃO">NÃO</option>
-                        </select>
+                      {/* Lote */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-amber-50/40">
+                        <input
+                          type="text"
+                          value={editLote}
+                          onChange={(e) => setEditLote(e.target.value)}
+                          placeholder="01"
+                          className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-1.5 py-1 uppercase"
+                          title="Número do Lote"
+                        />
                       </td>
 
                       {/* Produto Lacrado */}
@@ -2991,15 +2825,9 @@ export const BipagemRapida: React.FC = () => {
                     <td className="py-2 px-3 text-center font-black text-blue-700 border-r border-slate-200 bg-blue-50/20">
                       {item.numero_caixa}
                     </td>
-                    <td className="py-2 px-2 text-center border-r border-slate-200 bg-emerald-50/20">
-                      <span
-                        className={`font-black px-2 py-0.5 rounded text-[10px] border ${
-                          item.nf_conferida === 'NÃO'
-                            ? 'bg-rose-100 text-rose-800 border-rose-300'
-                            : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                        }`}
-                      >
-                        {item.nf_conferida || 'SIM'}
+                    <td className="py-2 px-2 text-center border-r border-slate-200 bg-amber-50/20">
+                      <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-amber-100 text-amber-800 border-amber-300">
+                        LOTE {item.numero_lote || '01'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center border-r border-slate-200">
@@ -3182,25 +3010,16 @@ export const BipagemRapida: React.FC = () => {
                   />
                 </td>
 
-                {/* NF FOI CONFERIDA? (COLUNA 9) */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-emerald-50/50">
-                  <select
-                    value={nfConferidaAtiva}
-                    onChange={(e) => {
-                      const val = e.target.value as SimNao;
-                      handleMudarNfConferida(val);
-                      serialInputRef.current?.focus();
-                    }}
-                    className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
-                      nfConferidaAtiva === 'SIM'
-                        ? 'bg-emerald-700 text-white border-emerald-800'
-                        : 'bg-rose-600 text-white border-rose-700'
-                    }`}
-                    title="NF foi conferida? SIM ou NÃO"
-                  >
-                    <option value="SIM">SIM</option>
-                    <option value="NÃO">NÃO</option>
-                  </select>
+                {/* NÚMERO DO LOTE (COLUNA 9) */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-amber-50/50">
+                  <input
+                    type="text"
+                    value={loteAtivo}
+                    onChange={(e) => handleMudarLoteAtivo(e.target.value)}
+                    placeholder="Ex: 01"
+                    className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-2 py-1.5 focus:outline-none uppercase"
+                    title="Número do Lote ativo (Obrigatório)"
+                  />
                 </td>
 
                 {/* PRODUTO LACRADO (COLUNA 10) */}

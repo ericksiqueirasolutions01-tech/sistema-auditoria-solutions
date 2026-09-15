@@ -389,8 +389,6 @@ export const GeradorEspelhos: React.FC = () => {
       IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
       Lote: p.numero_lote || '01',
-      'Nota Fiscal': p.numero_nf || 'NF 001',
-      'NF foi conferida?': p.nf_conferida || 'SIM',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',

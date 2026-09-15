@@ -14,27 +14,13 @@ export function iniciarMonitoramentoCicloVida(): void {
   }
   monitorIniciado = true;
 
-  // 1. Envia heartbeat a cada 2 segundos para o executável local saber que a janela está ativa
+  // 1. Envia heartbeat a cada 5 segundos para o executável local saber que a janela está ativa
   const enviarHeartbeat = () => {
     fetch('/api/system/heartbeat', { cache: 'no-store' }).catch(() => {});
   };
 
   enviarHeartbeat();
-  heartbeatTimer = setInterval(enviarHeartbeat, 2000);
-
-  // 2. Notificação imediata ao fechar a janela / aba pelo botão 'X'
-  const notificarEncerramento = () => {
-    try {
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon('/api/system/shutdown');
-      } else {
-        fetch('/api/system/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
-      }
-    } catch {}
-  };
-
-  window.addEventListener('beforeunload', notificarEncerramento);
-  window.addEventListener('pagehide', notificarEncerramento);
+  heartbeatTimer = setInterval(enviarHeartbeat, 5000);
 }
 
 /**

@@ -33,8 +33,7 @@ export const ConsultaProdutos: React.FC = () => {
   // Editing state (Admin)
   const [editando, setEditando] = useState<ProdutoAuditoria | null>(null);
   const [editCaixa, setEditCaixa] = useState('');
-  const [editNf, setEditNf] = useState('');
-  const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
+  const [editLote, setEditLote] = useState('');
   const [editObservacao, setEditObservacao] = useState('');
   const [editLacrado, setEditLacrado] = useState<SimNao>('SIM');
   const [editKit, setEditKit] = useState<SimNao | null>('SIM');
@@ -79,8 +78,7 @@ export const ConsultaProdutos: React.FC = () => {
     if (!isAdmin) return;
     setEditando(p);
     setEditCaixa(p.numero_caixa);
-    setEditNf(p.numero_nf || 'NF 001');
-    setEditNfConferida(p.nf_conferida || 'SIM');
+    setEditLote(p.numero_lote || '01');
     setEditObservacao(p.observacao || '');
     setEditLacrado(p.produto_lacrado);
     setEditKit(p.kit_completo);
@@ -91,8 +89,9 @@ export const ConsultaProdutos: React.FC = () => {
     if (!editando) return;
     db.atualizarProduto(editando.id, {
       numero_caixa: editCaixa.toUpperCase(),
-      numero_nf: editNf.trim() || 'NF 001',
-      nf_conferida: editNfConferida,
+      numero_lote: editLote.trim() || '01',
+      numero_nf: '',
+      nf_conferida: 'SIM',
       observacao: editObservacao,
       produto_lacrado: editLacrado,
       kit_completo: editLacrado === 'SIM' ? 'SIM' : editKit,
@@ -113,8 +112,7 @@ export const ConsultaProdutos: React.FC = () => {
       EAN: p.ean,
       IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
-      'Nota Fiscal': p.numero_nf || 'NF 001',
-      'NF foi conferida?': p.nf_conferida || 'SIM',
+      Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       Lacrado: p.produto_lacrado,
       'Kit Completo': p.kit_completo || '-',
@@ -304,8 +302,7 @@ export const ConsultaProdutos: React.FC = () => {
                 <th className="py-3.5 px-4">Modelo</th>
                 <th className="py-3.5 px-4">EAN</th>
                 <th className="py-3.5 px-4">Caixa</th>
-                <th className="py-3.5 px-4">Nota Fiscal</th>
-                <th className="py-3.5 px-3 text-center">NF Conferida?</th>
+                <th className="py-3.5 px-4 text-center">Lote</th>
                 <th className="py-3.5 px-3 text-center">Data</th>
                 <th className="py-3.5 px-3 text-center">Lacrado</th>
                 <th className="py-3.5 px-3 text-center">Kit Completo</th>
@@ -319,7 +316,7 @@ export const ConsultaProdutos: React.FC = () => {
             <tbody className="divide-y divide-slate-200">
               {produtos.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 16 : 15} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={isAdmin ? 15 : 14} className="py-12 text-center text-slate-400 font-bold">
                     Nenhum produto encontrado com os filtros aplicados.
                   </td>
                 </tr>
@@ -346,18 +343,9 @@ export const ConsultaProdutos: React.FC = () => {
                         {p.numero_caixa}
                       </span>
                     </td>
-                    <td className="py-3 px-4 font-bold text-slate-800">
-                      {p.numero_nf || 'NF 001'}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span
-                        className={`font-black px-2 py-0.5 rounded text-[10px] ${
-                          p.nf_conferida === 'NÃO'
-                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                            : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        }`}
-                      >
-                        {p.nf_conferida || 'SIM'}
+                    <td className="py-3 px-4 text-center">
+                      <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase">
+                        LOTE {p.numero_lote || '01'}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-center text-slate-600 font-medium">
@@ -490,27 +478,15 @@ export const ConsultaProdutos: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Nota Fiscal</label>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Número do Lote</label>
                   <input
                     type="text"
-                    value={editNf}
-                    onChange={(e) => setEditNf(e.target.value)}
-                    placeholder="Ex: NF 001"
-                    className="w-full p-2 border border-slate-300 rounded-lg font-bold"
+                    value={editLote}
+                    onChange={(e) => setEditLote(e.target.value)}
+                    placeholder="Ex: 01"
+                    className="w-full p-2 border border-slate-300 rounded-lg font-bold uppercase"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">NF foi conferida?</label>
-                <select
-                  value={editNfConferida}
-                  onChange={(e) => setEditNfConferida(e.target.value as SimNao)}
-                  className="w-full p-2 border border-slate-300 rounded-lg font-bold"
-                >
-                  <option value="SIM">SIM</option>
-                  <option value="NÃO">NÃO</option>
-                </select>
               </div>
 
               <div>

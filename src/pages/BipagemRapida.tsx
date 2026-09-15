@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado } from '../types';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa';
 import { ModalAlertaDuplicidadeServidor } from '../components/ModalAlertaDuplicidadeServidor';
+import { ModalFechamentoLote } from '../components/ModalFechamentoLote';
 import {
   FileSpreadsheet,
   Plus,
@@ -47,6 +48,7 @@ import * as XLSX from 'xlsx';
 export const BipagemRapida: React.FC = () => {
   const usuarioAtual = db.getUsuarioAtual();
   const regionalAtiva = usuarioAtual?.regional || (usuarioAtual?.perfil === 'ADMINISTRADOR' ? 'TODAS AS REGIONAIS (ADMIN)' : 'VIA VAREJO RJ');
+  const regBusca = regionalAtiva.includes('ADMIN') || regionalAtiva === 'TODAS' ? undefined : regionalAtiva;
   const computadorAtual = db.obterComputadorAtual(usuarioAtual?.regional || undefined);
   const caixasExistentes = db.listarCaixas();
 
@@ -82,10 +84,26 @@ export const BipagemRapida: React.FC = () => {
     return db.obterUltimoLote() || '01';
   });
 
+  const isLoteAtualFinalizado = Boolean(loteAtivo.trim()) && db.isLoteFinalizado(loteAtivo.trim(), regBusca);
+
   const handleMudarLoteAtivo = (novoLote: string) => {
     setLoteAtivo(novoLote);
     db.salvarUltimoLote(novoLote);
   };
+
+  // Se o lote atual estiver finalizado e for operador, avançar para o próximo lote aberto
+  useEffect(() => {
+    if (usuarioAtual?.perfil === 'OPERADOR' && loteAtivo && db.isLoteFinalizado(loteAtivo, regBusca)) {
+      const lotesAbertos = db.listarLotes(regBusca);
+      if (lotesAbertos.length > 0) {
+        handleMudarLoteAtivo(lotesAbertos[0]);
+      } else {
+        const num = parseInt(loteAtivo.replace(/\D/g, ''), 10);
+        const prox = isNaN(num) ? '02' : String(num + 1).padStart(2, '0');
+        handleMudarLoteAtivo(prox);
+      }
+    }
+  }, [regionalAtiva]);
 
   // Editing state for previously recorded rows (full inline editing of any cell)
   const [linhaEditandoId, setLinhaEditandoId] = useState<number | null>(null);
@@ -107,6 +125,7 @@ export const BipagemRapida: React.FC = () => {
   const [mostrarImportModal, setMostrarImportModal] = useState(false);
   const [mostrarNovaCaixaModal, setMostrarNovaCaixaModal] = useState(false);
   const [novaCaixaNome, setNovaCaixaNome] = useState('');
+  const [mostrarModalFechamentoLote, setMostrarModalFechamentoLote] = useState(false);
 
   // Estados para Fotos de Evidência dos Grupos (10 em 10)
   const [modalFotoGrupoAberto, setModalFotoGrupoAberto] = useState(false);
@@ -275,6 +294,13 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
 
+    // Validação de Lote Finalizado (Regras 4, 5 e 6)
+    if (db.isLoteFinalizado(loteLimpo, regBusca) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      setAlertaValidacao(`O Lote ${loteLimpo} já foi FINALIZADO e BLOQUEADO! Operadores não podem adicionar produtos a um lote fechado.`);
+      sounds.playError();
+      return;
+    }
+
     // Validação Modelo
     if (!modeloLimpo) {
       setAlertaValidacao('Preencha o modelo do produto.');
@@ -407,6 +433,12 @@ export const BipagemRapida: React.FC = () => {
 
   // Full Inline Row Editing (Excel mode) - Allows editing Modelo, EAN, Serial, Caixa, Lacre, Kit, Marcas, Obs, NF Conferida
   const iniciarEdicaoLinha = (item: ProdutoAuditoria) => {
+    const regItem = item.regional || regBusca;
+    if (db.isLoteFinalizado(item.numero_lote || loteAtivo, regItem) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      sounds.playError();
+      setAlertaValidacao(`O Lote ${item.numero_lote || loteAtivo} está FINALIZADO e BLOQUEADO. Apenas o Administrador pode editar itens.`);
+      return;
+    }
     if (item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       sounds.playError();
       setAlertaValidacao('Este produto já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode editar registros sincronizados.');
@@ -458,16 +490,22 @@ export const BipagemRapida: React.FC = () => {
       }
     }
 
+    const regItem = regionalAtiva.includes('ADMIN') || regionalAtiva === 'TODAS' ? undefined : regionalAtiva;
+    if (db.isLoteFinalizado(editLote.trim() || '01', regItem) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      sounds.playError();
+      setAlertaValidacao(`O Lote ${editLote} está FINALIZADO e BLOQUEADO. Operadores não podem alterar itens deste lote.`);
+      return;
+    }
+
+    // Gravar no storage
     const res = db.atualizarProduto(id, {
       modelo_produto: editModelo.trim(),
       ean: editEan.trim(),
       serial: editSerial.trim(),
       imei: editSerial.trim(),
-      data_auditoria: editData.trim(),
-      numero_caixa: editCaixa.trim(),
+      data_auditoria: editData.trim() || getDataAtualFormatada(),
+      numero_caixa: editCaixa.trim() || caixaAtiva,
       numero_lote: editLote.trim() || '01',
-      numero_nf: '',
-      nf_conferida: 'SIM',
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
@@ -475,12 +513,16 @@ export const BipagemRapida: React.FC = () => {
     });
 
     if (!res.sucesso) {
-      alert(res.erro || 'Erro ao atualizar registro.');
+      sounds.playError();
+      setAlertaValidacao(res.erro || 'Erro ao salvar alterações na linha.');
       return;
     }
 
-    setLinhaEditandoId(null);
+    sounds.playSuccess();
+    setSucessoNotif('Linha atualizada com sucesso!');
+    setTimeout(() => setSucessoNotif(null), 2000);
     recarregarDados(filtroCaixa);
+    setLinhaEditandoId(null);
     focarInputSerial();
   };
 
@@ -494,6 +536,13 @@ export const BipagemRapida: React.FC = () => {
     if (statusSync === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       sounds.playError();
       setAlertaValidacao('Este produto já foi enviado para o servidor online. Por segurança da auditoria, apenas o Administrador Geral pode excluir registros sincronizados.');
+      return;
+    }
+    const itemAlvo = produtos.find(p => p.id === id);
+    const regItem = itemAlvo?.regional || regBusca;
+    if (itemAlvo?.numero_lote && db.isLoteFinalizado(itemAlvo.numero_lote, regItem) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      sounds.playError();
+      setAlertaValidacao(`O Lote ${itemAlvo.numero_lote} está FINALIZADO e BLOQUEADO. Operadores não podem excluir itens deste lote.`);
       return;
     }
     if (window.confirm(`Deseja remover o IMEI ${serial}?`)) {
@@ -1279,6 +1328,51 @@ export const BipagemRapida: React.FC = () => {
     }, 400);
   };
 
+  const handleAbrirFechamentoLote = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de iniciar o fechamento.');
+      return;
+    }
+
+    const regBusca = regionalAtiva.includes('ADMIN') || regionalAtiva === 'TODAS' ? undefined : regionalAtiva;
+    const prodsDoLote = db.listarProdutos({
+      regional: regBusca,
+      numero_lote: loteAtivo.trim(),
+    });
+
+    if (prodsDoLote.length === 0) {
+      sounds.playError();
+      setAlertaValidacao(`Não há produtos registrados no Lote ${loteAtivo}. Lance os produtos antes de realizar o fechamento.`);
+      return;
+    }
+
+    if (db.isLoteFinalizado(loteAtivo, regBusca)) {
+      sounds.playError();
+      setAlertaValidacao(`O Lote ${loteAtivo} já foi finalizado e bloqueado.`);
+      return;
+    }
+
+    setMostrarModalFechamentoLote(true);
+  };
+
+  const handleLoteFinalizadoComSucesso = (loteFinalizado: RegistroLoteFinalizado) => {
+    setMostrarModalFechamentoLote(false);
+    sounds.playSuccess();
+    setSucessoNotif(`Lote ${loteFinalizado.numero_lote} finalizado com sucesso e bloqueado para a operação!`);
+
+    const regBusca = regionalAtiva.includes('ADMIN') || regionalAtiva === 'TODAS' ? undefined : regionalAtiva;
+    const lotesAbertos = db.listarLotes(regBusca);
+    if (lotesAbertos.length > 0) {
+      handleMudarLoteAtivo(lotesAbertos[0]);
+    } else {
+      const numAtual = parseInt(loteFinalizado.numero_lote.replace(/\D/g, ''), 10);
+      const prox = isNaN(numAtual) ? '02' : String(numAtual + 1).padStart(2, '0');
+      handleMudarLoteAtivo(prox);
+    }
+    recarregarDados(filtroCaixa);
+  };
+
   const espelhoCaixaAtual = obterDadosEspelhoCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
   const statusCaixaAtiva = db.obterStatusEnvioCaixa(filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa, regionalAtiva);
   const produtosPendentesCount = produtos.filter((p) => p.status_sincronizacao !== 'ENVIADO').length;
@@ -1449,6 +1543,56 @@ export const BipagemRapida: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* BANNER DE BLOQUEIO: STATUS LOTE FINALIZADO (REGRAS 4, 5 e 6) */}
+      {/* ========================================================================= */}
+      {isLoteAtualFinalizado && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-700 to-amber-700 text-white rounded-2xl p-4 shadow-lg border-2 border-red-400 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                <span>STATUS: LOTE FINALIZADO (LOTE {loteAtivo})</span>
+                <span className="bg-white text-rose-800 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase shadow-xs">
+                  BLOQUEADO
+                </span>
+              </div>
+              <p className="text-xs text-rose-100 font-medium mt-0.5">
+                {usuarioAtual?.perfil === 'ADMINISTRADOR'
+                  ? 'Este lote foi finalizado e lacrado com as 3 fotos obrigatórias. Modo Administrador ativo: você pode visualizar ou realizar auditoria.'
+                  : 'Este lote já foi fechado com as 3 fotos obrigatórias e lacrado. Não é permitido adicionar novos itens ou reutilizar este lote.'}
+              </p>
+            </div>
+          </div>
+          {usuarioAtual?.perfil === 'ADMINISTRADOR' ? (
+            <span className="text-[11px] bg-black/30 border border-white/40 text-white px-3 py-1.5 rounded-xl font-black uppercase tracking-wider shrink-0">
+              🛡️ Acesso Admin Liberado
+            </span>
+          ) : (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const lotesAbertos = db.listarLotes(regBusca);
+                  if (lotesAbertos.length > 0) {
+                    handleMudarLoteAtivo(lotesAbertos[0]);
+                  } else {
+                    const num = parseInt(loteAtivo.replace(/\D/g, ''), 10);
+                    const prox = isNaN(num) ? '02' : String(num + 1).padStart(2, '0');
+                    handleMudarLoteAtivo(prox);
+                  }
+                }}
+                className="bg-white hover:bg-slate-100 text-rose-900 font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-sm cursor-pointer transition-all active:scale-95"
+              >
+                Mudar para Próximo Lote ❯
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* RENDERIZAÇÃO CONDICIONAL: MODO CELULAR VS PLANILHA */}
@@ -1778,6 +1922,7 @@ export const BipagemRapida: React.FC = () => {
                 type="text"
                 inputMode="numeric"
                 maxLength={15}
+                disabled={isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'}
                 value={serialInput}
                 onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
                 onKeyDown={(e) => {
@@ -1786,11 +1931,19 @@ export const BipagemRapida: React.FC = () => {
                     processarBipagemLinha();
                   }
                 }}
-                placeholder="BIPAR IMEI (15 NÚMEROS)..."
+                placeholder={
+                  isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                    ? 'LOTE FINALIZADO (BLOQUEADO)'
+                    : 'BIPAR IMEI (15 NÚMEROS)...'
+                }
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck="false"
-                className="w-full font-mono font-black text-xl sm:text-2xl text-slate-950 bg-white border-3 border-blue-600 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 focus:ring-blue-300 placeholder:text-slate-300 uppercase shadow-inner"
+                className={`w-full font-mono font-black text-xl sm:text-2xl text-slate-950 border-3 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 placeholder:text-slate-300 uppercase shadow-inner ${
+                  isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                    ? 'bg-rose-50 border-rose-400 cursor-not-allowed text-rose-800 placeholder:text-rose-400'
+                    : 'bg-white border-blue-600 focus:ring-blue-300'
+                }`}
               />
               {serialInput && (
                 <button
@@ -2071,11 +2224,12 @@ export const BipagemRapida: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => exportarRelatorioExcel(false)}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              onClick={handleAbrirFechamentoLote}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer ring-1 ring-amber-400"
+              title="Fechamento oficial de lote com as 3 fotos obrigatórias"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              Excel da Caixa
+              <Lock className="w-4 h-4 text-slate-950" />
+              Fechamento Lote
             </button>
 
             <button
@@ -2306,14 +2460,14 @@ export const BipagemRapida: React.FC = () => {
               Gerar Espelho
             </button>
 
-            {/* 3. Relatório da Caixa (Excel) */}
+            {/* 3. Fechamento Oficial do Lote (Novo Fluxo Oficial) */}
             <button
-              onClick={() => exportarRelatorioExcel(false)}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Baixar relatório completo da caixa atual em Excel"
+              onClick={handleAbrirFechamentoLote}
+              className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all cursor-pointer ring-1 ring-amber-400"
+              title="Fechamento oficial do lote com as 3 fotos obrigatórias"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              Excel Caixa
+              <Lock className="w-3.5 h-3.5 text-slate-950" />
+              Fechamento de Lote
             </button>
 
             {/* 4. Relatório Geral de Todas as Caixas (EXCEL GERAL) */}
@@ -2334,26 +2488,6 @@ export const BipagemRapida: React.FC = () => {
             >
               <Download className="w-3.5 h-3.5" />
               Relatório Geral (PDF)
-            </button>
-
-            {/* 6. Cópia de Segurança / Backup Anti-Perda */}
-            <button
-              onClick={baixarCopiaSeguranca}
-              className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Salvar cópia de segurança completa para seu computador"
-            >
-              <HardDrive className="w-3.5 h-3.5" />
-              Backup Seguro
-            </button>
-
-            {/* 7. Importar Excel */}
-            <button
-              onClick={() => setMostrarImportModal(true)}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-800 px-2.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1 border border-slate-300 transition-colors cursor-pointer"
-              title="Importar lista de seriais via Excel"
-            >
-              <Upload className="w-3.5 h-3.5 text-slate-600" />
-              Importar
             </button>
 
             {/* 8. Limpar Registros da Tela */}
@@ -2976,13 +3110,26 @@ export const BipagemRapida: React.FC = () => {
                     type="text"
                     inputMode="numeric"
                     maxLength={15}
+                    disabled={isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'}
                     value={serialInput}
                     onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
                     onKeyDown={handleKeyDown}
-                    placeholder="Bipe o IMEI (15 dígitos)..."
-                    className="w-full font-mono font-black text-sm text-slate-950 bg-blue-50/50 border-2 border-blue-600 rounded px-2.5 py-1.5 focus:outline-none tracking-wider placeholder:text-slate-400"
-                    autoFocus
-                    title="Posicione o cursor aqui e bipe o IMEI (15 dígitos)"
+                    placeholder={
+                      isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                        ? 'Lote finalizado (bloqueado)'
+                        : 'Bipe o IMEI (15 dígitos)...'
+                    }
+                    className={`w-full font-mono font-black text-sm text-slate-950 border-2 rounded px-2.5 py-1.5 focus:outline-none tracking-wider placeholder:text-slate-400 ${
+                      isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                        ? 'bg-rose-50 border-rose-400 cursor-not-allowed text-rose-800 placeholder:text-rose-400'
+                        : 'bg-blue-50/50 border-blue-600'
+                    }`}
+                    autoFocus={!(isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR')}
+                    title={
+                      isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                        ? 'Lote finalizado e bloqueado'
+                        : 'Posicione o cursor aqui e bipe o IMEI (15 dígitos)'
+                    }
                   />
                 </td>
 
@@ -3960,6 +4107,16 @@ export const BipagemRapida: React.FC = () => {
           }}
         />
       )}
+
+      {/* Modal Oficial de Fechamento de Lote com 3 Fotos Obrigatórias */}
+      <ModalFechamentoLote
+        isOpen={mostrarModalFechamentoLote}
+        lote={loteAtivo}
+        regional={regionalAtiva}
+        colaborador={db.obterColaboradorAtivo() || usuarioAtual?.nome_colaborador || usuarioAtual?.nome || 'Operador'}
+        onClose={() => setMostrarModalFechamentoLote(false)}
+        onLoteFinalizado={handleLoteFinalizadoComSucesso}
+      />
 
     </div>
   );

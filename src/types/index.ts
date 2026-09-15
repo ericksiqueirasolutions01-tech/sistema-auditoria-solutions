@@ -113,6 +113,7 @@ export interface Usuario {
   regional?: string | null; // Para operadores: 'VIA VAREJO RJ', etc. Para admin: null ou 'TODAS'
   ativo: boolean;
   criado_em: string;
+  nome_colaborador?: string; // Nome completo do colaborador identificado no turno
 }
 
 export interface HistoricoAuditoria {
@@ -292,5 +293,49 @@ export interface RelatorioLoteInfo {
   caixas: CaixaLoteInfo[];
   produtos: ProdutoAuditoria[];
 }
+
+export interface FotosFechamentoLote {
+  caixaFechada: string; // 1ª Foto: Foto da caixa fechada (Data URI base64)
+  espelhoCaixa: string; // 2ª Foto: Foto mostrando o espelho da caixa (Data URI base64)
+  lacreSeguranca: string; // 3ª Foto: Foto mostrando o lacre de segurança (Data URI base64)
+}
+
+export type StatusLote = 'EM_ABERTO' | 'FINALIZADO';
+
+export interface HistoricoAlteracaoLote {
+  id: string;
+  dataHora: string;
+  usuario: string; // Quem realizou a ação
+  perfil: PerfilUsuario;
+  acao: 'FECHAMENTO' | 'REABERTURA' | 'ALTERACAO_DADO' | 'EXCLUSAO_ITEM';
+  detalhes: string;
+}
+
+export interface RegistroLoteFinalizado {
+  id: string;
+  numero_lote: string;
+  regional: string; // Cliente (ex: 'VIA VAREJO SP')
+  status: StatusLote;
+  colaborador_fechamento: string; // Nome completo do colaborador responsável
+  data_fechamento: string; // Data ISO ou formatada
+  computador_id: string;
+  total_caixas: number;
+  total_produtos: number;
+  fotos: FotosFechamentoLote;
+  observacao?: string;
+  reaberto_por?: string | null;
+  data_reabertura?: string | null;
+  motivo_reabertura?: string | null;
+  historico_alteracoes: HistoricoAlteracaoLote[];
+}
+
+export interface FiltroLoteFinalizado {
+  numero_lote?: string;
+  regional?: string;
+  data?: string;
+  colaborador?: string;
+  status?: 'TODOS' | StatusLote;
+}
+
 
 

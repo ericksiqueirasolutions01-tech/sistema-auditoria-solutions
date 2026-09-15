@@ -33,6 +33,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   const [usuario] = useState(() => db.getUsuarioAtual());
+  const [colaboradorAtivo, setColaboradorAtivo] = useState(() => db.obterColaboradorAtivo());
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [mostrarModalComputador, setMostrarModalComputador] = useState(false);
@@ -50,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   useEffect(() => {
     return db.onMudanca(() => {
       setStatusSync(db.obterStatusSincronizacao());
+      setColaboradorAtivo(db.obterColaboradorAtivo());
     });
   }, []);
 
@@ -134,6 +136,21 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   </span>
                 </div>
               </button>
+            )}
+
+            {/* Colaborador Identificado Card */}
+            {colaboradorAtivo && (
+              <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl shrink-0 h-10 shadow-2xs">
+                <UserIcon className="w-4 h-4 text-blue-700 shrink-0" />
+                <div className="flex flex-col text-left max-w-[170px]">
+                  <span className="text-[9px] font-black text-blue-500 uppercase leading-none">
+                    Colaborador
+                  </span>
+                  <span className="text-xs font-black text-blue-950 uppercase tracking-tight truncate" title={colaboradorAtivo}>
+                    {colaboradorAtivo}
+                  </span>
+                </div>
+              </div>
             )}
           </div>
 
@@ -317,6 +334,15 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               )}
             </div>
           </div>
+
+          {/* Tag de Colaborador Identificado (Mobile) */}
+          {colaboradorAtivo && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-xs shadow-2xs">
+              <UserIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="text-[9px] text-blue-500 font-black uppercase">Colaborador:</span>
+              <span className="truncate uppercase font-black">{colaboradorAtivo}</span>
+            </div>
+          )}
 
           {/* Linha Inferior Mobile: Status + Botão Ação */}
           {usuario?.perfil === 'ADMINISTRADOR' ? (

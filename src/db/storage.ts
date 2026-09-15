@@ -25,6 +25,11 @@ import {
   ConfiguracaoInicialInfo,
   RelatorioLoteInfo,
   CaixaLoteInfo,
+  FotosFechamentoLote,
+  StatusLote,
+  HistoricoAlteracaoLote,
+  RegistroLoteFinalizado,
+  FiltroLoteFinalizado,
 } from '../types';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
@@ -42,6 +47,8 @@ const STORAGE_KEY_TENTATIVAS_DUPLICADAS = 'solutions_tentativas_envio_duplicado_
 const STORAGE_KEY_CONFIG_INICIAL = 'solutions_configuracao_inicial_v1';
 const STORAGE_KEY_LOGS_ACESSO = 'solutions_logs_acesso_usuarios_v1';
 const STORAGE_KEY_ULTIMO_LOTE = 'solutions_ultimo_lote';
+const STORAGE_KEY_LOTES_FINALIZADOS = 'solutions_auditoria_lotes_finalizados_v1';
+const STORAGE_KEY_COLABORADOR_ATIVO = 'solutions_auditoria_colaborador_ativo_v1';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -300,6 +307,8 @@ class AuditoriaDatabase {
   private historico: HistoricoAuditoria[] = [];
   private fotosGrupos: FotoGrupoAuditoria[] = [];
   private registros10Fotos: Registro10FotosCaixa[] = [];
+  private lotesFinalizados: RegistroLoteFinalizado[] = [];
+  private colaboradorAtivo: string | null = null;
   private usuarioAtual: Usuario | null = null;
   private serialMap: Map<string, ProdutoAuditoria> = new Map();
   private seriaisLimposDaTela: Set<string> = new Set<string>();
@@ -435,7 +444,16 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
         salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
         salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, this.registros10Fotos);
+        salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados);
       }
+
+      // Carregar lotes finalizados
+      const lotesRaw = localStorage.getItem(STORAGE_KEY_LOTES_FINALIZADOS);
+      this.lotesFinalizados = lotesRaw ? JSON.parse(lotesRaw) : [];
+
+      // Carregar colaborador ativo da sessão
+      const colabRaw = sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
+      this.colaboradorAtivo = colabRaw || null;
 
       // Limpeza de sessão legada no localStorage para garantir que entrar no sistema sempre exija login
       localStorage.removeItem('solutions_auditoria_sessao');
@@ -448,7 +466,15 @@ class AuditoriaDatabase {
           const match = this.usuarios.find(
             (u) => u.login.toUpperCase() === parsed.login?.toUpperCase()
           );
-          this.usuarioAtual = (match && match.ativo) ? match : null;
+          if (match && match.ativo) {
+            if (parsed.nome_colaborador) {
+              match.nome_colaborador = parsed.nome_colaborador;
+              this.colaboradorAtivo = parsed.nome_colaborador;
+            }
+            this.usuarioAtual = match;
+          } else {
+            this.usuarioAtual = null;
+          }
         } catch {
           this.usuarioAtual = null;
         }
@@ -460,6 +486,8 @@ class AuditoriaDatabase {
       this.produtos = [];
       this.usuarios = [...DEFAULT_USUARIOS];
       this.historico = [];
+      this.lotesFinalizados = [];
+      this.colaboradorAtivo = null;
       this.usuarioAtual = null;
     }
   }
@@ -484,6 +512,12 @@ class AuditoriaDatabase {
           }
           localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
           console.log(`🛡️ Recuperados ${idbProds.length} registros com sucesso do IndexedDB redundante.`);
+        }
+
+        const idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
+        if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
+          this.lotesFinalizados = idbLotes;
+          localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
         }
       } catch (err) {
         console.warn('Falha na checagem de recuperação do IndexedDB:', err);
@@ -518,6 +552,7 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
       localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify(this.fotosGrupos));
       localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify(this.registros10Fotos));
+      localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
       localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify(this.tentativasDuplicadas));
 
       // 2. Gravação redundante no IndexedDB (Zero Data Loss)
@@ -526,6 +561,7 @@ class AuditoriaDatabase {
       salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico);
       salvarIndexedDB(STORAGE_KEY_FOTOS, this.fotosGrupos);
       salvarIndexedDB(STORAGE_KEY_FOTOS_10_CAIXAS, this.registros10Fotos);
+      salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados);
       salvarIndexedDB(STORAGE_KEY_TENTATIVAS_DUPLICADAS, this.tentativasDuplicadas);
     } catch (e) {
       console.error('Erro ao salvar no storage:', e);
@@ -544,8 +580,48 @@ class AuditoriaDatabase {
       sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
     } else {
       sessionStorage.removeItem('solutions_auditoria_sessao');
+      this.limparColaboradorAtivo();
     }
     localStorage.removeItem('solutions_auditoria_sessao');
+  }
+
+  // =========================================================================
+  // IDENTIFICAÇÃO DO COLABORADOR (OPERADOR NA BANCADA)
+  // Rastreabilidade obrigatória para todos os operadores no sistema
+  // =========================================================================
+  definirColaboradorAtivo(nome: string): void {
+    const nomeLimpo = (nome || '').trim();
+    this.colaboradorAtivo = nomeLimpo || null;
+    if (nomeLimpo) {
+      sessionStorage.setItem(STORAGE_KEY_COLABORADOR_ATIVO, nomeLimpo);
+      localStorage.setItem(STORAGE_KEY_COLABORADOR_ATIVO, nomeLimpo);
+      if (this.usuarioAtual) {
+        this.usuarioAtual.nome_colaborador = nomeLimpo;
+        sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(this.usuarioAtual));
+      }
+    } else {
+      sessionStorage.removeItem(STORAGE_KEY_COLABORADOR_ATIVO);
+      localStorage.removeItem(STORAGE_KEY_COLABORADOR_ATIVO);
+      if (this.usuarioAtual) {
+        delete this.usuarioAtual.nome_colaborador;
+        sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(this.usuarioAtual));
+      }
+    }
+    this.notificarMudanca('colaborador');
+  }
+
+  obterColaboradorAtivo(): string | null {
+    if (this.colaboradorAtivo) return this.colaboradorAtivo;
+    const s = sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
+    if (s) {
+      this.colaboradorAtivo = s;
+      return s;
+    }
+    return this.usuarioAtual?.nome_colaborador || null;
+  }
+
+  limparColaboradorAtivo(): void {
+    this.definirColaboradorAtivo('');
   }
 
   // =========================================================================
@@ -779,6 +855,19 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'Informe o número do lote antes de continuar.' };
     }
 
+    const regionalFinal =
+      this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional
+        ? this.usuarioAtual.regional
+        : (item.regional?.trim() || (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
+
+    // 0.1. Bloqueio de Lote Finalizado: Colaborador não pode inserir produtos em lote já finalizado
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.isLoteFinalizado(loteNorm, regionalFinal)) {
+      return {
+        sucesso: false,
+        erro: `O Lote ${loteNorm} foi FINALIZADO e bloqueado. Não é permitida a inclusão de novos produtos neste lote. Inicie um novo lote.`,
+      };
+    }
+
     // 1. Validate mandatory fields
     if (!item.modelo_produto.trim()) {
       return { sucesso: false, erro: 'O modelo do produto é obrigatório.' };
@@ -823,11 +912,7 @@ class AuditoriaDatabase {
     }
 
     const agora = new Date();
-    const usuarioNome = this.usuarioAtual?.nome || 'Operador';
-    const regionalFinal =
-      this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional
-        ? this.usuarioAtual.regional
-        : (item.regional?.trim() || (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
+    const usuarioNome = this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Operador';
 
     // 4. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
     const caixaAlvo = item.numero_caixa.trim().toUpperCase();
@@ -910,6 +995,15 @@ class AuditoriaDatabase {
 
     const anterior = this.produtos[idx];
 
+    // Regra de Proteção de Lote Finalizado
+    const loteOrig = anterior.numero_lote || '01';
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.isLoteFinalizado(loteOrig, anterior.regional)) {
+      return {
+        sucesso: false,
+        erro: `O Lote ${loteOrig} foi FINALIZADO e bloqueado. Apenas o Administrador Geral pode editar produtos deste lote.`,
+      };
+    }
+
     // Regra de Proteção Online: Registros já enviados para o online só podem ser editados pelo Administrador Geral
     if (anterior.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
       return {
@@ -982,13 +1076,24 @@ class AuditoriaDatabase {
     this.serialMap.set(serialNovo, atualizado);
     this.salvarTudo();
 
-    const usuarioNome = this.usuarioAtual?.nome || 'Administrador';
+    const usuarioNome = this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Administrador';
     this.registrarHistorico(
       usuarioNome,
       'ALTERACAO',
       `Usuário ${usuarioNome} alterou produto IMEI ${serialNovo} (${anterior.numero_caixa}) [${atualizado.regional}]`,
       atualizado.regional
     );
+
+    // Se o lote for finalizado e a alteração foi feita por admin, registra auditoria no histórico do lote
+    if (this.isLoteFinalizado(loteOrig, anterior.regional)) {
+      this.registrarAlteracaoLoteAdmin(
+        loteOrig,
+        anterior.regional,
+        usuarioNome,
+        'ALTERACAO_DADO',
+        `Admin ${usuarioNome} alterou produto IMEI ${serialNovo} (Caixa: ${atualizado.numero_caixa}) no Lote ${loteOrig}.`
+      );
+    }
 
     return { sucesso: true, produto: atualizado };
   }
@@ -1000,6 +1105,15 @@ class AuditoriaDatabase {
     }
 
     const removido = this.produtos[idx];
+
+    // Regra de Proteção de Lote Finalizado
+    const loteRemovido = removido.numero_lote || '01';
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.isLoteFinalizado(loteRemovido, removido.regional)) {
+      return {
+        sucesso: false,
+        erro: `O Lote ${loteRemovido} foi FINALIZADO e bloqueado. Apenas o Administrador Geral pode excluir produtos deste lote.`,
+      };
+    }
 
     // Regra de Proteção Online: Registros já enviados para o online só podem ser excluídos pelo Administrador Geral
     if (removido.status_sincronizacao === 'ENVIADO' && this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
@@ -1013,13 +1127,24 @@ class AuditoriaDatabase {
     this.serialMap.delete(removido.serial);
     this.salvarTudo();
 
-    const usuarioNome = this.usuarioAtual?.nome || 'Administrador';
+    const usuarioNome = this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Administrador';
     this.registrarHistorico(
       usuarioNome,
       'EXCLUSAO',
       `Usuário ${usuarioNome} excluiu IMEI ${removido.serial} da ${removido.numero_caixa} [${removido.regional}]`,
       removido.regional
     );
+
+    // Se o lote for finalizado e o item foi excluído por admin, registra no histórico do lote
+    if (this.isLoteFinalizado(loteRemovido, removido.regional)) {
+      this.registrarAlteracaoLoteAdmin(
+        loteRemovido,
+        removido.regional,
+        usuarioNome,
+        'EXCLUSAO_ITEM',
+        `Admin ${usuarioNome} excluiu item IMEI ${removido.serial} (${removido.modelo_produto}, Caixa: ${removido.numero_caixa}) do Lote ${loteRemovido}.`
+      );
+    }
 
     return { sucesso: true };
   }
@@ -1128,7 +1253,256 @@ class AuditoriaDatabase {
     const ult = this.obterUltimoLote();
     if (ult) set.add(ult.trim().toUpperCase());
 
+    // Se for operador, REMOVER lotes finalizados (deixam de aparecer para colaboradores conforme Regra 6)
+    if (this.usuarioAtual?.perfil === 'OPERADOR') {
+      for (const fin of this.lotesFinalizados) {
+        if (fin.status === 'FINALIZADO') {
+          const matchReg = !regAlvo || regAlvo === 'TODAS' || fin.regional.trim().toUpperCase() === regAlvo.trim().toUpperCase();
+          if (matchReg) {
+            set.delete(fin.numero_lote.trim().toUpperCase());
+          }
+        }
+      }
+    }
+
     return Array.from(set).filter(Boolean).sort();
+  }
+
+  // =========================================================================
+  // GESTÃO E FECHAMENTO OFICIAL DE LOTES
+  // =========================================================================
+  isLoteFinalizado(numeroLote: string, regional?: string): boolean {
+    const loteNorm = (numeroLote || '').trim().toUpperCase();
+    if (!loteNorm) return false;
+    const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    return this.lotesFinalizados.some((l) => {
+      const matchLote = l.numero_lote.trim().toUpperCase() === loteNorm;
+      const matchReg = !regAlvo || regAlvo === 'TODAS' || l.regional.trim().toUpperCase() === regAlvo.trim().toUpperCase();
+      return matchLote && matchReg && l.status === 'FINALIZADO';
+    });
+  }
+
+  obterLoteFinalizado(numeroLote: string, regional?: string): RegistroLoteFinalizado | null {
+    const loteNorm = (numeroLote || '').trim().toUpperCase();
+    if (!loteNorm) return null;
+    const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    const match = this.lotesFinalizados.find((l) => {
+      const matchLote = l.numero_lote.trim().toUpperCase() === loteNorm;
+      const matchReg = !regAlvo || regAlvo === 'TODAS' || l.regional.trim().toUpperCase() === regAlvo.trim().toUpperCase();
+      return matchLote && matchReg;
+    });
+    return match || null;
+  }
+
+  listarLotesFinalizados(filtro?: FiltroLoteFinalizado): RegistroLoteFinalizado[] {
+    let res = [...this.lotesFinalizados];
+
+    if (filtro) {
+      if (filtro.numero_lote && filtro.numero_lote.trim()) {
+        const termo = filtro.numero_lote.trim().toUpperCase();
+        res = res.filter((l) => l.numero_lote.trim().toUpperCase().includes(termo));
+      }
+      if (filtro.regional && filtro.regional !== 'TODAS') {
+        const reg = filtro.regional.trim().toUpperCase();
+        res = res.filter((l) => l.regional.trim().toUpperCase() === reg);
+      }
+      if (filtro.colaborador && filtro.colaborador.trim()) {
+        const cTerm = filtro.colaborador.trim().toLowerCase();
+        res = res.filter((l) => l.colaborador_fechamento.toLowerCase().includes(cTerm));
+      }
+      if (filtro.status && filtro.status !== 'TODOS') {
+        res = res.filter((l) => l.status === filtro.status);
+      }
+      if (filtro.data && filtro.data.trim()) {
+        const dTerm = filtro.data.trim();
+        res = res.filter((l) => l.data_fechamento.includes(dTerm));
+      }
+    }
+
+    return res.sort((a, b) => new Date(b.data_fechamento).getTime() - new Date(a.data_fechamento).getTime());
+  }
+
+  finalizarLote(dados: {
+    numeroLote: string;
+    regional?: string;
+    colaborador?: string;
+    fotos: FotosFechamentoLote;
+    observacao?: string;
+  }): { sucesso: boolean; erro?: string; lote?: RegistroLoteFinalizado } {
+    const loteNorm = (dados.numeroLote || '').trim().toUpperCase();
+    if (!loteNorm) {
+      return { sucesso: false, erro: 'Número do lote não informado.' };
+    }
+
+    const regAlvo = dados.regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const compAtual = this.obterComputadorAtual(regAlvo);
+    const colaboradorFinal = dados.colaborador?.trim() || this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Operador';
+
+    // Regra 4: Validar se as 3 fotos obrigatórias foram fornecidas
+    if (!dados.fotos?.caixaFechada || !dados.fotos?.espelhoCaixa || !dados.fotos?.lacreSeguranca) {
+      return {
+        sucesso: false,
+        erro: 'Para finalizar o lote é obrigatório anexar as 3 fotos:\n✓ Caixa fechada\n✓ Espelho da caixa\n✓ Lacre de segurança',
+      };
+    }
+
+    // Obter caixas e produtos do lote
+    const produtosDoLote = this.produtos.filter((p) => {
+      const matchLote = (p.numero_lote || '01').trim().toUpperCase() === loteNorm;
+      const matchReg = !regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ').trim().toUpperCase() === regAlvo.trim().toUpperCase();
+      return matchLote && matchReg;
+    });
+
+    if (produtosDoLote.length === 0) {
+      return {
+        sucesso: false,
+        erro: `Não há produtos cadastrados no Lote ${loteNorm}. Lance os produtos antes de finalizar o lote.`,
+      };
+    }
+
+    const caixasSet = new Set(produtosDoLote.map((p) => p.numero_caixa || 'SEM CAIXA'));
+    const totalCaixas = caixasSet.size;
+    const totalProdutos = produtosDoLote.length;
+
+    const agora = new Date().toISOString();
+    const idLote = `lote-fin-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
+    // Criar histórico inicial do fechamento
+    const historicoInicial: HistoricoAlteracaoLote = {
+      id: `hist-${Date.now()}-1`,
+      dataHora: agora,
+      usuario: colaboradorFinal,
+      perfil: this.usuarioAtual?.perfil || 'OPERADOR',
+      acao: 'FECHAMENTO',
+      detalhes: `Lote ${loteNorm} finalizado oficialmente pelo colaborador ${colaboradorFinal} com 3 fotos anexadas (${totalCaixas} caixas, ${totalProdutos} aparelhos).`,
+    };
+
+    const novoRegistro: RegistroLoteFinalizado = {
+      id: idLote,
+      numero_lote: loteNorm,
+      regional: regAlvo,
+      status: 'FINALIZADO',
+      colaborador_fechamento: colaboradorFinal,
+      data_fechamento: agora,
+      computador_id: compAtual.id,
+      total_caixas: totalCaixas,
+      total_produtos: totalProdutos,
+      fotos: dados.fotos,
+      observacao: dados.observacao?.trim() || '',
+      reaberto_por: null,
+      data_reabertura: null,
+      motivo_reabertura: null,
+      historico_alteracoes: [historicoInicial],
+    };
+
+    // Se já existia registro anterior (ex: foi reaberto anteriormente e finalizado novamente), atualiza mantendo histórico
+    const idxExistente = this.lotesFinalizados.findIndex(
+      (l) => l.numero_lote.trim().toUpperCase() === loteNorm && l.regional.trim().toUpperCase() === regAlvo.trim().toUpperCase()
+    );
+
+    if (idxExistente >= 0) {
+      const anterior = this.lotesFinalizados[idxExistente];
+      novoRegistro.id = anterior.id;
+      novoRegistro.historico_alteracoes = [...anterior.historico_alteracoes, historicoInicial];
+      this.lotesFinalizados[idxExistente] = novoRegistro;
+    } else {
+      this.lotesFinalizados.unshift(novoRegistro);
+    }
+
+    this.salvarTudo();
+
+    this.registrarHistorico(
+      colaboradorFinal,
+      'FECHAMENTO_LOTE',
+      `Colaborador ${colaboradorFinal} finalizou oficialmente o Lote ${loteNorm} com ${totalCaixas} caixas e ${totalProdutos} produtos [${regAlvo}]`,
+      regAlvo
+    );
+
+    this.notificarMudanca('lotes');
+    return { sucesso: true, lote: novoRegistro };
+  }
+
+  reabrirLoteAdmin(
+    numeroLote: string,
+    regional: string,
+    usuarioAdmin: string,
+    motivo: string
+  ): { sucesso: boolean; erro?: string } {
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      return { sucesso: false, erro: 'Apenas Administradores têm permissão para reabrir lotes finalizados.' };
+    }
+
+    const loteNorm = numeroLote.trim().toUpperCase();
+    const regNorm = regional.trim().toUpperCase();
+
+    const loteIdx = this.lotesFinalizados.findIndex(
+      (l) => l.numero_lote.trim().toUpperCase() === loteNorm && l.regional.trim().toUpperCase() === regNorm
+    );
+
+    if (loteIdx === -1) {
+      return { sucesso: false, erro: `Lote ${numeroLote} não encontrado para reabertura.` };
+    }
+
+    const agora = new Date().toISOString();
+    const lote = this.lotesFinalizados[loteIdx];
+    lote.status = 'EM_ABERTO';
+    lote.reaberto_por = usuarioAdmin;
+    lote.data_reabertura = agora;
+    lote.motivo_reabertura = motivo.trim();
+
+    const novoHist: HistoricoAlteracaoLote = {
+      id: `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      dataHora: agora,
+      usuario: usuarioAdmin,
+      perfil: 'ADMINISTRADOR',
+      acao: 'REABERTURA',
+      detalhes: `Lote reaberto pelo Administrador ${usuarioAdmin}. Motivo: ${motivo.trim()}`,
+    };
+
+    lote.historico_alteracoes.push(novoHist);
+    this.salvarTudo();
+
+    this.registrarHistorico(
+      usuarioAdmin,
+      'REABERTURA_LOTE',
+      `Administrador ${usuarioAdmin} reabriu o Lote ${loteNorm} [${regNorm}]. Motivo: ${motivo.trim()}`,
+      regNorm
+    );
+
+    this.notificarMudanca('lotes');
+    return { sucesso: true };
+  }
+
+  registrarAlteracaoLoteAdmin(
+    numeroLote: string,
+    regional: string,
+    usuarioAdmin: string,
+    acao: 'ALTERACAO_DADO' | 'EXCLUSAO_ITEM',
+    detalhes: string
+  ): void {
+    const loteNorm = numeroLote.trim().toUpperCase();
+    const regNorm = regional.trim().toUpperCase();
+
+    const lote = this.lotesFinalizados.find(
+      (l) => l.numero_lote.trim().toUpperCase() === loteNorm && l.regional.trim().toUpperCase() === regNorm
+    );
+
+    if (lote) {
+      const agora = new Date().toISOString();
+      const novoHist: HistoricoAlteracaoLote = {
+        id: `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        dataHora: agora,
+        usuario: usuarioAdmin,
+        perfil: 'ADMINISTRADOR',
+        acao,
+        detalhes,
+      };
+      lote.historico_alteracoes.push(novoHist);
+      this.salvarTudo();
+      this.notificarMudanca('lotes');
+    }
   }
 
   obterRelatorioLote(lote: string, regional?: string): RelatorioLoteInfo {
@@ -2037,6 +2411,7 @@ class AuditoriaDatabase {
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
       let historicoRemoto: RegistroSincronizacaoEnvio[] | null = null;
       let tentativasRemotas: LogTentativaDuplicado[] | null = null;
+      let lotesRemotos: RegistroLoteFinalizado[] | null = null;
       let resetTimestampRemoto: string | null = null;
 
       try {
@@ -2057,6 +2432,9 @@ class AuditoriaDatabase {
             }
             if (data && Array.isArray(data.tentativas_duplicadas)) {
               tentativasRemotas = data.tentativas_duplicadas;
+            }
+            if (data && Array.isArray(data.lotes_finalizados)) {
+              lotesRemotos = data.lotes_finalizados;
             }
             if (data && data.reset_timestamp) {
               resetTimestampRemoto = data.reset_timestamp;
@@ -2087,6 +2465,9 @@ class AuditoriaDatabase {
             }
             if (cloudData && Array.isArray(cloudData.tentativas_duplicadas)) {
               tentativasRemotas = cloudData.tentativas_duplicadas;
+            }
+            if (cloudData && Array.isArray(cloudData.lotes_finalizados)) {
+              lotesRemotos = cloudData.lotes_finalizados;
             }
             if (cloudData && cloudData.reset_timestamp) {
               resetTimestampRemoto = cloudData.reset_timestamp;
@@ -2139,12 +2520,17 @@ class AuditoriaDatabase {
         const alterouTent = this.mesclarTentativasDuplicadasCentral(tentativasRemotas);
         if (alterouTent) alterou = true;
       }
+      if (lotesRemotos && lotesRemotos.length > 0) {
+        const alterouLotes = this.mesclarLotesCentral(lotesRemotos);
+        if (alterouLotes) alterou = true;
+      }
 
       if (alterou) {
         this.salvarTudo();
         this.notificarMudanca('produtos');
         this.notificarMudanca('fotos');
         this.notificarMudanca('caixas');
+        this.notificarMudanca('lotes');
         this.notificarMudanca('sync');
         return true;
       }
@@ -2209,6 +2595,33 @@ class AuditoriaDatabase {
       } else if (this.fotosGrupos[idx].status_sincronizacao !== 'ENVIADO') {
         this.fotosGrupos[idx].status_sincronizacao = 'ENVIADO';
         alterou = true;
+      }
+    }
+    return alterou;
+  }
+
+  mesclarLotesCentral(lotesCentral: RegistroLoteFinalizado[]): boolean {
+    let alterou = false;
+    for (const cl of lotesCentral) {
+      const idx = this.lotesFinalizados.findIndex(
+        (l) =>
+          l.numero_lote.trim().toUpperCase() === cl.numero_lote.trim().toUpperCase() &&
+          l.regional.trim().toUpperCase() === cl.regional.trim().toUpperCase()
+      );
+      if (idx === -1) {
+        this.lotesFinalizados.push(cl);
+        alterou = true;
+      } else {
+        const local = this.lotesFinalizados[idx];
+        const dataRemota = new Date(cl.data_reabertura || cl.data_fechamento).getTime();
+        const dataLocal = new Date(local.data_reabertura || local.data_fechamento).getTime();
+        if (
+          dataRemota > dataLocal ||
+          (cl.historico_alteracoes?.length || 0) > (local.historico_alteracoes?.length || 0)
+        ) {
+          this.lotesFinalizados[idx] = cl;
+          alterou = true;
+        }
       }
     }
     return alterou;
@@ -2279,8 +2692,9 @@ class AuditoriaDatabase {
           body: JSON.stringify({
             produtos: pendentes,
             fotos: pendentesFotosSync,
+            lotes_finalizados: this.lotesFinalizados,
             computador: compAtual,
-            usuario: this.usuarioAtual?.nome || 'Operador',
+            usuario: this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Operador',
             regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
           }),
         });
@@ -2309,6 +2723,7 @@ class AuditoriaDatabase {
           produtos: [],
           fotos: [],
           historico_envios: [],
+          lotes_finalizados: [],
         };
 
         let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
@@ -2397,6 +2812,22 @@ class AuditoriaDatabase {
             }
           }
           cloudData.fotos = Array.from(mapFotos.values());
+        }
+
+        if (Array.isArray(this.lotesFinalizados) && this.lotesFinalizados.length > 0) {
+          if (!Array.isArray(cloudData.lotes_finalizados)) {
+            cloudData.lotes_finalizados = [];
+          }
+          const mapLotes = new Map<string, any>();
+          for (const l of cloudData.lotes_finalizados) {
+            if (l && l.numero_lote) {
+              mapLotes.set(`${l.regional || ''}:::${l.numero_lote}`, l);
+            }
+          }
+          for (const l of this.lotesFinalizados) {
+            mapLotes.set(`${l.regional || ''}:::${l.numero_lote}`, l);
+          }
+          cloudData.lotes_finalizados = Array.from(mapLotes.values());
         }
 
         if (!Array.isArray(cloudData.historico_envios)) {

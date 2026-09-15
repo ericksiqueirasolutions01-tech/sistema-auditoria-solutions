@@ -23,6 +23,8 @@ import {
   StatusConexao,
   LogAcessoUsuario,
   ConfiguracaoInicialInfo,
+  RelatorioLoteInfo,
+  CaixaLoteInfo,
 } from '../types';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
@@ -39,6 +41,7 @@ const STORAGE_KEY_SERIAIS_LIMPOS_TELA = 'solutions_seriais_limpos_tela_v1';
 const STORAGE_KEY_TENTATIVAS_DUPLICADAS = 'solutions_tentativas_envio_duplicado_v1';
 const STORAGE_KEY_CONFIG_INICIAL = 'solutions_configuracao_inicial_v1';
 const STORAGE_KEY_LOGS_ACESSO = 'solutions_logs_acesso_usuarios_v1';
+const STORAGE_KEY_ULTIMO_LOTE = 'solutions_ultimo_lote';
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -384,6 +387,10 @@ class AuditoriaDatabase {
             p.id_servidor = null;
             p.data_sincronizacao = null;
           }
+          migrou = true;
+        }
+        if (!p.numero_lote) {
+          p.numero_lote = '01';
           migrou = true;
         }
       }
@@ -753,6 +760,7 @@ class AuditoriaDatabase {
     ean: string;
     serial: string;
     imei?: string;
+    numero_lote?: string;
     data_auditoria: string;
     numero_caixa: string;
     numero_nf?: string;
@@ -764,6 +772,12 @@ class AuditoriaDatabase {
     observacao?: string;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
     const serialNorm = item.serial.trim().toUpperCase();
+    const loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || '').trim().toUpperCase();
+
+    // 0. Validação obrigatória do Número do Lote
+    if (!loteNorm) {
+      return { sucesso: false, erro: 'Informe o número do lote antes de continuar.' };
+    }
 
     // 1. Validate mandatory fields
     if (!item.modelo_produto.trim()) {
@@ -845,6 +859,7 @@ class AuditoriaDatabase {
       imei: serialNorm,
       data_auditoria: item.data_auditoria.trim(),
       numero_caixa: caixaAlvo,
+      numero_lote: loteNorm,
       numero_nf: (item.numero_nf || '').trim(),
       nf_conferida: item.nf_conferida || 'SIM',
       produto_lacrado: item.produto_lacrado,
@@ -864,6 +879,7 @@ class AuditoriaDatabase {
 
     this.produtos.unshift(novoProduto);
     this.serialMap.set(serialNorm, novoProduto);
+    this.salvarUltimoLote(loteNorm);
 
     const chaveSerial = `${regionalFinal.trim().toUpperCase()}:::${serialNorm}`;
     if (this.seriaisLimposDaTela.has(chaveSerial)) {
@@ -953,6 +969,7 @@ class AuditoriaDatabase {
       serial: serialNovo,
       imei: serialNovo,
       numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
+      numero_lote: dados.numero_lote !== undefined ? (dados.numero_lote || '').trim().toUpperCase() : anterior.numero_lote,
       numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : anterior.numero_nf,
       nf_conferida: dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida || 'SIM'),
       kit_completo: kitCompleto,
@@ -1062,6 +1079,9 @@ class AuditoriaDatabase {
         if (filtro.caixa && filtro.caixa !== 'TODOS' && p.numero_caixa !== filtro.caixa) {
           return false;
         }
+        if (filtro.numero_lote && filtro.numero_lote !== 'TODOS' && (p.numero_lote || '01').trim().toUpperCase() !== filtro.numero_lote.trim().toUpperCase()) {
+          return false;
+        }
         if (filtro.data && p.data_auditoria !== filtro.data) {
           return false;
         }
@@ -1083,6 +1103,108 @@ class AuditoriaDatabase {
         return true;
       })
       .map((p) => ({ ...p }));
+  }
+
+  obterUltimoLote(): string {
+    return localStorage.getItem(STORAGE_KEY_ULTIMO_LOTE) || '01';
+  }
+
+  salvarUltimoLote(lote: string): void {
+    if (lote && lote.trim()) {
+      localStorage.setItem(STORAGE_KEY_ULTIMO_LOTE, lote.trim());
+    }
+  }
+
+  listarLotes(regional?: string): string[] {
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    const set = new Set<string>();
+    for (const p of this.produtos) {
+      if (!regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo) {
+        if (p.numero_lote) set.add(p.numero_lote.trim().toUpperCase());
+      }
+    }
+    const ult = this.obterUltimoLote();
+    if (ult) set.add(ult.trim().toUpperCase());
+
+    return Array.from(set).filter(Boolean).sort();
+  }
+
+  obterRelatorioLote(lote: string, regional?: string): RelatorioLoteInfo {
+    const loteNorm = lote.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    const produtos = this.produtos.filter((p) => {
+      const matchLote = (p.numero_lote || '01').trim().toUpperCase() === loteNorm;
+      const matchReg = !regAlvo || regAlvo === 'TODAS' || (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      return matchLote && matchReg;
+    });
+
+    let cliente = regAlvo && regAlvo !== 'TODAS' ? regAlvo : '';
+    if (!cliente && produtos.length > 0) {
+      cliente = produtos[0].regional || 'VIA VAREJO RJ';
+    }
+    if (!cliente) cliente = 'VIA VAREJO RJ';
+
+    const caixasMap = new Map<string, CaixaLoteInfo>();
+    for (const p of produtos) {
+      const cx = p.numero_caixa || 'SEM CAIXA';
+      if (!caixasMap.has(cx)) {
+        caixasMap.set(cx, {
+          caixa: cx,
+          totalProdutos: 0,
+          lacrados: 0,
+          naoLacrados: 0,
+          statusEnvio: 'Aguardando envio Online',
+        });
+      }
+      const cInfo = caixasMap.get(cx)!;
+      cInfo.totalProdutos++;
+      if (p.produto_lacrado === 'SIM') {
+        cInfo.lacrados++;
+      } else {
+        cInfo.naoLacrados++;
+      }
+      if (p.status_sincronizacao === 'ENVIADO') {
+        cInfo.statusEnvio = 'Enviado Online';
+      }
+    }
+
+    const caixas = Array.from(caixasMap.values()).sort((a, b) => a.caixa.localeCompare(b.caixa));
+    const colaboradorResponsavel = produtos.length > 0 ? produtos[0].usuario_cadastro : (this.usuarioAtual?.nome || 'Operador');
+
+    let dataCriacao = '-';
+    let dataEnvio = '-';
+    if (produtos.length > 0) {
+      const sortedByData = [...produtos].sort((a, b) => new Date(a.data_cadastro).getTime() - new Date(b.data_cadastro).getTime());
+      dataCriacao = new Date(sortedByData[0].data_cadastro).toLocaleString('pt-BR');
+      const enviados = produtos.filter((p) => p.data_sincronizacao);
+      if (enviados.length > 0) {
+        const sortedEnvio = [...enviados].sort((a, b) => new Date(b.data_sincronizacao!).getTime() - new Date(a.data_sincronizacao!).getTime());
+        dataEnvio = new Date(sortedEnvio[0].data_sincronizacao!).toLocaleString('pt-BR');
+      }
+    }
+
+    let status: 'Aguardando envio Online' | 'Enviado Online' | 'Sem produtos' = 'Sem produtos';
+    if (produtos.length > 0) {
+      const todosEnviados = produtos.every((p) => p.status_sincronizacao === 'ENVIADO');
+      status = todosEnviados ? 'Enviado Online' : 'Aguardando envio Online';
+    }
+
+    return {
+      lote: loteNorm,
+      cliente,
+      totalCaixas: caixas.length,
+      totalProdutos: produtos.length,
+      dataCriacao,
+      dataEnvio,
+      colaboradorResponsavel,
+      status,
+      caixas,
+      produtos,
+    };
   }
 
   listarCaixas(regional?: string): string[] {

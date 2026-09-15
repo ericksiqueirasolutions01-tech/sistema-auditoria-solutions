@@ -81,6 +81,7 @@ export interface ProdutoAuditoria {
   imei?: string; // Código IMEI oficial (15 dígitos numéricos)
   data_auditoria: string;
   numero_caixa: string;
+  numero_lote?: string; // Número do Lote (Ex: '01', 'LOTE 01')
   numero_nf?: string; // Número da Nota Fiscal (Ex: 'NF 001', '12345')
   nf_conferida?: SimNao; // 'SIM' ou 'NÃO' (Conferência de NF)
   produto_lacrado: SimNao;
@@ -121,6 +122,7 @@ export interface HistoricoAuditoria {
   acao: string;
   detalhes: string;
   data_hora: string;
+  computador_id?: string;
 }
 
 export interface ContadoresCaixa {
@@ -206,6 +208,7 @@ export interface FiltroConsulta {
   ean?: string;
   serial?: string;
   caixa?: string;
+  numero_lote?: string;
   data?: string;
   produtoLacrado?: 'TODOS' | SimNao;
   marcasUso?: 'TODOS' | SimNao;
@@ -267,6 +270,27 @@ export interface Registro10FotosCaixa {
   motivoSemFotos?: string | null;
   status_sincronizacao: 'PENDENTE' | 'ENVIADO';
   data_sincronizacao?: string | null;
+}
+
+export interface CaixaLoteInfo {
+  caixa: string;
+  totalProdutos: number;
+  lacrados: number;
+  naoLacrados: number;
+  statusEnvio: 'Aguardando envio Online' | 'Enviado Online';
+}
+
+export interface RelatorioLoteInfo {
+  lote: string;
+  cliente: string; // Regional (ex: 'VIA VAREJO SP')
+  totalCaixas: number;
+  totalProdutos: number;
+  dataCriacao: string;
+  dataEnvio: string;
+  colaboradorResponsavel: string;
+  status: 'Aguardando envio Online' | 'Enviado Online' | 'Sem produtos';
+  caixas: CaixaLoteInfo[];
+  produtos: ProdutoAuditoria[];
 }
 
 

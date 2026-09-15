@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { db, REGIONAIS_PADRAO } from '../db/storage';
-import { ProdutoAuditoria, EstatisticasRegional, FotoGrupoAuditoria } from '../types';
+import { ProdutoAuditoria, EstatisticasRegional, FotoGrupoAuditoria, RelatorioLoteInfo } from '../types';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
@@ -43,9 +43,14 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 export const PainelAdmin: React.FC = () => {
-  // Aba ativa: 'visao_geral' ou 'galeria_fotos' (Item 10 do Prompt)
-  const [abaPrincipal, setAbaPrincipal] = useState<'visao_geral' | 'galeria_fotos'>('visao_geral');
+  // Aba ativa: 'visao_geral', 'galeria_fotos' ou 'relatorio_lote' (Requisito 5)
+  const [abaPrincipal, setAbaPrincipal] = useState<'visao_geral' | 'galeria_fotos' | 'relatorio_lote'>('visao_geral');
   const [fotoAmpliada, setFotoAmpliada] = useState<FotoGrupoAuditoria | null>(null);
+
+  // Estados da Aba Relatório por Lote (Requisito 5)
+  const [loteSelecionado, setLoteSelecionado] = useState<string>(() => db.obterUltimoLote() || '01');
+  const [regionalFiltroLote, setRegionalFiltroLote] = useState<string>('TODAS');
+  const [subAbaLote, setSubAbaLote] = useState<'caixas' | 'produtos' | 'historico'>('caixas');
 
   // Limpeza da Base de Testes (Item 2 do Prompt)
   const [mostrarModalLimpeza, setMostrarModalLimpeza] = useState(false);
@@ -407,6 +412,223 @@ export const PainelAdmin: React.FC = () => {
     doc.save(fileName);
   };
 
+  // =========================================================================
+  // RELATÓRIO CONSOLIDADO POR LOTE (REQUISITO 5)
+  // =========================================================================
+  const lotesDisponiveis = useMemo(() => {
+    return db.listarLotes(regionalFiltroLote === 'TODAS' ? undefined : regionalFiltroLote);
+  }, [regionalFiltroLote, forcarAtualizacao]);
+
+  const relatorioLote = useMemo(() => {
+    const alvo = loteSelecionado?.trim() || (lotesDisponiveis[0] || '01');
+    return db.obterRelatorioLote(
+      alvo,
+      regionalFiltroLote === 'TODAS' ? undefined : regionalFiltroLote
+    );
+  }, [loteSelecionado, regionalFiltroLote, lotesDisponiveis, forcarAtualizacao]);
+
+  const historicoLote = useMemo(() => {
+    const todosLogs = db.listarHistorico(500);
+    const imeisSet = new Set(relatorioLote.produtos.map((p) => p.serial.toUpperCase()));
+    const loteUpper = relatorioLote.lote.toUpperCase();
+
+    return todosLogs.filter((log) => {
+      const dUpper = (log.detalhes || '').toUpperCase();
+      if (dUpper.includes(`LOTE ${loteUpper}`) || dUpper.includes(`LOTE: ${loteUpper}`) || dUpper.includes(loteUpper)) return true;
+      for (const imei of imeisSet) {
+        if (dUpper.includes(imei)) return true;
+      }
+      return false;
+    });
+  }, [relatorioLote, forcarAtualizacao]);
+
+  const exportarExcelLote = (rel: RelatorioLoteInfo) => {
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Resumo Consolidado
+    const resumoData = [
+      { Campo: 'Número do Lote', Valor: `LOTE ${rel.lote}` },
+      { Campo: 'Cliente / Regional', Valor: rel.cliente },
+      { Campo: 'Status do Lote', Valor: rel.status },
+      { Campo: 'Quantidade de Caixas', Valor: rel.totalCaixas },
+      { Campo: 'Total de Produtos', Valor: rel.totalProdutos },
+      { Campo: 'Data de Criação', Valor: rel.dataCriacao },
+      { Campo: 'Data de Envio', Valor: rel.dataEnvio },
+      { Campo: 'Colaborador Responsável', Valor: rel.colaboradorResponsavel },
+    ];
+    const wsResumo = XLSX.utils.json_to_sheet(resumoData);
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo_Lote');
+
+    // Sheet 2: Caixas que Compõem o Lote
+    const caixasData = rel.caixas.map((c, idx) => ({
+      'Nº': idx + 1,
+      'Volume / Caixa': c.caixa,
+      'Total de Produtos': c.totalProdutos,
+      'Produtos Lacrados': c.lacrados,
+      'Produtos Abertos': c.naoLacrados,
+      'Status de Envio': c.statusEnvio,
+    }));
+    const wsCaixas = XLSX.utils.json_to_sheet(caixasData);
+    XLSX.utils.book_append_sheet(wb, wsCaixas, 'Caixas_Lote');
+
+    // Sheet 3: Produtos Pertencentes ao Lote
+    const produtosData = rel.produtos.map((p, idx) => ({
+      'Nº': idx + 1,
+      Regional: p.regional,
+      Caixa: p.numero_caixa,
+      Lote: p.numero_lote || rel.lote,
+      'Modelo Produto': p.modelo_produto,
+      EAN: p.ean,
+      IMEI: p.imei || p.serial,
+      'Nota Fiscal': p.numero_nf || 'NF 001',
+      'NF foi conferida?': p.nf_conferida || 'SIM',
+      'Produto Lacrado': p.produto_lacrado,
+      'Kit Completo': p.kit_completo || '-',
+      'Marcas de Uso': p.aparelho_marcas_uso || '-',
+      'Data Auditoria': p.data_auditoria,
+      Auditor: p.usuario_cadastro,
+      'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'Enviado para Online' : 'Aguardando envio para Online',
+      'Data Envio': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleString('pt-BR') : '-',
+    }));
+    const wsProdutos = XLSX.utils.json_to_sheet(produtosData);
+    XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos_Lote');
+
+    XLSX.writeFile(wb, `Relatorio_Consolidado_Lote_${rel.lote}_${rel.cliente.replace(/\s+/g, '_')}.xlsx`);
+  };
+
+  const exportarPDFLote = (rel: RelatorioLoteInfo) => {
+    const doc = new jsPDF('landscape');
+
+    try {
+      doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 8, 36, 11.8);
+      doc.addImage(LOGO_SAMSUNG_BASE64, 'PNG', 246, 8, 36, 15.4);
+    } catch {}
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('GRUPO SOLUTIONS - PAINEL DE GESTÃO E AUDITORIA', 14, 25);
+
+    doc.setFontSize(11);
+    doc.setTextColor(217, 119, 6);
+    doc.text(`RELATÓRIO CONSOLIDADO POR LOTE • LOTE ${rel.lote}`, 14, 31);
+
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Emissão: ${new Date().toLocaleString('pt-BR')} | Cliente: ${rel.cliente} | Responsável: ${rel.colaboradorResponsavel} | Status: ${rel.status}`,
+      14,
+      37
+    );
+
+    // Summary Box
+    doc.setDrawColor(217, 119, 6);
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(14, 41, 268, 18, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(120, 53, 15);
+    doc.text(`NÚMERO DO LOTE: ${rel.lote}`, 18, 48);
+    doc.text(`CLIENTE (REGIONAL): ${rel.cliente}`, 18, 54);
+
+    doc.text(`QUANTIDADE DE CAIXAS: ${rel.totalCaixas}`, 105, 48);
+    doc.text(`TOTAL DE PRODUTOS: ${rel.totalProdutos} unidades`, 105, 54);
+
+    doc.text(`DATA CRIAÇÃO: ${rel.dataCriacao}`, 190, 48);
+    doc.text(`STATUS: ${rel.status.toUpperCase()}`, 190, 54);
+
+    // Table of Boxes
+    const tableCaixas = rel.caixas.map((c, idx) => [
+      (idx + 1).toString(),
+      c.caixa,
+      `${c.totalProdutos} produtos`,
+      `${c.lacrados} lacrados`,
+      `${c.naoLacrados} abertos`,
+      c.statusEnvio,
+    ]);
+
+    autoTable(doc, {
+      startY: 64,
+      head: [['#', 'Volume / Caixa', 'Qtd Produtos', 'Lacrados', 'Não Lacrados', 'Status Envio']],
+      body: tableCaixas.length > 0 ? tableCaixas : [['-', 'Nenhuma caixa vinculada', '-', '-', '-', '-']],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [217, 119, 6],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 8,
+      },
+      styles: {
+        fontSize: 7.5,
+        cellPadding: 2.5,
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 12 },
+        1: { fontStyle: 'bold' },
+        2: { halign: 'center', fontStyle: 'bold' },
+        3: { halign: 'center' },
+        4: { halign: 'center' },
+        5: { halign: 'center', fontStyle: 'bold' },
+      },
+    });
+
+    let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+
+    // Table of Products
+    const tableProds = rel.produtos.map((p, idx) => [
+      (idx + 1).toString(),
+      p.numero_caixa,
+      p.modelo_produto,
+      p.ean,
+      p.imei || p.serial,
+      p.produto_lacrado,
+      p.data_auditoria,
+      p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente',
+    ]);
+
+    if (currentY > 170) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`RELAÇÃO DE PRODUTOS DO LOTE ${rel.lote} (${rel.produtos.length} APARELHOS)`, 14, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 4,
+      head: [['#', 'Caixa', 'Modelo Produto', 'EAN', 'IMEI', 'Lacrado', 'Data', 'Status']],
+      body: tableProds.length > 0 ? tableProds : [['-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7.5,
+      },
+      styles: {
+        fontSize: 7,
+        cellPadding: 2,
+      },
+    });
+
+    const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    if (finalY < 190) {
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.line(18, finalY + 10, 110, finalY + 10);
+      doc.text(`Responsável Operacional: ${rel.colaboradorResponsavel}`, 18, finalY + 15);
+
+      doc.line(170, finalY + 10, 265, finalY + 10);
+      doc.text('Supervisão Geral de Qualidade Samsung / Solutions', 170, finalY + 15);
+    }
+
+    doc.save(`Relatorio_Lote_${rel.lote}_${rel.cliente.replace(/\s+/g, '_')}.pdf`);
+  };
+
   const handleImprimir = () => {
     window.print();
   };
@@ -532,6 +754,18 @@ export const PainelAdmin: React.FC = () => {
             <Camera className="w-4 h-4" />
             Galeria de Evidências por Pasta ({totalFotosGerais} fotos)
           </button>
+          <button
+            type="button"
+            onClick={() => setAbaPrincipal('relatorio_lote')}
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
+              abaPrincipal === 'relatorio_lote'
+                ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-300'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Relatório por Lote
+          </button>
         </div>
 
         {/* Barra de Navegação entre Regionais (visível no painel geral) */}
@@ -592,7 +826,7 @@ export const PainelAdmin: React.FC = () => {
         </div>
       )}
 
-      {abaPrincipal === 'visao_geral' ? (
+      {abaPrincipal === 'visao_geral' && (
         <>
           {/* ======================================================================= */}
           {/* 1. SEÇÃO CONSOLIDADA GERAL (SELECIONADA QUANDO 'CONSOLIDADO') */}
@@ -1450,10 +1684,12 @@ export const PainelAdmin: React.FC = () => {
         </div>
       )}
         </>
-      ) : (
-        /* ======================================================================= */
-        /* 2. ÁREA DE CONSULTA DE FOTOS EM PASTAS (ITEM 10 DO PROMPT) */
-        /* ======================================================================= */
+      )}
+
+      {/* ======================================================================= */}
+      {/* 2. ÁREA DE CONSULTA DE FOTOS EM PASTAS (ITEM 10 DO PROMPT) */}
+      {/* ======================================================================= */}
+      {abaPrincipal === 'galeria_fotos' && (
         <div className="bg-white rounded-2xl border-2 border-slate-300 p-6 shadow-xs space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
             <div>
@@ -1622,6 +1858,433 @@ export const PainelAdmin: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================================= */}
+      {/* 3. ABA RELATÓRIO POR LOTE (REQUISITO 5 DO PROMPT) */}
+      {/* ======================================================================= */}
+      {abaPrincipal === 'relatorio_lote' && (
+        <div className="space-y-6">
+          {/* Card de Filtros e Seleção do Lote */}
+          <div className="bg-white rounded-2xl border-2 border-slate-300 p-6 shadow-xs space-y-5">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider border border-amber-200 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5" />
+                    Gestão Consolidada por Lote
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-slate-900 uppercase flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-amber-600" />
+                  Relatório Consolidado por Lote
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Filtre por número do lote e regional para auditar caixas vinculadas, aparelhos conferidos e histórico de movimentação.
+                </p>
+              </div>
+
+              {/* Botões de Ação do Lote */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportarExcelLote(relatorioLote)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Exportar dados consolidados do lote para planilha Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Exportar Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportarPDFLote(relatorioLote)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Gerar PDF executivo do lote com cabeçalho oficial"
+                >
+                  <Download className="w-4 h-4" />
+                  Exportar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImprimir}
+                  className="bg-slate-800 hover:bg-slate-900 text-white font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Imprimir relatório do lote"
+                >
+                  <Printer className="w-4 h-4" />
+                  Imprimir
+                </button>
+              </div>
+            </div>
+
+            {/* Controles de Filtro: Lote e Regional */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end bg-amber-50/50 p-4 rounded-2xl border border-amber-200">
+              <div className="md:col-span-5 space-y-1.5">
+                <label className="text-xs font-black uppercase text-slate-700 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5 text-amber-600" />
+                  Número do Lote
+                </label>
+                <input
+                  type="text"
+                  value={loteSelecionado}
+                  onChange={(e) => setLoteSelecionado(e.target.value.toUpperCase())}
+                  placeholder="Ex: 01, LOTE 02..."
+                  className="w-full px-3.5 py-2 bg-white border-2 border-amber-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none uppercase"
+                />
+              </div>
+
+              <div className="md:col-span-4 space-y-1.5">
+                <label className="text-xs font-black uppercase text-slate-700 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-amber-600" />
+                  Cliente / Regional
+                </label>
+                <select
+                  value={regionalFiltroLote}
+                  onChange={(e) => setRegionalFiltroLote(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                >
+                  <option value="TODAS">TODAS AS REGIONAIS (Geral)</option>
+                  {REGIONAIS_PADRAO.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoteSelecionado('01');
+                    setRegionalFiltroLote('TODAS');
+                  }}
+                  className="w-full py-2 px-3 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-600 transition-colors cursor-pointer"
+                >
+                  Redefinir Filtros
+                </button>
+              </div>
+
+              {/* Lotes Rápidos (Chips clicáveis) */}
+              {lotesDisponiveis.length > 0 && (
+                <div className="md:col-span-12 pt-2 border-t border-amber-200/60 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-amber-900 mr-1">Lotes Detectados:</span>
+                  {lotesDisponiveis.map((lt) => (
+                    <button
+                      key={lt}
+                      type="button"
+                      onClick={() => setLoteSelecionado(lt)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase transition-all cursor-pointer border ${
+                        loteSelecionado === lt
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-xs scale-105'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      Lote {lt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Resumo Consolidado do Lote Selecionado */}
+          <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white rounded-3xl p-6 shadow-xl relative overflow-hidden">
+            <div className="relative z-10 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-400/50 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center border border-white/30 text-white shadow-inner">
+                    <Layers className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-200">
+                      Resumo Consolidado do Lote
+                    </span>
+                    <h2 className="text-2xl font-black tracking-tight text-white uppercase">
+                      LOTE: {relatorioLote.lote}
+                    </h2>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-xs border ${
+                      relatorioLote.status === 'Enviado Online'
+                        ? 'bg-emerald-500 text-white border-emerald-400'
+                        : relatorioLote.status === 'Aguardando envio Online'
+                        ? 'bg-blue-500 text-white border-blue-400'
+                        : 'bg-amber-800 text-amber-100 border-amber-600'
+                    }`}
+                  >
+                    ● {relatorioLote.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid com os 6 Indicadores do Lote */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Cliente / Regional</span>
+                  <span className="text-sm font-black text-white truncate block mt-0.5" title={relatorioLote.cliente}>
+                    {relatorioLote.cliente}
+                  </span>
+                </div>
+
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Quantidade de Caixas</span>
+                  <span className="text-2xl font-black text-white block mt-0.5">
+                    {relatorioLote.totalCaixas}
+                  </span>
+                  <span className="text-[10px] text-amber-100">volumes vinculados</span>
+                </div>
+
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Total de Produtos</span>
+                  <span className="text-2xl font-black text-white block mt-0.5">
+                    {relatorioLote.totalProdutos}
+                  </span>
+                  <span className="text-[10px] text-amber-100">aparelhos conferidos</span>
+                </div>
+
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Data de Criação</span>
+                  <span className="text-xs font-black text-white block mt-1">
+                    {relatorioLote.dataCriacao}
+                  </span>
+                </div>
+
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Data de Envio</span>
+                  <span className="text-xs font-black text-white block mt-1">
+                    {relatorioLote.dataEnvio}
+                  </span>
+                </div>
+
+                <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-3.5 border border-white/20">
+                  <span className="text-[10px] font-bold text-amber-200 uppercase block">Responsável</span>
+                  <span className="text-xs font-black text-white truncate block mt-1" title={relatorioLote.colaboradorResponsavel}>
+                    {relatorioLote.colaboradorResponsavel}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-abas de Visualização Detalhada */}
+          <div className="bg-white rounded-2xl border-2 border-slate-300 overflow-hidden shadow-xs">
+            <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setSubAbaLote('caixas')}
+                className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer border-t-2 border-x-2 -mb-px ${
+                  subAbaLote === 'caixas'
+                    ? 'bg-white text-amber-700 border-slate-300 border-b-transparent shadow-xs'
+                    : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900'
+                }`}
+              >
+                <Boxes className="w-4 h-4" />
+                Caixas do Lote ({relatorioLote.caixas.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubAbaLote('produtos')}
+                className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer border-t-2 border-x-2 -mb-px ${
+                  subAbaLote === 'produtos'
+                    ? 'bg-white text-amber-700 border-slate-300 border-b-transparent shadow-xs'
+                    : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900'
+                }`}
+              >
+                <CheckCircle className="w-4 h-4" />
+                Produtos Pertencentes ({relatorioLote.produtos.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubAbaLote('historico')}
+                className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer border-t-2 border-x-2 -mb-px ${
+                  subAbaLote === 'historico'
+                    ? 'bg-white text-amber-700 border-slate-300 border-b-transparent shadow-xs'
+                    : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                Histórico de Movimentação ({historicoLote.length})
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* SUB-ABA 1: CAIXAS */}
+              {subAbaLote === 'caixas' && (
+                <div className="space-y-4">
+                  {relatorioLote.caixas.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Boxes className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                      <p className="font-bold text-sm">Nenhuma caixa registrada para o Lote {relatorioLote.lote}.</p>
+                      <p className="text-xs mt-1">Realize a bipagem vinculando os produtos a este lote.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 uppercase font-black tracking-wider border-b border-slate-200">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Volume / Caixa</th>
+                            <th className="py-3 px-4 text-center">Total Produtos</th>
+                            <th className="py-3 px-4 text-center">Lacrados</th>
+                            <th className="py-3 px-4 text-center">Não Lacrados</th>
+                            <th className="py-3 px-4 text-center">Status de Envio</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {relatorioLote.caixas.map((c, idx) => (
+                            <tr key={c.caixa} className="hover:bg-amber-50/40 transition-colors">
+                              <td className="py-3 px-4 text-slate-400 font-bold">{idx + 1}</td>
+                              <td className="py-3 px-4 font-black text-slate-900 text-sm flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                {c.caixa}
+                              </td>
+                              <td className="py-3 px-4 text-center font-black text-slate-800 text-sm">
+                                {c.totalProdutos}
+                              </td>
+                              <td className="py-3 px-4 text-center font-bold text-emerald-700">
+                                {c.lacrados}
+                              </td>
+                              <td className="py-3 px-4 text-center font-bold text-amber-700">
+                                {c.naoLacrados}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span
+                                  className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                                    c.statusEnvio === 'Enviado Online'
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  }`}
+                                >
+                                  {c.statusEnvio}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-ABA 2: PRODUTOS */}
+              {subAbaLote === 'produtos' && (
+                <div className="space-y-4">
+                  {relatorioLote.produtos.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <CheckCircle className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                      <p className="font-bold text-sm">Nenhum produto cadastrado no Lote {relatorioLote.lote}.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 uppercase font-black tracking-wider border-b border-slate-200">
+                            <th className="py-3 px-3">#</th>
+                            <th className="py-3 px-3">Caixa</th>
+                            <th className="py-3 px-3">Modelo</th>
+                            <th className="py-3 px-3">EAN</th>
+                            <th className="py-3 px-3">IMEI / Serial</th>
+                            <th className="py-3 px-3 text-center">Lacrado</th>
+                            <th className="py-3 px-3">Auditor</th>
+                            <th className="py-3 px-3">Data Auditoria</th>
+                            <th className="py-3 px-3 text-center">Status Sincronização</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {relatorioLote.produtos.map((p, idx) => (
+                            <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 px-3 text-slate-400 font-bold">{idx + 1}</td>
+                              <td className="py-2.5 px-3 font-bold text-slate-800">{p.numero_caixa}</td>
+                              <td className="py-2.5 px-3 font-black text-slate-900">{p.modelo_produto}</td>
+                              <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">{p.ean}</td>
+                              <td className="py-2.5 px-3 font-mono font-bold text-blue-700 text-[11px]">
+                                {p.imei || p.serial}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                    p.produto_lacrado === 'SIM'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {p.produto_lacrado}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-700 font-semibold">{p.usuario_cadastro}</td>
+                              <td className="py-2.5 px-3 text-slate-500 text-[11px]">{p.data_auditoria}</td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                    p.status_sincronizacao === 'ENVIADO'
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  }`}
+                                >
+                                  {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Aguardando Envio'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-ABA 3: HISTÓRICO DE MOVIMENTAÇÃO */}
+              {subAbaLote === 'historico' && (
+                <div className="space-y-4">
+                  {historicoLote.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Clock className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                      <p className="font-bold text-sm">Nenhum evento registrado no histórico para o Lote {relatorioLote.lote}.</p>
+                      <p className="text-xs mt-1">Eventos de conferência, criação e sincronização aparecerão aqui.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 uppercase font-black tracking-wider border-b border-slate-200">
+                            <th className="py-3 px-3">Data / Hora</th>
+                            <th className="py-3 px-3">Ação</th>
+                            <th className="py-3 px-3">Usuário</th>
+                            <th className="py-3 px-3">Estação</th>
+                            <th className="py-3 px-3">Detalhes do Evento</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {historicoLote.map((h) => (
+                            <tr key={h.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                                {formatarDataHora(h.data_hora)}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-black text-[10px] uppercase">
+                                  {h.acao}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-slate-800">{h.usuario}</td>
+                              <td className="py-2.5 px-3 font-mono text-indigo-600 text-[11px]">
+                                {h.computador_id || 'PC-001'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-700 font-medium">{h.detalhes}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

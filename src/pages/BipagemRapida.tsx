@@ -38,6 +38,7 @@ import {
   Unlock,
   Eye,
   PackageCheck,
+  Layers,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -84,6 +85,16 @@ export const BipagemRapida: React.FC = () => {
     return (localStorage.getItem('solutions_nf_conferida_ativa') as SimNao) || 'SIM';
   });
 
+  // Estado do Número do Lote (Obrigatório e Memorizado no Navegador)
+  const [loteAtivo, setLoteAtivo] = useState<string>(() => {
+    return db.obterUltimoLote() || '01';
+  });
+
+  const handleMudarLoteAtivo = (novoLote: string) => {
+    setLoteAtivo(novoLote);
+    db.salvarUltimoLote(novoLote);
+  };
+
   const handleMudarNfConferida = (novoValor: SimNao) => {
     setNfConferidaAtiva(novoValor);
     localStorage.setItem('solutions_nf_conferida_ativa', novoValor);
@@ -101,6 +112,7 @@ export const BipagemRapida: React.FC = () => {
   const [editSerial, setEditSerial] = useState('');
   const [editData, setEditData] = useState('');
   const [editCaixa, setEditCaixa] = useState('');
+  const [editLote, setEditLote] = useState('');
   const [editNf, setEditNf] = useState('');
   const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
   const [editLacre, setEditLacre] = useState<SimNao>('SIM');
@@ -177,6 +189,11 @@ export const BipagemRapida: React.FC = () => {
   const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
 
   const handleSyncMobile = async () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     setSyncMobileLoading(true);
     try {
       const res = await db.sincronizarOnline();
@@ -265,10 +282,18 @@ export const BipagemRapida: React.FC = () => {
     const modeloLimpo = modeloAtivo.trim();
     const caixaLimpa = caixaAtiva.trim();
     const dataLimpa = dataAtiva.trim() || getDataAtualFormatada();
+    const loteLimpo = loteAtivo.trim();
 
     setErroDuplicado(null);
     setAlertaValidacao(null);
     setSucessoNotif(null);
+
+    // Validação obrigatória do Número do Lote
+    if (!loteLimpo) {
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      sounds.playError();
+      return;
+    }
 
     // Validação Modelo
     if (!modeloLimpo) {
@@ -351,6 +376,7 @@ export const BipagemRapida: React.FC = () => {
       ean: eanLimpo,
       serial: serialLimpo,
       imei: serialLimpo,
+      numero_lote: loteLimpo,
       data_auditoria: dataLimpa,
       numero_caixa: caixaLimpa,
       numero_nf: nfAtiva.trim(),
@@ -565,6 +591,11 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const tentarMudarCaixa = (novaCaixa: string): boolean => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return false;
+    }
     const cxDestino = novaCaixa.trim();
     if (!cxDestino || cxDestino === caixaAtiva) {
       return true;
@@ -590,6 +621,11 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const abrirModalAlterarCaixa = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     const prodsNaCaixa = produtos.filter((p) => p.numero_caixa === caixaAtiva).length;
     if (prodsNaCaixa === 0) {
       setCaixaParaMudarInput(caixaAtiva);
@@ -616,6 +652,11 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const abrirCapturaGrupo = (grupo: GrupoFotosInfo) => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     setGrupoFotoAtivo(grupo);
     setModalFotoGrupoAberto(true);
   };
@@ -636,6 +677,11 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const abrir10FotosCaixaAtiva = (slot: number | unknown = 1) => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     setCaixaPara10Fotos(caixaAtiva);
     setSlotFotoSelecionado(typeof slot === 'number' ? slot : 1);
     setAcaoApos10Fotos(null);
@@ -644,6 +690,11 @@ export const BipagemRapida: React.FC = () => {
 
   // Nova Auditoria / Próxima Caixa
   const handleNovaAuditoria = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     const prodsNaCaixa = produtos.filter((p) => p.numero_caixa === caixaAtiva).length;
     if (prodsNaCaixa === 0) {
       const match = caixaAtiva.match(/(\d+)/);
@@ -686,8 +737,12 @@ export const BipagemRapida: React.FC = () => {
     }
   };
 
-
   const confirmarCriacaoNovaCaixa = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     const nome = novaCaixaNome.trim();
     if (nome) {
       setCaixaAtiva(nome);
@@ -775,6 +830,11 @@ export const BipagemRapida: React.FC = () => {
 
   // Exportar PDF Oficial do Espelho da Caixa
   const exportarEspelhoPDF = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     const caixaNomeAlvo = filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa;
     const { itens, totalGeral, resumoModelos } = obterDadosEspelhoCaixa(caixaNomeAlvo);
     const usuarioAtual = db.getUsuarioAtual();
@@ -824,15 +884,18 @@ export const BipagemRapida: React.FC = () => {
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
 
+    const loteCaixa = itens.length > 0 && itens[0].numero_lote ? itens[0].numero_lote : loteAtivo;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
     doc.text(`CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 70);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 77);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 84);
+    doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 18, 77);
+    doc.text(`FABRICANTE: SAMSUNG`, 18, 84);
 
-    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 70);
-    doc.text(`MODELOS/EANS DISTINTOS: ${resumoModelos.length}`, 105, 77);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 105, 70);
+    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 77);
+    doc.text(`MODELOS/EANS DISTINTOS: ${resumoModelos.length}`, 105, 84);
 
     // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
     // Exatamente como solicitado:
@@ -951,10 +1014,16 @@ export const BipagemRapida: React.FC = () => {
   // Contém apenas NF, Caixas, quantidades por caixa e totais + assinaturas
   // =========================================================================
   const exportarEspelhoTransportePDF = (caixaAlvo?: string) => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     const doc = new jsPDF();
     const caixaNomeAlvo = caixaAlvo || (filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa);
     const itens = db.listarProdutos({ caixa: caixaNomeAlvo });
     const totalGeral = itens.length;
+    const loteCaixa = itens.length > 0 && itens[0].numero_lote ? itens[0].numero_lote : loteAtivo;
 
     try {
       doc.addImage(LOGO_SOLUTIONS_BASE64, 'PNG', 14, 10, 36, 11.8);
@@ -976,7 +1045,7 @@ export const BipagemRapida: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Quadro de informações gerais (Região e Caixa)
+    // Quadro de informações gerais (Região, Lote e Caixa)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
@@ -986,7 +1055,8 @@ export const BipagemRapida: React.FC = () => {
     doc.setTextColor(15, 23, 42);
     doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
     doc.text(`VOLUME / CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 64);
-    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 58);
+    doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 105, 58);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 64);
 
     // Agrupamento exclusivo por EAN (Requisito Espelho 2: Região, EAN, Quantidade por EAN)
     const eanMap = new Map<string, number>();
@@ -1054,6 +1124,11 @@ export const BipagemRapida: React.FC = () => {
   };
 
   const baixarAmbosEspelhos = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     exportarEspelhoPDF();
     setTimeout(() => {
       exportarEspelhoTransportePDF();
@@ -1203,7 +1278,21 @@ export const BipagemRapida: React.FC = () => {
     setTimeout(() => setSucessoNotif(null), 3000);
   };
 
+  const handleAbrirEspelho = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
+    setMostrarEspelhoModal(true);
+  };
+
   const handleImprimirEspelho = () => {
+    if (!loteAtivo.trim()) {
+      sounds.playError();
+      setAlertaValidacao('Informe o número do lote antes de continuar.');
+      return;
+    }
     setMostrarEspelhoModal(true);
     setTimeout(() => {
       window.print();
@@ -1323,6 +1412,30 @@ export const BipagemRapida: React.FC = () => {
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-4 border-2 border-blue-600/50">
         <div className="flex flex-wrap items-center gap-4">
+          {/* Campo Obrigatório: Número do Lote (Memorizado e Obrigatório) */}
+          <div className="flex items-center gap-2 pr-3 border-r border-blue-700/60">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/25 border border-amber-400/60 flex items-center justify-center text-amber-400 shrink-0">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block flex items-center gap-1">
+                Número do Lote: <span className="text-rose-400 font-bold">*</span>
+              </span>
+              <input
+                type="text"
+                value={loteAtivo}
+                onChange={(e) => handleMudarLoteAtivo(e.target.value)}
+                placeholder="Ex: 01"
+                className={`text-sm font-black text-white bg-blue-950/80 border rounded-xl px-3 py-1 focus:outline-none focus:ring-2 w-32 uppercase tracking-wider shadow-inner transition-all ${
+                  !loteAtivo.trim()
+                    ? 'border-rose-500 ring-2 ring-rose-500/60 placeholder-rose-400'
+                    : 'border-amber-400/80 focus:ring-amber-400'
+                }`}
+                title="Número do Lote (Obrigatório para bipagem e espelho)"
+              />
+            </div>
+          </div>
+
           {/* Campo da Nota Fiscal (NF) */}
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-400/50 flex items-center justify-center text-amber-400 shrink-0">
@@ -1768,6 +1881,30 @@ export const BipagemRapida: React.FC = () => {
               )}
             </div>
 
+            {/* Número do Lote (Mobile) */}
+            <div className={`p-3.5 rounded-xl border-2 space-y-1.5 ${
+              !loteAtivo.trim()
+                ? 'bg-rose-50 border-rose-400'
+                : 'bg-amber-50 border-amber-300'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase flex items-center gap-1 text-slate-800">
+                  <Layers className="w-4 h-4 text-amber-600" />
+                  Número do Lote: <span className="text-rose-500 font-bold">*</span>
+                </span>
+                {!loteAtivo.trim() && (
+                  <span className="text-[10px] font-black text-rose-600 uppercase animate-pulse">Obrigatório</span>
+                )}
+              </div>
+              <input
+                type="text"
+                value={loteAtivo}
+                onChange={(e) => handleMudarLoteAtivo(e.target.value)}
+                placeholder="Ex: 01"
+                className="w-full font-black text-base uppercase bg-white border border-amber-400 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+
             {/* Conferência da Nota Fiscal (Mobile) */}
             <div className="space-y-2 bg-white p-3.5 rounded-xl border border-emerald-200">
               <div className="flex items-center justify-between">
@@ -2042,7 +2179,7 @@ export const BipagemRapida: React.FC = () => {
               type="button"
               onClick={() => {
                 setIncluirSeriaisEspelho(false);
-                setMostrarEspelhoModal(true);
+                handleAbrirEspelho();
               }}
               className="bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase py-2.5 px-3 rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
             >
@@ -2183,6 +2320,26 @@ export const BipagemRapida: React.FC = () => {
               </button>
             </div>
 
+            {/* Número do Lote */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 ${
+              !loteAtivo.trim()
+                ? 'bg-rose-50 border-rose-400 text-rose-900 ring-2 ring-rose-300'
+                : 'bg-amber-50 border-amber-300 text-amber-950'
+            }`}>
+              <span className="text-[11px] font-black uppercase whitespace-nowrap flex items-center gap-0.5">
+                <Layers className="w-3.5 h-3.5 text-amber-600" />
+                Lote: <span className="text-rose-500 font-bold">*</span>
+              </span>
+              <input
+                type="text"
+                value={loteAtivo}
+                onChange={(e) => handleMudarLoteAtivo(e.target.value)}
+                placeholder="Ex: 01"
+                className="w-20 bg-white font-black text-xs text-amber-900 border border-amber-400 rounded px-2 py-0.5 focus:outline-none uppercase"
+                title="Número do Lote ativo (Obrigatório para bipagem e espelho)"
+              />
+            </div>
+
             {/* Nota Fiscal */}
             <div className="flex items-center gap-1.5 bg-emerald-50 border-2 border-emerald-300 px-2.5 py-1.5 rounded-xl">
               <span className="text-[11px] font-black text-emerald-950 uppercase whitespace-nowrap">NF:</span>
@@ -2306,7 +2463,7 @@ export const BipagemRapida: React.FC = () => {
             <button
               onClick={() => {
                 setIncluirSeriaisEspelho(false);
-                setMostrarEspelhoModal(true);
+                handleAbrirEspelho();
               }}
               className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
               title="Espelho da Caixa (Modelo, EAN, Quantidade e Logos)"
@@ -3247,13 +3404,19 @@ export const BipagemRapida: React.FC = () => {
 
             {/* Quadro de Detalhes da Caixa */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
                   <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
                 </div>
                 <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Regional:</span>
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Lote:</span>
+                  <span className="font-black text-amber-600 text-base uppercase">
+                    LOTE {espelhoCaixaAtual.itens.length > 0 && espelhoCaixaAtual.itens[0].numero_lote ? espelhoCaixaAtual.itens[0].numero_lote : loteAtivo}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Regional / Cliente:</span>
                   <span className="font-black text-purple-700 text-base uppercase">{regionalAtiva}</span>
                 </div>
                 <div>

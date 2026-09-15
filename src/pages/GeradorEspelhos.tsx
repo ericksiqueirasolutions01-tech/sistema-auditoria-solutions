@@ -145,16 +145,18 @@ export const GeradorEspelhos: React.FC = () => {
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
 
+    const loteCaixa = produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01');
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
     doc.text(`CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 70);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 77);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 84);
+    doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 18, 77);
+    doc.text(`FABRICANTE: SAMSUNG`, 18, 84);
 
-    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 70);
-    doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 77);
-    doc.text(`EVIDÊNCIAS FOTOGRÁFICAS: ${totalFotosAnexadas} FOTO(S) (${totalGrupos} GRUPO(S))`, 105, 84);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 105, 70);
+    doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 77);
+    doc.text(`MODELOS/EANS DISTINTOS: ${listaModelosEan.length}`, 105, 84);
 
     // 4. TABELA PRINCIPAL DO ESPELHO: MODELO, EAN E QUANTIDADE AGRUPADA
     // Exatamente como solicitado:
@@ -296,17 +298,20 @@ export const GeradorEspelhos: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Quadro de informações gerais (Região e Caixa)
+    // Quadro de informações gerais (Região, Lote e Caixa)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
+
+    const loteCaixa2 = produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
     doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
     doc.text(`VOLUME / CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 64);
-    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 58);
+    doc.text(`LOTE: ${loteCaixa2.toUpperCase()}`, 105, 58);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 64);
 
     const tableData = listaEans.map((e) => [
       e.item.toString().padStart(2, '0'),
@@ -383,6 +388,7 @@ export const GeradorEspelhos: React.FC = () => {
       EAN: p.ean,
       IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
+      Lote: p.numero_lote || '01',
       'Nota Fiscal': p.numero_nf || 'NF 001',
       'NF foi conferida?': p.nf_conferida || 'SIM',
       'Data Auditoria': p.data_auditoria,
@@ -716,16 +722,22 @@ export const GeradorEspelhos: React.FC = () => {
               </div>
             </div>
 
-            {/* Informações do Volume (Apenas Região, Volume e Quantidade) */}
+            {/* Informações do Volume (Região, Lote, Volume e Quantidade) */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional / Cliente:</span>
                   <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
                 </div>
                 <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Lote:</span>
+                  <span className="text-xl font-black text-amber-600 uppercase">
+                    LOTE {produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01')}
+                  </span>
+                </div>
+                <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Volume / Caixa:</span>
-                  <span className="text-xl font-black text-amber-700 uppercase">{caixaSelecionada}</span>
+                  <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade no Volume:</span>
@@ -836,10 +848,16 @@ export const GeradorEspelhos: React.FC = () => {
 
             {/* Informações da Caixa */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 items-center">
+              <div className="grid grid-cols-2 sm:grid-cols-7 gap-4 items-center">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
                   <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Lote:</span>
+                  <span className="text-xl font-black text-amber-600 uppercase">
+                    LOTE {produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01')}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional:</span>

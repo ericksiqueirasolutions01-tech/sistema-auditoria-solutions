@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { db, isDesktopApp } from '../db/storage';
+import { fecharSistemaCompleto } from '../services/systemLifecycle';
 import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
-import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound, Download, Monitor, Globe } from 'lucide-react';
+import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound, Download, Monitor, Globe, Power } from 'lucide-react';
 import { ModalDownloadApp } from './ModalDownloadApp';
 
 interface LoginModalProps {
@@ -248,10 +249,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
             </p>
           </div>
         ) : (
-          <div className="border-t border-slate-100 pt-3 text-center space-y-1">
+          <div className="border-t border-slate-100 pt-3 text-center space-y-2">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-full text-[10px] font-bold">
               <Monitor className="w-3.5 h-3.5 text-blue-600" />
               <span>Aplicativo Windows Instalado • Estação de Bipagem</span>
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={fecharSistemaCompleto}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-black uppercase tracking-wider border border-rose-200 transition-colors cursor-pointer"
+                title="Encerrar completamente o sistema e liberar recursos"
+              >
+                <Power className="w-3.5 h-3.5 text-rose-600" />
+                <span>Fechar Sistema</span>
+              </button>
             </div>
             <p className="text-[10px] text-slate-400 font-medium">
               O Painel do Administrador (Servidor Central) funciona exclusivamente pela Web Online.

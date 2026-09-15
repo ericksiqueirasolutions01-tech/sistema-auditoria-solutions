@@ -61,7 +61,7 @@ $iconArg = if (Test-Path $icoPath) { "/win32icon:`"$icoPath`"" } else { "" }
 
 & $cscPath /nologo /target:winexe /optimize+ /platform:anycpu `
     $iconArg `
-    /r:System.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll `
+    /r:System.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Management.dll `
     /out:"$appExe" "$appSource"
 
 if ($LASTEXITCODE -ne 0) {

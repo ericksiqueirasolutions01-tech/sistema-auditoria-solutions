@@ -6,6 +6,7 @@ using System.Threading;
 using System.Diagnostics;
 using System.Windows.Forms;
 using System.Drawing;
+using System.Management;
 
 namespace SistemaAuditoriaSolutions
 {
@@ -20,17 +21,58 @@ namespace SistemaAuditoriaSolutions
                 "app.log"
             );
 
+            string profileDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SistemaAuditoriaSolutions",
+                "UserData"
+            );
+
+            // =========================================================================
+            // 1. LIMPEZA DE INICIALIZAÇÃO: Elimina processos órfãos anteriores
+            // =========================================================================
+            Process current = Process.GetCurrentProcess();
+            try
+            {
+                foreach (Process p in Process.GetProcessesByName("SistemaAuditoriaSolutions"))
+                {
+                    if (p.Id != current.Id)
+                    {
+                        try
+                        {
+                            File.AppendAllText(logPath, string.Format("[{0}] Finalizando processo anterior em segundo plano (PID {1})...\n", DateTime.Now, p.Id));
+                            p.Kill();
+                            p.WaitForExit(1500);
+                        }
+                        catch {}
+                    }
+                }
+            }
+            catch {}
+
+            // Limpa processos órfãos e arquivos de lock do Edge antes de iniciar
+            KillOrphanedEdgeProcesses(profileDir);
+            CleanProfileLocks(profileDir);
+
+            // =========================================================================
+            // 2. CONTROLE DE INSTÂNCIA ÚNICA
+            // =========================================================================
             bool isNewInstance;
             using (Mutex singleInstanceMutex = new Mutex(true, "Global\\SistemaAuditoriaSolutions_SingleInstance_Mutex", out isNewInstance))
             {
                 if (!isNewInstance)
                 {
-                    try
+                    if (singleInstanceMutex.WaitOne(1500, false))
                     {
-                        File.AppendAllText(logPath, string.Format("[{0}] Outra instância do aplicativo já está em execução. Encerrando processo duplicado.\n", DateTime.Now));
+                        isNewInstance = true;
                     }
-                    catch {}
-                    return;
+                    else
+                    {
+                        try
+                        {
+                            File.AppendAllText(logPath, string.Format("[{0}] Aguardou liberacao do Mutex e prosseguindo com instancia limpa.\n", DateTime.Now));
+                        }
+                        catch {}
+                    }
                 }
 
                 try
@@ -41,11 +83,10 @@ namespace SistemaAuditoriaSolutions
                     }
                     catch {}
 
-                    File.AppendAllText(logPath, string.Format("\n[{0}] Iniciando aplicacao (instancia unica ativa)...\n", DateTime.Now));
+                    File.AppendAllText(logPath, string.Format("\n[{0}] Iniciando aplicacao (instancia limpa ativa)...\n", DateTime.Now));
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
-                    File.AppendAllText(logPath, string.Format("[{0}] Executando AuditoriaAppContext...\n", DateTime.Now));
-                    Application.Run(new AuditoriaAppContext(logPath));
+                    Application.Run(new AuditoriaAppContext(logPath, profileDir));
                 }
                 catch (Exception ex)
                 {
@@ -64,18 +105,73 @@ namespace SistemaAuditoriaSolutions
             }
         }
 
+        public static void CleanProfileLocks(string profilePath)
+        {
+            try
+            {
+                if (Directory.Exists(profilePath))
+                {
+                    string[] lockFiles = new string[] {
+                        Path.Combine(profilePath, "SingletonLock"),
+                        Path.Combine(profilePath, "SingletonCookie"),
+                        Path.Combine(profilePath, "SingletonSocket"),
+                        Path.Combine(profilePath, "lockfile")
+                    };
+                    foreach (var f in lockFiles)
+                    {
+                        if (File.Exists(f))
+                        {
+                            try { File.Delete(f); } catch {}
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
+        public static void KillOrphanedEdgeProcesses(string profilePath)
+        {
+            try
+            {
+                using (var searcher = new ManagementObjectSearcher(
+                    "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'msedge.exe'"))
+                {
+                    foreach (ManagementObject obj in searcher.Get())
+                    {
+                        string cmd = obj["CommandLine"] as string;
+                        if (!string.IsNullOrEmpty(cmd) && cmd.IndexOf("SistemaAuditoriaSolutions", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            uint pid = (uint)obj["ProcessId"];
+                            try
+                            {
+                                var proc = Process.GetProcessById((int)pid);
+                                proc.Kill();
+                            }
+                            catch {}
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
     }
 
     public class AuditoriaAppContext : ApplicationContext
     {
         private HttpListener listener;
         private Thread serverThread;
+        private Thread watchdogThread;
         private bool isRunning = true;
         private int port = 5173;
         private string distPath;
         private string profileDir;
         private NotifyIcon trayIcon;
         private string logFile;
+        private DateTime lastHeartbeatUtc = DateTime.UtcNow;
+        private DateTime appStartTime = DateTime.UtcNow;
+        private int launchedEdgePid = 0;
+        private object shutdownLock = new object();
+        private bool isShuttingDown = false;
 
         private void Log(string msg)
         {
@@ -89,9 +185,11 @@ namespace SistemaAuditoriaSolutions
             catch {}
         }
 
-        public AuditoriaAppContext(string log)
+        public AuditoriaAppContext(string log, string profile)
         {
             this.logFile = log;
+            this.profileDir = profile;
+
             try
             {
                 Log("AuditoriaAppContext iniciado.");
@@ -103,11 +201,6 @@ namespace SistemaAuditoriaSolutions
                 }
                 Log("distPath: " + distPath);
 
-                profileDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "SistemaAuditoriaSolutions",
-                    "UserData"
-                );
                 if (!Directory.Exists(profileDir))
                 {
                     Directory.CreateDirectory(profileDir);
@@ -118,12 +211,12 @@ namespace SistemaAuditoriaSolutions
                 port = FindFreePort(5173);
                 Log("Porta selecionada: " + port);
 
-                // 2. Inicia o servidor local de arquivos estáticos
+                // 2. Inicia o servidor local de arquivos estáticos e endpoints de ciclo de vida
                 StartWebServer(distPath, port);
                 Log("Servidor Web iniciado com sucesso.");
 
-                // Aguarda 400ms para certificar que o socket está ouvindo
-                Thread.Sleep(400);
+                // Aguarda para certificar que o socket está ouvindo
+                Thread.Sleep(300);
 
                 // 3. Inicializa o ícone de bandeja do sistema (Tray Icon)
                 InitTrayIcon(appRoot);
@@ -132,6 +225,10 @@ namespace SistemaAuditoriaSolutions
                 // 4. Abre a janela do aplicativo nativa
                 OpenAppWindow();
                 Log("Janela do aplicativo acionada.");
+
+                // 5. Inicia a thread Sentinela (Watchdog) para monitorar fechamento da janela
+                StartWatchdog();
+                Log("Thread Watchdog de ciclo de vida iniciada.");
             }
             catch (Exception ex)
             {
@@ -142,10 +239,9 @@ namespace SistemaAuditoriaSolutions
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
-                ExitThread();
+                ExecuteFullShutdown();
             }
         }
-
 
         private void InitTrayIcon(string appRoot)
         {
@@ -159,8 +255,9 @@ namespace SistemaAuditoriaSolutions
 
             menu.Items.Add(new ToolStripSeparator());
 
-            var itemSair = menu.Items.Add("❌ Sair do Sistema");
-            itemSair.Click += (s, e) => ExitApplication();
+            var itemSair = menu.Items.Add("❌ Sair do Sistema (Fechar Completo)");
+            itemSair.Font = new Font(itemSair.Font, FontStyle.Bold);
+            itemSair.Click += (s, e) => ExecuteFullShutdown();
 
             trayIcon = new NotifyIcon
             {
@@ -187,17 +284,6 @@ namespace SistemaAuditoriaSolutions
             }
 
             trayIcon.DoubleClick += (s, e) => OpenAppWindow();
-
-            try
-            {
-                trayIcon.ShowBalloonTip(
-                    3000,
-                    "Sistema de Auditoria Solutions - Samsung",
-                    string.Format("O aplicativo está em execução no endereço http://127.0.0.1:{0}/\nClique duas vezes aqui para reabrir a janela.", port),
-                    ToolTipIcon.Info
-                );
-            }
-            catch {}
         }
 
         public void OpenAppWindow()
@@ -226,34 +312,104 @@ namespace SistemaAuditoriaSolutions
                         var psi = new ProcessStartInfo
                         {
                             FileName = edgePath,
-                            Arguments = string.Format("--app={0} --user-data-dir=\"{1}\" --no-first-run --no-default-browser-check", url, profile),
-                            UseShellExecute = true
+                            Arguments = string.Format(
+                                "--app={0} --user-data-dir=\"{1}\" --no-first-run --no-default-browser-check --disable-background-mode --disable-features=msStartupBoost,CalculateNativeWinOcclusion --no-service-autorun",
+                                url,
+                                profile
+                            ),
+                            UseShellExecute = false
                         };
                         Log("Iniciando Edge: " + edgePath + " args: " + psi.Arguments);
-                        Process.Start(psi);
-                        launched = true;
-                        break;
+                        Process proc = Process.Start(psi);
+                        if (proc != null)
+                        {
+                            launchedEdgePid = proc.Id;
+                            proc.EnableRaisingEvents = true;
+                            proc.Exited += (s, e) =>
+                            {
+                                Log(string.Format("Processo Edge principal (PID {0}) finalizado pelo usuario. Iniciando desligamento completo...", proc.Id));
+                                ThreadPool.QueueUserWorkItem((st) =>
+                                {
+                                    Thread.Sleep(250);
+                                    ExecuteFullShutdown();
+                                });
+                            };
+                            launched = true;
+                            break;
+                        }
                     }
                     catch (Exception ex)
                     {
                         Log("Falha ao iniciar Edge (" + edgePath + "): " + ex.Message);
                     }
-
                 }
             }
 
             if (!launched)
             {
-                // Fallback: abre no navegador padrão
                 try
                 {
-                    Process.Start(url);
+                    var p = Process.Start(url);
+                    if (p != null) launchedEdgePid = p.Id;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show("Não foi possível abrir o navegador: " + ex.Message, "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
+        }
+
+        private void StartWatchdog()
+        {
+            watchdogThread = new Thread(() =>
+            {
+                // Carência inicial para carregamento do Edge e inicialização do frontend
+                Thread.Sleep(12000);
+
+                while (isRunning && !isShuttingDown)
+                {
+                    try
+                    {
+                        Thread.Sleep(1500);
+
+                        if (!isRunning || isShuttingDown) break;
+
+                        // Checagem 1: Janela fechada detectada por falta de heartbeat do frontend (> 6.5 segundos)
+                        double secondsSinceHeartbeat = (DateTime.UtcNow - lastHeartbeatUtc).TotalSeconds;
+                        if (secondsSinceHeartbeat > 6.5)
+                        {
+                            Log(string.Format("Watchdog: Heartbeat nao recebido ha {0:0.0}s. A janela foi fechada. Encerrando aplicativo...", secondsSinceHeartbeat));
+                            ExecuteFullShutdown();
+                            break;
+                        }
+
+                        // Checagem 2: Processo principal do Edge encerrou
+                        if (launchedEdgePid > 0)
+                        {
+                            bool vivo = false;
+                            try
+                            {
+                                var proc = Process.GetProcessById(launchedEdgePid);
+                                if (!proc.HasExited) vivo = true;
+                            }
+                            catch
+                            {
+                                vivo = false;
+                            }
+
+                            if (!vivo)
+                            {
+                                Log("Watchdog: Processo Edge (PID " + launchedEdgePid + ") encerrou. Encerrando sistema...");
+                                ExecuteFullShutdown();
+                                break;
+                            }
+                        }
+                    }
+                    catch {}
+                }
+            });
+            watchdogThread.IsBackground = true;
+            watchdogThread.Start();
         }
 
         private int FindFreePort(int startPort)
@@ -327,6 +483,37 @@ namespace SistemaAuditoriaSolutions
                 {
                     res.StatusCode = 204;
                     res.Close();
+                    return;
+                }
+
+                // =====================================================================
+                // ENDPOINTS DE CICLO DE VIDA DO SISTEMA (HEARTBEAT E SHUTDOWN)
+                // =====================================================================
+                if (req.Url.AbsolutePath == "/api/system/heartbeat")
+                {
+                    lastHeartbeatUtc = DateTime.UtcNow;
+                    byte[] okBytes = Encoding.UTF8.GetBytes("{\"status\":\"ok\",\"timestamp\":\"" + DateTime.UtcNow.ToString("o") + "\"}");
+                    res.ContentType = "application/json; charset=utf-8";
+                    res.StatusCode = 200;
+                    res.OutputStream.Write(okBytes, 0, okBytes.Length);
+                    res.Close();
+                    return;
+                }
+
+                if (req.Url.AbsolutePath == "/api/system/shutdown")
+                {
+                    Log("Recebida solicitacao explicita de encerramento (/api/system/shutdown).");
+                    byte[] shutBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Sistema encerrando...\"}");
+                    res.ContentType = "application/json; charset=utf-8";
+                    res.StatusCode = 200;
+                    res.OutputStream.Write(shutBytes, 0, shutBytes.Length);
+                    res.Close();
+
+                    ThreadPool.QueueUserWorkItem((state) =>
+                    {
+                        Thread.Sleep(200);
+                        ExecuteFullShutdown();
+                    });
                     return;
                 }
 
@@ -472,29 +659,100 @@ namespace SistemaAuditoriaSolutions
             }
         }
 
-        private void StopWebServer()
+        public void ExecuteFullShutdown()
         {
+            lock (shutdownLock)
+            {
+                if (isShuttingDown) return;
+                isShuttingDown = true;
+            }
+
+            Log("Iniciando rotina de encerramento completo do sistema (Full Shutdown)...");
+
             isRunning = false;
+
+            // 1. Oculta e descarta TrayIcon imediatamente
             try
             {
-                if (listener != null && listener.IsListening)
+                if (trayIcon != null)
                 {
-                    listener.Stop();
-                    listener.Close();
+                    trayIcon.Visible = false;
+                    trayIcon.Dispose();
+                    trayIcon = null;
                 }
             }
             catch {}
-        }
 
-        private void ExitApplication()
-        {
-            StopWebServer();
-            if (trayIcon != null)
+            // 2. Encerra servidor HTTP local e libera portas imediatamente
+            try
             {
-                trayIcon.Visible = false;
-                trayIcon.Dispose();
+                if (listener != null)
+                {
+                    listener.Stop();
+                    listener.Close();
+                    listener = null;
+                }
             }
-            ExitThread();
+            catch {}
+
+            // 3. Encerra árvore de processos do Edge vinculada a este perfil
+            try
+            {
+                if (launchedEdgePid > 0)
+                {
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "taskkill.exe",
+                            Arguments = string.Format("/PID {0} /T /F", launchedEdgePid),
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        var p = Process.Start(psi);
+                        if (p != null) p.WaitForExit(1000);
+                    }
+                    catch {}
+                }
+            }
+            catch {}
+
+            try
+            {
+                Program.KillOrphanedEdgeProcesses(profileDir);
+            }
+            catch {}
+
+            // 4. Limpa arquivos de lock temporários do perfil
+            try
+            {
+                Program.CleanProfileLocks(profileDir);
+            }
+            catch {}
+
+            // 5. Libera memória
+            try
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            catch {}
+
+            Log("Encerramento completo executado com sucesso. Finalizando processo principal.");
+
+            // 6. Força o encerramento imediato do processo sem deixar tarefas órfãs
+            ThreadPool.QueueUserWorkItem((s) =>
+            {
+                Thread.Sleep(100);
+                try
+                {
+                    Process.GetCurrentProcess().Kill();
+                }
+                catch
+                {
+                    Environment.Exit(0);
+                }
+            });
         }
     }
 }

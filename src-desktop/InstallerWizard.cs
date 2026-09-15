@@ -391,6 +391,16 @@ namespace SistemaAuditoriaInstaller
         {
             try
             {
+                // Encerra qualquer instância anterior do aplicativo para não travar os arquivos
+                try
+                {
+                    foreach (var p in Process.GetProcessesByName("SistemaAuditoriaSolutions"))
+                    {
+                        try { p.Kill(); p.WaitForExit(1500); } catch {}
+                    }
+                }
+                catch {}
+
                 lblStatus.Text = "Criando pastas de instalação...";
                 progressBar.Value = 25;
                 Application.DoEvents();

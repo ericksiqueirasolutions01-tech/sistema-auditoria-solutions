@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
-import { db } from '../db/storage';
+import { db, isDesktopApp } from '../db/storage';
+import { fecharSistemaCompleto } from '../services/systemLifecycle';
 import { ModalIdentificacaoComputador } from './ModalIdentificacaoComputador';
 import { ModalItensPendentes } from './ModalItensPendentes';
 import { ModalAlertaDuplicidadeServidor } from './ModalAlertaDuplicidadeServidor';
@@ -20,6 +21,7 @@ import {
   Layers,
   Globe,
   X,
+  Power,
 } from 'lucide-react';
 import { PainelStatusSistema } from './PainelStatusSistema';
 
@@ -248,6 +250,19 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Botão Fechar Sistema no Aplicativo Instalado (Desktop) */}
+            {isDesktopApp() && (
+              <button
+                type="button"
+                onClick={fecharSistemaCompleto}
+                title="Encerrar completamente o sistema e liberar memória e conexões"
+                className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 h-10 shadow-xs transition-all cursor-pointer"
+              >
+                <Power className="w-4 h-4 shrink-0" />
+                <span>Fechar Sistema</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -288,6 +303,18 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               >
                 <LogOut className="w-4 h-4" />
               </button>
+
+              {isDesktopApp() && (
+                <button
+                  type="button"
+                  onClick={fecharSistemaCompleto}
+                  title="Fechar Sistema"
+                  className="p-1 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 border border-rose-200 cursor-pointer"
+                >
+                  <Power className="w-3.5 h-3.5" />
+                  <span>Fechar</span>
+                </button>
+              )}
             </div>
           </div>
 

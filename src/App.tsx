@@ -15,6 +15,7 @@ import { HistoricoEnvios } from './pages/HistoricoEnvios';
 import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 import { ModalPrimeiraSincronizacao } from './components/ModalPrimeiraSincronizacao';
+import { iniciarMonitoramentoCicloVida } from './services/systemLifecycle';
 
 export const App: React.FC = () => {
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
@@ -24,6 +25,11 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() =>
     usuario?.perfil === 'ADMINISTRADOR' ? 'admin-regionais' : 'bipagem'
   );
+
+  // Monitoramento de ciclo de vida (heartbeat e shutdown ao fechar)
+  useEffect(() => {
+    iniciarMonitoramentoCicloVida();
+  }, []);
 
   // Route Guard: impedir acesso a áreas administrativas no aplicativo desktop ou por operador
   useEffect(() => {

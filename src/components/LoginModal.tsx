@@ -3,7 +3,7 @@ import { db, isDesktopApp } from '../db/storage';
 import { fecharSistemaCompleto } from '../services/systemLifecycle';
 import { SamsungLogo } from './SamsungLogo';
 import { SolutionsLogo } from './SolutionsLogo';
-import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound, Download, Monitor, Globe, Power, UserCheck, ArrowLeft } from 'lucide-react';
+import { Lock, User, ShieldCheck, ArrowRight, AlertTriangle, KeyRound, Download, Monitor, Globe, Power, UserCheck, ArrowLeft, FileText } from 'lucide-react';
 import { ModalDownloadApp } from './ModalDownloadApp';
 import { Usuario } from '../types';
 
@@ -377,7 +377,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
 
         {/* Rodapé: Download (Apenas na versão Online) ou Indicador (No Desktop) */}
         {!ehDesktop ? (
-          <div className="border-t border-slate-100 pt-3">
+          <div className="border-t border-slate-100 pt-3 space-y-1.5">
             <button
               type="button"
               onClick={() => setMostrarModalDownload(true)}
@@ -386,8 +386,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
               <Download className="w-4 h-4 text-cyan-400 shrink-0" />
               <span>⬇ Baixar Aplicativo para Computador (.EXE)</span>
             </button>
-            <p className="text-[10px] text-center text-slate-400 mt-1 font-medium">
-              Instalador Windows para bancadas de operadores • Funcionamento 100% Offline
+            <button
+              type="button"
+              onClick={() => window.open('/downloads/Manual_Colaborador_Auditoria_Solutions.pdf', '_blank')}
+              className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors border border-emerald-200"
+            >
+              <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>📄 Manual do Colaborador (Passo a Passo em PDF)</span>
+            </button>
+            <p className="text-[10px] text-center text-slate-400 font-medium">
+              Instalador Windows e Manual Oficial para bancadas de operadores
             </p>
           </div>
         ) : (
@@ -396,11 +404,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
               <Monitor className="w-3.5 h-3.5 text-blue-600" />
               <span>Aplicativo Windows Instalado • Estação de Bipagem</span>
             </div>
-            <div>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => window.open('/downloads/Manual_Colaborador_Auditoria_Solutions.pdf', '_blank')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200 transition-colors cursor-pointer"
+                title="Abrir o Manual Passo a Passo em PDF"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                <span>📄 Manual em PDF</span>
+              </button>
               <button
                 type="button"
                 onClick={fecharSistemaCompleto}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-black uppercase tracking-wider border border-rose-200 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-black uppercase tracking-wider border border-rose-200 transition-colors cursor-pointer"
                 title="Encerrar completamente o sistema e liberar recursos"
               >
                 <Power className="w-3.5 h-3.5 text-rose-600" />

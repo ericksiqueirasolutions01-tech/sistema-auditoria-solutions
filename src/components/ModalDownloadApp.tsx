@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Monitor, CheckCircle2, ShieldCheck, X, HardDrive, Cpu, Calendar, Tag } from 'lucide-react';
+import { Download, Monitor, CheckCircle2, ShieldCheck, X, HardDrive, Cpu, Calendar, Tag, FileText } from 'lucide-react';
 import { SolutionsLogo } from './SolutionsLogo';
 import { SamsungLogo } from './SamsungLogo';
 
@@ -8,16 +8,26 @@ interface ModalDownloadAppProps {
 }
 
 export const ModalDownloadApp: React.FC<ModalDownloadAppProps> = ({ onClose }) => {
-  const versaoApp = '1.0.0';
-  const dataAtualizacao = '14/09/2026';
+  const versaoApp = '1.2.0';
+  const dataAtualizacao = '15/09/2026';
   const nomeApp = 'Sistema de Auditoria Grupo Solutions - Samsung';
   const downloadUrl = '/downloads/Sistema-Auditoria-Solutions-Setup.exe';
+  const manualPdfUrl = '/downloads/Manual_Colaborador_Auditoria_Solutions.pdf';
 
   const handleDownload = () => {
-    // Cria um link temporário para disparo direto do arquivo .EXE
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.setAttribute('download', 'Sistema-Auditoria-Solutions-Setup.exe');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadManual = () => {
+    const link = document.createElement('a');
+    link.href = manualPdfUrl;
+    link.setAttribute('download', 'Manual_Colaborador_Auditoria_Solutions.pdf');
+    link.setAttribute('target', '_blank');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -120,17 +130,28 @@ export const ModalDownloadApp: React.FC<ModalDownloadAppProps> = ({ onClose }) =
             </div>
           </div>
 
-          {/* Botão de Download */}
-          <div className="pt-2">
+          {/* Botões de Ação */}
+          <div className="pt-2 space-y-2">
             <button
+              type="button"
               onClick={handleDownload}
               className="w-full bg-blue-600 hover:bg-blue-700 active:scale-98 text-white py-3.5 px-4 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all"
             >
               <Download className="w-4 h-4" />
               <span>Baixar Instalador Windows (.EXE)</span>
             </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadManual}
+              className="w-full bg-slate-100 hover:bg-slate-200 active:scale-98 text-slate-800 border border-slate-300 py-3 px-4 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all"
+            >
+              <FileText className="w-4 h-4 text-emerald-600" />
+              <span>📄 Baixar Manual do Colaborador (PDF)</span>
+            </button>
+
             <p className="text-[10px] text-center text-slate-400 mt-2">
-              Arquivo executável de instalação direta. Ao concluir, execute o assistente.
+              Instalador direto e Guia Passo a Passo Oficial para treinamento da equipe.
             </p>
           </div>
         </div>

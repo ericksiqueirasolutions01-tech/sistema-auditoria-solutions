@@ -1193,6 +1193,7 @@ export const BipagemRapida: React.FC = () => {
       'Data Auditoria': p.data_auditoria,
       Caixa: p.numero_caixa,
       'Produto Lacrado': p.produto_lacrado,
+      'NF Conferida': p.nf_conferida || 'SIM',
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observação: p.observacao || '-',
@@ -1267,6 +1268,7 @@ export const BipagemRapida: React.FC = () => {
       p.ean,
       p.imei || p.serial,
       p.produto_lacrado,
+      p.nf_conferida || 'SIM',
       p.kit_completo || '-',
       p.aparelho_marcas_uso || '-',
       p.observacao || '-',
@@ -1275,7 +1277,7 @@ export const BipagemRapida: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {

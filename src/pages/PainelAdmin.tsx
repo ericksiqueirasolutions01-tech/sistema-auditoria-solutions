@@ -278,6 +278,7 @@ export const PainelAdmin: React.FC = () => {
       Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
+      'NF Conferida': p.nf_conferida || 'SIM',
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observações: p.observacao || '-',
@@ -350,6 +351,7 @@ export const PainelAdmin: React.FC = () => {
       Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
+      'NF Conferida': p.nf_conferida || 'SIM',
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observações: p.observacao || '-',
@@ -420,13 +422,14 @@ export const PainelAdmin: React.FC = () => {
       p.ean,
       p.imei || p.serial,
       p.produto_lacrado,
+      p.nf_conferida || 'SIM',
       p.status_sincronizacao === 'ENVIADO' ? '🟢 OK' : '🟡 Pend',
       p.data_auditoria,
     ]);
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Computador', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'Sync', 'Data']],
+      head: [['Nº', 'Regional', 'Computador', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Sync', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {

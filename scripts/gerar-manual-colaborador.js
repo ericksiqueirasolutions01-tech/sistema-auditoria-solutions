@@ -626,3 +626,4 @@ outputPaths.forEach((p) => {
   fs.writeFileSync(p, pdfBuffer);
   console.log(`PDF gerado com sucesso em: ${p}`);
 });
+

@@ -115,6 +115,7 @@ export const ConsultaProdutos: React.FC = () => {
       Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       Lacrado: p.produto_lacrado,
+      'NF Conferida': p.nf_conferida || 'SIM',
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observação: p.observacao,

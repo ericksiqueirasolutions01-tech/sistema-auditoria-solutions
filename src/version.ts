@@ -11,22 +11,25 @@ export interface InfoVersaoSistema {
 
 // Versão compilada neste pacote do aplicativo
 export const VERSAO_LOCAL: InfoVersaoSistema = {
-  versao: '1.1.0',
-  versaoCodigo: 110,
-  dataPublicacao: '2026-09-15T10:40:00.000Z',
+  versao: '1.2.0',
+  versaoCodigo: 120,
+  dataPublicacao: '2026-09-15T13:20:00.000Z',
   obrigatoria: true,
   titulo: 'Sistema de Auditoria Solutions Samsung',
   descricao:
-    'Versão oficial com identificação obrigatória do colaborador, fechamento de lote com 3 fotos e bloqueio operacional de lotes finalizados.',
+    'Versão oficial v1.2.0 com campo obrigatório de conferência de NF, pesquisa rápida de lote, relatório Excel estruturado em abas e módulo completo de auditoria administrativa.',
   novidades: [
-    'Identificação obrigatória de nome completo do colaborador após login',
-    'Remoção dos botões Importar, Backup Seguro e Excel Caixa na tela operacional',
-    'Novo botão oficial de Fechamento de Lote com 3 fotos obrigatórias',
-    'Bloqueio total de inserção, edição e exclusão em lotes finalizados',
-    'Ocultação de lotes finalizados para operadores',
-    'Aba de consulta e reabertura de lotes finalizados no Painel Administrativo',
-    'Sistema de atualização obrigatória com bloqueio de acesso',
+    'Campo obrigatório "NF FOI CONFERIDA" (🟢 SIM / NÃO) ao lado de PRODUTO LACRADO',
+    'Validação obrigatória de conferência de NF em todos os itens antes do fechamento do lote',
+    'Campo de busca e botão dedicado "🔎 PESQUISAR LOTE" no painel administrativo',
+    'Tabela completa de produtos do lote com status de Lacre, NF Conferida e ações',
+    'Relatório Excel aprimorado: Aba 1 (Resumo do Lote) e Aba 2 (Produtos do Lote)',
+    'Módulo de edição e exclusão de itens de lotes finalizados pelo Administrador com motivo',
+    'Trilha de auditoria permanente registrando responsável, data/hora e justificativa',
+    'Botão de re-finalização de lote exclusivo para o Administrador',
+    'Bloqueio permanente de lotes finalizados para operadores',
   ],
   downloadUrl:
     'https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe',
 };
+

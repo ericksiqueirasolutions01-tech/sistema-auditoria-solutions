@@ -8,6 +8,7 @@ import {
   RegistroLoteFinalizado,
   StatusLote,
   HistoricoAlteracaoLote,
+  SimNao,
 } from '../types';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
@@ -52,6 +53,8 @@ import {
   Eye,
   FileText,
   User,
+  Edit2,
+  Check,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -75,6 +78,24 @@ export const PainelAdmin: React.FC = () => {
   const [motivoReabertura, setMotivoReabertura] = useState('');
   const [erroReabertura, setErroReabertura] = useState<string | null>(null);
   const [sucessoReabertura, setSucessoReabertura] = useState<string | null>(null);
+
+  // Pesquisa de Lote (Requisito 3)
+  const [inputPesquisaLote, setInputPesquisaLote] = useState<string>(() => db.obterUltimoLote() || '01');
+
+  // Estados para Edição de Produtos pelo Administrador (Requisito 10)
+  const [produtoParaEditar, setProdutoParaEditar] = useState<ProdutoAuditoria | null>(null);
+  const [editModeloAdmin, setEditModeloAdmin] = useState('');
+  const [editEanAdmin, setEditEanAdmin] = useState('');
+  const [editImeiAdmin, setEditImeiAdmin] = useState('');
+  const [editCaixaAdmin, setEditCaixaAdmin] = useState('');
+  const [editLoteAdmin, setEditLoteAdmin] = useState('');
+  const [editLacreAdmin, setEditLacreAdmin] = useState<SimNao>('SIM');
+  const [editNfAdmin, setEditNfAdmin] = useState<SimNao>('SIM');
+  const [editKitAdmin, setEditKitAdmin] = useState<SimNao | ''>('');
+  const [editMarcasAdmin, setEditMarcasAdmin] = useState<SimNao | ''>('');
+  const [editObsAdmin, setEditObsAdmin] = useState('');
+  const [motivoEdicaoAdmin, setMotivoEdicaoAdmin] = useState('');
+  const [erroEdicaoAdmin, setErroEdicaoAdmin] = useState<string | null>(null);
 
   // Visualização Ampliada das Fotos Oficiais de Fechamento (Lightbox Modal)
   const [fotoVisualizar, setFotoVisualizar] = useState<{
@@ -502,6 +523,125 @@ export const PainelAdmin: React.FC = () => {
     setTimeout(() => setSucessoReabertura(null), 5000);
   };
 
+  const handleFinalizarLoteAdmin = () => {
+    const regAlvo = loteFinalizadoAtual?.regional || (regionalFiltroLote === 'TODAS' ? 'VIA VAREJO RJ' : regionalFiltroLote);
+    const alvo = loteSelecionado?.trim();
+    if (!alvo) return;
+
+    const adminAtual = db.getUsuarioAtual();
+    const adminNome = adminAtual?.nome || 'Administrador Geral';
+
+    const res = db.finalizarLoteAdmin(alvo, regAlvo, adminNome, 'Lote finalizado novamente pelo Administrador após correções.');
+    if (!res.sucesso) {
+      alert(res.erro || 'Erro ao finalizar lote.');
+      return;
+    }
+
+    setSucessoReabertura(`Lote ${alvo} finalizado com sucesso pelo Administrador! Status atualizado para LOTE FINALIZADO.`);
+    setForcarAtualizacao((c) => c + 1);
+    setTimeout(() => setSucessoReabertura(null), 5000);
+  };
+
+  const handlePesquisarLote = (termoCustom?: string) => {
+    const alvo = (termoCustom !== undefined ? termoCustom : inputPesquisaLote).trim().toUpperCase();
+    if (!alvo) return;
+    setLoteSelecionado(alvo);
+    setInputPesquisaLote(alvo);
+    setForcarAtualizacao((c) => c + 1);
+  };
+
+  const abrirEdicaoProdutoAdmin = (p: ProdutoAuditoria) => {
+    setProdutoParaEditar(p);
+    setEditModeloAdmin(p.modelo_produto);
+    setEditEanAdmin(p.ean);
+    setEditImeiAdmin(p.imei || p.serial);
+    setEditCaixaAdmin(p.numero_caixa);
+    setEditLoteAdmin(p.numero_lote || loteSelecionado || '01');
+    setEditLacreAdmin(p.produto_lacrado);
+    setEditNfAdmin(p.nf_conferida || 'SIM');
+    setEditKitAdmin(p.kit_completo || '');
+    setEditMarcasAdmin(p.aparelho_marcas_uso || '');
+    setEditObsAdmin(p.observacao || '');
+    setMotivoEdicaoAdmin('');
+    setErroEdicaoAdmin(null);
+  };
+
+  const salvarEdicaoProdutoAdmin = () => {
+    if (!produtoParaEditar) return;
+    if (!editModeloAdmin.trim()) {
+      setErroEdicaoAdmin('O modelo do produto é obrigatório.');
+      return;
+    }
+    if (!editEanAdmin.trim()) {
+      setErroEdicaoAdmin('O código EAN é obrigatório.');
+      return;
+    }
+    if (!editImeiAdmin.trim() || !/^\d{15}$/.test(editImeiAdmin.trim())) {
+      setErroEdicaoAdmin('IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).');
+      return;
+    }
+    if (!editCaixaAdmin.trim()) {
+      setErroEdicaoAdmin('A caixa é obrigatória.');
+      return;
+    }
+
+    const adminAtual = db.getUsuarioAtual();
+    const adminNome = adminAtual?.nome || 'Administrador Geral';
+    const loteDestino = editLoteAdmin.trim().toUpperCase() || '01';
+
+    const res = db.atualizarProduto(produtoParaEditar.id, {
+      modelo_produto: editModeloAdmin.trim(),
+      ean: editEanAdmin.trim(),
+      imei: editImeiAdmin.trim(),
+      serial: editImeiAdmin.trim(),
+      numero_caixa: editCaixaAdmin.trim().toUpperCase(),
+      numero_lote: loteDestino,
+      produto_lacrado: editLacreAdmin,
+      nf_conferida: editNfAdmin,
+      kit_completo: editLacreAdmin === 'SIM' ? null : (editKitAdmin as SimNao),
+      aparelho_marcas_uso: editLacreAdmin === 'SIM' ? null : (editMarcasAdmin as SimNao),
+      observacao: editObsAdmin.trim(),
+    });
+
+    if (!res.sucesso) {
+      setErroEdicaoAdmin(res.erro || 'Erro ao atualizar produto.');
+      return;
+    }
+
+    // Registrar detalhes completos da alteração no lote para auditoria oficial
+    db.registrarAlteracaoLoteAdmin(
+      loteDestino,
+      produtoParaEditar.regional,
+      adminNome,
+      'ALTERACAO_DADO',
+      `Admin ${adminNome} alterou produto IMEI ${editImeiAdmin.trim()} (Caixa: ${editCaixaAdmin.trim().toUpperCase()}, Lote: ${loteDestino}, Lacre: ${editLacreAdmin}, NF: ${editNfAdmin}). ${motivoEdicaoAdmin.trim() ? `Motivo: ${motivoEdicaoAdmin.trim()}` : ''}`
+    );
+
+    setSucessoReabertura(`Produto IMEI ${editImeiAdmin.trim()} atualizado com sucesso! Auditoria administrativa registrada.`);
+    setProdutoParaEditar(null);
+    setForcarAtualizacao((c) => c + 1);
+    setTimeout(() => setSucessoReabertura(null), 5000);
+  };
+
+  const handleExcluirProdutoAdmin = (p: ProdutoAuditoria) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o produto IMEI ${p.imei || p.serial} (${p.modelo_produto}) da ${p.numero_caixa}?\n\nEsta alteração será registrada permanentemente no histórico de auditoria do lote.`)) {
+      return;
+    }
+
+    const adminAtual = db.getUsuarioAtual();
+    const adminNome = adminAtual?.nome || 'Administrador Geral';
+
+    const res = db.excluirProduto(p.id);
+    if (!res.sucesso) {
+      alert(res.erro || 'Erro ao excluir produto.');
+      return;
+    }
+
+    setSucessoReabertura(`Item IMEI ${p.imei || p.serial} excluído do Lote com registro na auditoria.`);
+    setForcarAtualizacao((c) => c + 1);
+    setTimeout(() => setSucessoReabertura(null), 5000);
+  };
+
   const historicoLote = useMemo(() => {
     const todosLogs = db.listarHistorico(500);
     const imeisSet = new Set(relatorioLote.produtos.map((p) => p.serial.toUpperCase()));
@@ -520,21 +660,77 @@ export const PainelAdmin: React.FC = () => {
   const exportarExcelLote = (rel: RelatorioLoteInfo) => {
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: Resumo Consolidado
+    // Data e Hora de Fechamento separadas (Requisito 5)
+    let dataFechamento = '-';
+    let horaFechamento = '-';
+    if (loteFinalizadoAtual?.data_fechamento) {
+      try {
+        const d = new Date(loteFinalizadoAtual.data_fechamento);
+        if (!isNaN(d.getTime())) {
+          dataFechamento = d.toLocaleDateString('pt-BR');
+          horaFechamento = d.toLocaleTimeString('pt-BR');
+        } else {
+          const partes = loteFinalizadoAtual.data_fechamento.split(' ');
+          dataFechamento = partes[0] || '-';
+          horaFechamento = partes[1] || '-';
+        }
+      } catch {
+        dataFechamento = loteFinalizadoAtual.data_fechamento;
+      }
+    } else if (rel.dataCriacao) {
+      dataFechamento = rel.dataCriacao;
+    }
+
+    const statusLoteTexto = loteFinalizadoAtual?.status === 'FINALIZADO'
+      ? 'LOTE FINALIZADO'
+      : (loteFinalizadoAtual?.status === 'EM_ABERTO' ? 'LOTE REABERTO' : rel.status || 'EM ABERTO');
+
+    const clienteNome = rel.cliente.includes('VIA VAREJO') ? 'VIA VAREJO' : (rel.cliente || 'SAMSUNG');
+    const regionalNome = rel.cliente.replace(/VIA VAREJO\s*/i, '').trim() || rel.cliente;
+
+    // Aba 1: Resumo do Lote (Requisito 5 exato)
     const resumoData = [
-      { Campo: 'Número do Lote', Valor: `LOTE ${rel.lote}` },
-      { Campo: 'Cliente / Regional', Valor: rel.cliente },
-      { Campo: 'Status do Lote', Valor: rel.status },
-      { Campo: 'Quantidade de Caixas', Valor: rel.totalCaixas },
-      { Campo: 'Total de Produtos', Valor: rel.totalProdutos },
-      { Campo: 'Data de Criação', Valor: rel.dataCriacao },
-      { Campo: 'Data de Envio', Valor: rel.dataEnvio },
-      { Campo: 'Colaborador Responsável', Valor: rel.colaboradorResponsavel },
+      { Campo: 'Número do lote', Valor: `LOTE ${rel.lote}` },
+      { Campo: 'Cliente', Valor: clienteNome },
+      { Campo: 'Regional', Valor: regionalNome },
+      { Campo: 'Status', Valor: statusLoteTexto },
+      { Campo: 'Data do fechamento', Valor: dataFechamento },
+      { Campo: 'Hora do fechamento', Valor: horaFechamento },
+      { Campo: 'Colaborador responsável', Valor: loteFinalizadoAtual?.colaborador_fechamento || rel.colaboradorResponsavel },
+      { Campo: 'Quantidade de caixas', Valor: rel.totalCaixas },
+      { Campo: 'Quantidade total de produtos', Valor: rel.totalProdutos },
     ];
     const wsResumo = XLSX.utils.json_to_sheet(resumoData);
-    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo_Lote');
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo do Lote');
 
-    // Sheet 2: Caixas que Compõem o Lote
+    // Aba 2: Produtos do Lote (Requisito 5 e 9 exatos)
+    const produtosData = rel.produtos.map((p, idx) => {
+      let dataHoraLancamento = p.data_auditoria;
+      if (p.data_cadastro) {
+        try {
+          const d = new Date(p.data_cadastro);
+          if (!isNaN(d.getTime())) {
+            dataHoraLancamento = `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR')}`;
+          }
+        } catch {}
+      }
+
+      return {
+        'Nº': idx + 1,
+        'Número do lote': p.numero_lote || rel.lote,
+        'Caixa': p.numero_caixa,
+        'Modelo': p.modelo_produto,
+        'IMEI': p.imei || p.serial,
+        'Data e hora do lançamento': dataHoraLancamento,
+        'Colaborador responsável pelo lançamento': p.usuario_cadastro || 'Operador',
+        'Produto Lacrado': p.produto_lacrado,
+        'NF Conferida': p.nf_conferida || 'SIM',
+      };
+    });
+    const wsProdutos = XLSX.utils.json_to_sheet(produtosData);
+    XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos do Lote');
+
+    // Aba 3: Caixas que Compõem o Lote
     const caixasData = rel.caixas.map((c, idx) => ({
       'Nº': idx + 1,
       'Volume / Caixa': c.caixa,
@@ -544,27 +740,7 @@ export const PainelAdmin: React.FC = () => {
       'Status de Envio': c.statusEnvio,
     }));
     const wsCaixas = XLSX.utils.json_to_sheet(caixasData);
-    XLSX.utils.book_append_sheet(wb, wsCaixas, 'Caixas_Lote');
-
-    // Sheet 3: Produtos Pertencentes ao Lote
-    const produtosData = rel.produtos.map((p, idx) => ({
-      'Nº': idx + 1,
-      Regional: p.regional,
-      Caixa: p.numero_caixa,
-      Lote: p.numero_lote || rel.lote,
-      'Modelo Produto': p.modelo_produto,
-      EAN: p.ean,
-      IMEI: p.imei || p.serial,
-      'Produto Lacrado': p.produto_lacrado,
-      'Kit Completo': p.kit_completo || '-',
-      'Marcas de Uso': p.aparelho_marcas_uso || '-',
-      'Data Auditoria': p.data_auditoria,
-      Auditor: p.usuario_cadastro,
-      'Status Sincronização': p.status_sincronizacao === 'ENVIADO' ? 'Enviado para Online' : 'Aguardando envio para Online',
-      'Data Envio': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleString('pt-BR') : '-',
-    }));
-    const wsProdutos = XLSX.utils.json_to_sheet(produtosData);
-    XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos_Lote');
+    XLSX.utils.book_append_sheet(wb, wsCaixas, 'Caixas do Lote');
 
     XLSX.writeFile(wb, `Relatorio_Consolidado_Lote_${rel.lote}_${rel.cliente.replace(/\s+/g, '_')}.xlsx`);
   };
@@ -590,7 +766,7 @@ export const PainelAdmin: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     doc.text(
-      `Emissão: ${new Date().toLocaleString('pt-BR')} | Cliente: ${rel.cliente} | Responsável: ${rel.colaboradorResponsavel} | Status: ${rel.status}`,
+      `Emissão: ${new Date().toLocaleString('pt-BR')} | Cliente: ${rel.cliente} | Responsável: ${loteFinalizadoAtual?.colaborador_fechamento || rel.colaboradorResponsavel} | Status: ${loteFinalizadoAtual?.status === 'FINALIZADO' ? 'LOTE FINALIZADO' : rel.status}`,
       14,
       37
     );
@@ -610,7 +786,7 @@ export const PainelAdmin: React.FC = () => {
     doc.text(`TOTAL DE PRODUTOS: ${rel.totalProdutos} unidades`, 105, 54);
 
     doc.text(`DATA CRIAÇÃO: ${rel.dataCriacao}`, 190, 48);
-    doc.text(`STATUS: ${rel.status.toUpperCase()}`, 190, 54);
+    doc.text(`STATUS: ${loteFinalizadoAtual?.status === 'FINALIZADO' ? 'LOTE FINALIZADO' : rel.status.toUpperCase()}`, 190, 54);
 
     // Table of Boxes
     const tableCaixas = rel.caixas.map((c, idx) => [
@@ -649,17 +825,30 @@ export const PainelAdmin: React.FC = () => {
 
     let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
-    // Table of Products
-    const tableProds = rel.produtos.map((p, idx) => [
-      (idx + 1).toString(),
-      p.numero_caixa,
-      p.modelo_produto,
-      p.ean,
-      p.imei || p.serial,
-      p.produto_lacrado,
-      p.data_auditoria,
-      p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Pendente',
-    ]);
+    // Table of Products com Lote | Caixa | Produto Lacrado | NF Conferida (Requisito 9)
+    const tableProds = rel.produtos.map((p, idx) => {
+      let dataHoraLancamento = p.data_auditoria;
+      if (p.data_cadastro) {
+        try {
+          const d = new Date(p.data_cadastro);
+          if (!isNaN(d.getTime())) {
+            dataHoraLancamento = `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          }
+        } catch {}
+      }
+
+      return [
+        (idx + 1).toString(),
+        p.numero_lote || rel.lote,
+        p.numero_caixa,
+        p.modelo_produto,
+        p.imei || p.serial,
+        p.produto_lacrado,
+        p.nf_conferida || 'SIM',
+        dataHoraLancamento,
+        p.usuario_cadastro || 'Operador',
+      ];
+    });
 
     if (currentY > 170) {
       doc.addPage();
@@ -673,8 +862,8 @@ export const PainelAdmin: React.FC = () => {
 
     autoTable(doc, {
       startY: currentY + 4,
-      head: [['#', 'Caixa', 'Modelo Produto', 'EAN', 'IMEI', 'Lacrado', 'Data', 'Status']],
-      body: tableProds.length > 0 ? tableProds : [['-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
+      head: [['#', 'Lote', 'Caixa', 'Modelo Produto', 'IMEI', 'Produto Lacrado', 'NF Conferida', 'Data/Hora', 'Colaborador']],
+      body: tableProds.length > 0 ? tableProds : [['-', '-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: {
         fillColor: [30, 41, 59],
@@ -1989,6 +2178,18 @@ export const PainelAdmin: React.FC = () => {
                   </button>
                 )}
 
+                {loteFinalizadoAtual?.status === 'EM_ABERTO' && (
+                  <button
+                    type="button"
+                    onClick={handleFinalizarLoteAdmin}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ring-1 ring-emerald-400 active:scale-95"
+                    title="Finalizar este lote novamente com status de bloqueio"
+                  >
+                    <Lock className="w-4 h-4 text-white" />
+                    Finalizar Lote Novamente
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => exportarExcelLote(relatorioLote)}
@@ -2019,6 +2220,52 @@ export const PainelAdmin: React.FC = () => {
               </div>
             </div>
 
+            {/* Campo e Botão Dedicado: PESQUISAR LOTE (Requisito 3) */}
+            <div className="bg-amber-100/70 border-2 border-amber-400 p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-end gap-3 shadow-2xs">
+              <div className="flex-1 space-y-1">
+                <label className="text-xs font-black uppercase text-amber-950 flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-amber-700" />
+                  Número do Lote:
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={inputPesquisaLote}
+                    onChange={(e) => {
+                      setInputPesquisaLote(e.target.value.toUpperCase());
+                      setLoteSelecionado(e.target.value.toUpperCase());
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handlePesquisarLote();
+                    }}
+                    placeholder="Digite o número do lote (Ex: 01, LOTE 02)..."
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-amber-400 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none uppercase placeholder:text-slate-400 shadow-inner"
+                  />
+                  {inputPesquisaLote && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInputPesquisaLote('');
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      title="Limpar campo"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handlePesquisarLote()}
+                className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-black text-xs uppercase px-6 py-3 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 border border-amber-400"
+                title="Carregar todas as informações do lote selecionado"
+              >
+                <Search className="w-4 h-4" />
+                🔎 PESQUISAR LOTE
+              </button>
+            </div>
+
             {/* Controles de Filtro: 1. Número do Lote, 2. Cliente, 3. Data, 4. Colaborador, 5. Status */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end bg-amber-50/50 p-4 rounded-2xl border border-amber-200">
               {/* Filtro 1: Número do Lote */}
@@ -2030,7 +2277,10 @@ export const PainelAdmin: React.FC = () => {
                 <input
                   type="text"
                   value={loteSelecionado}
-                  onChange={(e) => setLoteSelecionado(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setLoteSelecionado(e.target.value.toUpperCase());
+                    setInputPesquisaLote(e.target.value.toUpperCase());
+                  }}
                   placeholder="Ex: 01, LOTE 02..."
                   className="w-full px-3 py-2 bg-white border-2 border-amber-300 rounded-xl text-xs font-black text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none uppercase"
                 />
@@ -2619,52 +2869,103 @@ export const PainelAdmin: React.FC = () => {
                         <thead>
                           <tr className="bg-slate-100 text-slate-700 uppercase font-black tracking-wider border-b border-slate-200">
                             <th className="py-3 px-3">#</th>
+                            <th className="py-3 px-3">Lote</th>
                             <th className="py-3 px-3">Caixa</th>
                             <th className="py-3 px-3">Modelo</th>
-                            <th className="py-3 px-3">EAN</th>
-                            <th className="py-3 px-3">IMEI / Serial</th>
-                            <th className="py-3 px-3 text-center">Lacrado</th>
-                            <th className="py-3 px-3">Auditor</th>
-                            <th className="py-3 px-3">Data Auditoria</th>
-                            <th className="py-3 px-3 text-center">Status Sincronização</th>
+                            <th className="py-3 px-3">IMEI</th>
+                            <th className="py-3 px-3 text-center">Produto Lacrado</th>
+                            <th className="py-3 px-3 text-center bg-emerald-50 text-emerald-950">NF Conferida</th>
+                            <th className="py-3 px-3">Data/Hora Lançamento</th>
+                            <th className="py-3 px-3">Colaborador</th>
+                            <th className="py-3 px-3 text-center">Status Sync</th>
+                            <th className="py-3 px-3 text-center">Ações Admin</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-medium">
-                          {relatorioLote.produtos.map((p, idx) => (
-                            <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="py-2.5 px-3 text-slate-400 font-bold">{idx + 1}</td>
-                              <td className="py-2.5 px-3 font-bold text-slate-800">{p.numero_caixa}</td>
-                              <td className="py-2.5 px-3 font-black text-slate-900">{p.modelo_produto}</td>
-                              <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">{p.ean}</td>
-                              <td className="py-2.5 px-3 font-mono font-bold text-blue-700 text-[11px]">
-                                {p.imei || p.serial}
-                              </td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                    p.produto_lacrado === 'SIM'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-amber-100 text-amber-800'
-                                  }`}
-                                >
-                                  {p.produto_lacrado}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-700 font-semibold">{p.usuario_cadastro}</td>
-                              <td className="py-2.5 px-3 text-slate-500 text-[11px]">{p.data_auditoria}</td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                    p.status_sincronizacao === 'ENVIADO'
-                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                      : 'bg-amber-100 text-amber-800 border border-amber-300'
-                                  }`}
-                                >
-                                  {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Aguardando Envio'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {relatorioLote.produtos.map((p, idx) => {
+                            let dataHoraFormatada = p.data_auditoria;
+                            if (p.data_cadastro) {
+                              try {
+                                const d = new Date(p.data_cadastro);
+                                if (!isNaN(d.getTime())) {
+                                  dataHoraFormatada = `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+                                }
+                              } catch {}
+                            }
+
+                            return (
+                              <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-2.5 px-3 text-slate-400 font-bold">{idx + 1}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className="font-mono font-black bg-amber-100 text-amber-900 px-2 py-0.5 rounded text-[10px] border border-amber-300">
+                                    LOTE {p.numero_lote || relatorioLote.lote}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-slate-800">{p.numero_caixa}</td>
+                                <td className="py-2.5 px-3 font-black text-slate-900">{p.modelo_produto}</td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-blue-700 text-[11px]">
+                                  {p.imei || p.serial}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-black border ${
+                                      p.produto_lacrado === 'SIM'
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                                    }`}
+                                  >
+                                    {p.produto_lacrado === 'SIM' ? '🟢 SIM' : 'NÃO (ABERTO)'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center bg-emerald-50/30">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-black border ${
+                                      p.nf_conferida === 'NÃO'
+                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    }`}
+                                  >
+                                    {p.nf_conferida === 'NÃO' ? '❌ NÃO' : '🟢 SIM (CONFERIDA)'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-600 font-medium text-[11px] whitespace-nowrap">
+                                  {dataHoraFormatada}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-900 font-bold">{p.usuario_cadastro || 'Operador'}</td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                      p.status_sincronizacao === 'ENVIADO'
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    }`}
+                                  >
+                                    {p.status_sincronizacao === 'ENVIADO' ? 'Enviado' : 'Aguardando'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirEdicaoProdutoAdmin(p)}
+                                      className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                      title="Editar item do lote (Exclusivo Administrador)"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExcluirProdutoAdmin(p)}
+                                      className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                      title="Excluir item do lote (Exclusivo Administrador)"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2998,6 +3299,176 @@ export const PainelAdmin: React.FC = () => {
               >
                 <Unlock className="w-4 h-4" />
                 Confirmar Reabertura do Lote
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição de Produto pelo Administrador (Requisito 10) */}
+      {produtoParaEditar && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-3xl border-2 border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="font-black text-sm sm:text-base uppercase">Editar Produto (Exclusivo Administrador)</h3>
+                  <span className="text-[10px] text-slate-300 block">
+                    Regional: {produtoParaEditar.regional} • ID Local: {produtoParaEditar.id}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProdutoParaEditar(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
+              {erroEdicaoAdmin && (
+                <div className="p-3 bg-rose-50 border-2 border-rose-400 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  {erroEdicaoAdmin}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Modelo do Produto:</label>
+                  <input
+                    type="text"
+                    value={editModeloAdmin}
+                    onChange={(e) => setEditModeloAdmin(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">EAN:</label>
+                  <input
+                    type="text"
+                    value={editEanAdmin}
+                    onChange={(e) => setEditEanAdmin(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">IMEI (15 dígitos):</label>
+                  <input
+                    type="text"
+                    maxLength={15}
+                    value={editImeiAdmin}
+                    onChange={(e) => setEditImeiAdmin(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                    className="w-full px-3 py-2 border-2 border-blue-500 rounded-xl text-xs font-mono font-black text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Caixa:</label>
+                  <input
+                    type="text"
+                    value={editCaixaAdmin}
+                    onChange={(e) => setEditCaixaAdmin(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 uppercase focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Número do Lote:</label>
+                  <input
+                    type="text"
+                    value={editLoteAdmin}
+                    onChange={(e) => setEditLoteAdmin(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 uppercase focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Produto Lacrado?</label>
+                  <select
+                    value={editLacreAdmin}
+                    onChange={(e) => setEditLacreAdmin(e.target.value as SimNao)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="SIM">SIM (Lacrado)</option>
+                    <option value="NÃO">NÃO (Aberto)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">NF foi Conferida?</label>
+                  <select
+                    value={editNfAdmin}
+                    onChange={(e) => setEditNfAdmin(e.target.value as SimNao)}
+                    className="w-full px-3 py-2 border-2 border-emerald-400 rounded-xl text-xs font-black text-emerald-950 bg-emerald-50/40 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value="SIM">🟢 SIM (Conferida)</option>
+                    <option value="NÃO">❌ NÃO (Pendente)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Kit Completo:</label>
+                  <select
+                    disabled={editLacreAdmin === 'SIM'}
+                    value={editKitAdmin}
+                    onChange={(e) => setEditKitAdmin(e.target.value as SimNao)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 disabled:bg-slate-100 disabled:text-slate-400 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="">Não aplicável</option>
+                    <option value="SIM">SIM</option>
+                    <option value="NÃO">NÃO</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Observação do Produto:</label>
+                  <input
+                    type="text"
+                    value={editObsAdmin}
+                    onChange={(e) => setEditObsAdmin(e.target.value)}
+                    placeholder="Ex: Avaria leve na embalagem, cabo conferido..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="sm:col-span-2 bg-amber-50 p-3.5 rounded-2xl border-2 border-amber-300">
+                  <label className="text-xs font-black uppercase text-amber-950 flex items-center gap-1.5 mb-1">
+                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    Motivo / Justificativa da Alteração (Trilha de Auditoria Obrigatória):
+                  </label>
+                  <input
+                    type="text"
+                    value={motivoEdicaoAdmin}
+                    onChange={(e) => setMotivoEdicaoAdmin(e.target.value)}
+                    placeholder="Ex: Correção de digitação de IMEI solicitado pela supervisão..."
+                    className="w-full px-3 py-2 border border-amber-400 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setProdutoParaEditar(null)}
+                className="px-4 py-2 bg-white hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase rounded-xl transition-colors cursor-pointer border border-slate-300"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarEdicaoProdutoAdmin}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                Salvar Alteração com Auditoria
               </button>
             </div>
           </div>

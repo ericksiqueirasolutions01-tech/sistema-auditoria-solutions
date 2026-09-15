@@ -75,6 +75,7 @@ export const BipagemRapida: React.FC = () => {
   const [serialInput, setSerialInput] = useState('');
   const [dataAtiva, setDataAtiva] = useState(getDataAtualFormatada());
   const [lacreAtivo, setLacreAtivo] = useState<SimNao>('SIM');
+  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao>('SIM');
   const [kitAtivo, setKitAtivo] = useState<SimNao | ''>('');
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
@@ -117,6 +118,7 @@ export const BipagemRapida: React.FC = () => {
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
   const [editObs, setEditObs] = useState('');
+  const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
 
   // UI Modals
   const [mostrarEspelhoModal, setMostrarEspelhoModal] = useState(false);
@@ -386,7 +388,7 @@ export const BipagemRapida: React.FC = () => {
       data_auditoria: dataLimpa,
       numero_caixa: caixaLimpa,
       numero_nf: '',
-      nf_conferida: 'SIM',
+      nf_conferida: nfConferidaAtiva,
       produto_lacrado: lacreAtivo,
       kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
       aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
@@ -452,6 +454,7 @@ export const BipagemRapida: React.FC = () => {
     setEditCaixa(item.numero_caixa);
     setEditLote(item.numero_lote || db.obterUltimoLote() || '01');
     setEditLacre(item.produto_lacrado);
+    setEditNfConferida(item.nf_conferida || 'SIM');
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
     setEditObs(item.observacao || '');
@@ -506,6 +509,7 @@ export const BipagemRapida: React.FC = () => {
       data_auditoria: editData.trim() || getDataAtualFormatada(),
       numero_caixa: editCaixa.trim() || caixaAtiva,
       numero_lote: editLote.trim() || '01',
+      nf_conferida: editNfConferida,
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
@@ -1984,50 +1988,100 @@ export const BipagemRapida: React.FC = () => {
             </div>
 
 
-            {/* Condição Física / Lacre (Botões Touch Grandes) */}
-            <div className="space-y-3 bg-white p-3.5 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-800 uppercase">
-                  Produto Lacrado?
-                </span>
-                <span className="text-[10px] text-slate-500 font-bold">
-                  {lacreAtivo === 'SIM' ? 'LACRADO DE FÁBRICA' : 'ABERTO / SEM LACRE'}
-                </span>
+            {/* Condição Física / Lacre e NF Conferida (Botões Touch Grandes Lado a Lado) */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 1. Produto Lacrado */}
+                <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 uppercase">
+                    PRODUTO LACRADO:
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-bold">
+                    {lacreAtivo === 'SIM' ? 'LACRADO DE FÁBRICA' : 'ABERTO / SEM LACRE'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLacreAtivo('SIM');
+                      setKitAtivo('');
+                      setMarcasAtivo('');
+                      focarInputSerial();
+                    }}
+                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      lacreAtivo === 'SIM'
+                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    🟢 SIM (LACRADO)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLacreAtivo('NÃO');
+                    }}
+                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      lacreAtivo === 'NÃO'
+                        ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    NÃO (ABERTO)
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLacreAtivo('SIM');
-                    setKitAtivo('');
-                    setMarcasAtivo('');
-                    focarInputSerial();
-                  }}
-                  className={`py-3 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    lacreAtivo === 'SIM'
-                      ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <Check className="w-4 h-4" />
-                  SIM (Lacrado)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLacreAtivo('NÃO');
-                  }}
-                  className={`py-3 px-3 rounded-xl font-black text-sm uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    lacreAtivo === 'NÃO'
-                      ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <AlertTriangle className="w-4 h-4" />
-                  NÃO (Aberto)
-                </button>
+              {/* 2. NF Foi Conferida */}
+              <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-emerald-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 uppercase">
+                    NF FOI CONFERIDA:
+                  </span>
+                  <span className={`text-[10px] font-bold ${nfConferidaAtiva === 'SIM' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {nfConferidaAtiva === 'SIM' ? 'CONFERIDA COM A NF' : 'NÃO CONFERIDA'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNfConferidaAtiva('SIM');
+                      focarInputSerial();
+                    }}
+                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      nfConferidaAtiva === 'SIM'
+                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    🟢 SIM (CONFERIDA)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNfConferidaAtiva('NÃO');
+                      focarInputSerial();
+                    }}
+                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      nfConferidaAtiva === 'NÃO'
+                        ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400 scale-[1.02]'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    NÃO
+                  </button>
+                </div>
               </div>
+            </div>
 
               {/* Campos extras obrigatórios se produto NÃO for lacrado */}
               {lacreAtivo === 'NÃO' && (
@@ -2416,6 +2470,43 @@ export const BipagemRapida: React.FC = () => {
                 NÃO (Aberto)
               </button>
             </div>
+
+            {/* 3. Botão: NF FOI CONFERIDA */}
+            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
+              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
+                NF foi Conferida:
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setNfConferidaAtiva('SIM');
+                  serialInputRef.current?.focus();
+                }}
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
+                  nfConferidaAtiva === 'SIM'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Nota Fiscal Conferida: SIM"
+              >
+                🟢 SIM (Conferida)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNfConferidaAtiva('NÃO');
+                  serialInputRef.current?.focus();
+                }}
+                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
+                  nfConferidaAtiva === 'NÃO'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Nota Fiscal NÃO Conferida: NÃO"
+              >
+                NÃO
+              </button>
+            </div>
           </div>
 
           {/* ========================================================================= */}
@@ -2749,6 +2840,7 @@ export const BipagemRapida: React.FC = () => {
                   Lote ✏️
                 </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24 bg-emerald-100 text-emerald-950">NF Conferida</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[120px]">Observação</th>
@@ -2846,6 +2938,18 @@ export const BipagemRapida: React.FC = () => {
                           value={editLacre}
                           onChange={(e) => setEditLacre(e.target.value as SimNao)}
                           className="text-[11px] font-black px-2 py-1 rounded border bg-white cursor-pointer"
+                        >
+                          <option value="SIM">SIM</option>
+                          <option value="NÃO">NÃO</option>
+                        </select>
+                      </td>
+
+                      {/* NF Conferida */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-emerald-50/40">
+                        <select
+                          value={editNfConferida}
+                          onChange={(e) => setEditNfConferida(e.target.value as SimNao)}
+                          className="text-[11px] font-black px-2 py-1 rounded border bg-white cursor-pointer text-emerald-900"
                         >
                           <option value="SIM">SIM</option>
                           <option value="NÃO">NÃO</option>
@@ -2973,6 +3077,17 @@ export const BipagemRapida: React.FC = () => {
                         }`}
                       >
                         {item.produto_lacrado}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-center border-r border-slate-200 bg-emerald-50/20">
+                      <span
+                        className={`font-black px-2.5 py-0.5 rounded text-[10px] border ${
+                          item.nf_conferida === 'NÃO'
+                            ? 'bg-rose-100 text-rose-800 border-rose-300'
+                            : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        }`}
+                      >
+                        {item.nf_conferida === 'NÃO' ? 'NÃO' : 'SIM'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center font-bold border-r border-slate-200">
@@ -3189,6 +3304,27 @@ export const BipagemRapida: React.FC = () => {
                         ? 'bg-emerald-700 text-white border-emerald-800'
                         : 'bg-amber-600 text-white border-amber-700'
                     }`}
+                  >
+                    <option value="SIM">SIM</option>
+                    <option value="NÃO">NÃO</option>
+                  </select>
+                </td>
+
+                {/* NF FOI CONFERIDA */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-emerald-50/50">
+                  <select
+                    value={nfConferidaAtiva}
+                    onChange={(e) => {
+                      const val = e.target.value as SimNao;
+                      setNfConferidaAtiva(val);
+                      serialInputRef.current?.focus();
+                    }}
+                    className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
+                      nfConferidaAtiva === 'SIM'
+                        ? 'bg-emerald-700 text-white border-emerald-800'
+                        : 'bg-rose-600 text-white border-rose-700'
+                    }`}
+                    title="A Nota Fiscal foi conferida? (SIM / NÃO)"
                   >
                     <option value="SIM">SIM</option>
                     <option value="NÃO">NÃO</option>

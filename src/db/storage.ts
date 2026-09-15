@@ -1362,6 +1362,17 @@ class AuditoriaDatabase {
       };
     }
 
+    // Regra 8: Validar se todos os produtos do lote possuem a confirmação da NF conferida (SIM ou NÃO)
+    const produtosSemNf = produtosDoLote.filter(
+      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO' && p.nf_conferida !== 'NAO')
+    );
+    if (produtosSemNf.length > 0) {
+      return {
+        sucesso: false,
+        erro: `Existem ${produtosSemNf.length} produto(s) no lote sem confirmação da NF conferida. Todos os produtos devem ter a NF conferida (SIM ou NÃO) antes de finalizar.`,
+      };
+    }
+
     const caixasSet = new Set(produtosDoLote.map((p) => p.numero_caixa || 'SEM CAIXA'));
     const totalCaixas = caixasSet.size;
     const totalProdutos = produtosDoLote.length;
@@ -1475,11 +1486,58 @@ class AuditoriaDatabase {
     return { sucesso: true };
   }
 
+  finalizarLoteAdmin(
+    numeroLote: string,
+    regional: string,
+    usuarioAdmin: string,
+    motivo?: string
+  ): { sucesso: boolean; erro?: string } {
+    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+      return { sucesso: false, erro: 'Apenas Administradores têm permissão para alterar o status do lote.' };
+    }
+
+    const loteNorm = numeroLote.trim().toUpperCase();
+    const regNorm = regional.trim().toUpperCase();
+
+    const lote = this.lotesFinalizados.find(
+      (l) => l.numero_lote.trim().toUpperCase() === loteNorm && l.regional.trim().toUpperCase() === regNorm
+    );
+
+    if (!lote) {
+      return { sucesso: false, erro: `Lote ${numeroLote} não encontrado.` };
+    }
+
+    const agora = new Date().toISOString();
+    lote.status = 'FINALIZADO';
+
+    const novoHist: HistoricoAlteracaoLote = {
+      id: `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      dataHora: agora,
+      usuario: usuarioAdmin,
+      perfil: 'ADMINISTRADOR',
+      acao: 'FECHAMENTO',
+      detalhes: `Status alterado para FINALIZADO pelo Administrador ${usuarioAdmin}.${motivo ? ` Motivo: ${motivo.trim()}` : ''}`,
+    };
+
+    lote.historico_alteracoes.push(novoHist);
+    this.salvarTudo();
+
+    this.registrarHistorico(
+      usuarioAdmin,
+      'FECHAMENTO_LOTE_ADMIN',
+      `Administrador ${usuarioAdmin} alterou status do Lote ${loteNorm} para FINALIZADO [${regNorm}].`,
+      regNorm
+    );
+
+    this.notificarMudanca('lotes');
+    return { sucesso: true };
+  }
+
   registrarAlteracaoLoteAdmin(
     numeroLote: string,
     regional: string,
     usuarioAdmin: string,
-    acao: 'ALTERACAO_DADO' | 'EXCLUSAO_ITEM',
+    acao: 'ALTERACAO_DADO' | 'EXCLUSAO_ITEM' | 'FECHAMENTO' | 'REABERTURA',
     detalhes: string
   ): void {
     const loteNorm = numeroLote.trim().toUpperCase();

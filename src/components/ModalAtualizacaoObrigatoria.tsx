@@ -159,3 +159,4 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
     </div>
   );
 };
+

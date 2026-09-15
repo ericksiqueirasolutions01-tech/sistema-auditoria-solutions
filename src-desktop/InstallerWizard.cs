@@ -564,9 +564,119 @@ namespace SistemaAuditoriaInstaller
             catch {}
         }
 
-        [STAThread]
-        static void Main()
+        public static bool ExecuteSilentInstallation(string targetDir, bool launchAfter)
         {
+            try
+            {
+                // 1. Encerra instâncias anteriores do aplicativo
+                foreach (var p in Process.GetProcessesByName("SistemaAuditoriaSolutions"))
+                {
+                    try { p.Kill(); p.WaitForExit(2000); } catch {}
+                }
+
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                // 2. Extrai arquivos do payload embutido
+                bool extracted = false;
+                try
+                {
+                    var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                    using (var resStream = assembly.GetManifestResourceStream("Payload.zip"))
+                    {
+                        if (resStream != null)
+                        {
+                            using (var archive = new System.IO.Compression.ZipArchive(resStream))
+                            {
+                                foreach (var entry in archive.Entries)
+                                {
+                                    string destPath = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
+                                    if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
+                                    {
+                                        Directory.CreateDirectory(destPath);
+                                    }
+                                    else
+                                    {
+                                        string parentDir = Path.GetDirectoryName(destPath);
+                                        if (!Directory.Exists(parentDir))
+                                        {
+                                            Directory.CreateDirectory(parentDir);
+                                        }
+                                        entry.ExtractToFile(destPath, true);
+                                    }
+                                }
+                            }
+                            extracted = true;
+                        }
+                    }
+                }
+                catch {}
+
+                if (!extracted)
+                {
+                    string sourceDir = AppDomain.CurrentDomain.BaseDirectory;
+                    CopyDirectory(sourceDir, targetDir);
+                }
+
+                // 3. Atualiza atalhos
+                string exePath = Path.Combine(targetDir, "SistemaAuditoriaSolutions.exe");
+                string icoPath = Path.Combine(targetDir, "app.ico");
+                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string shortcutPath = Path.Combine(desktopPath, "Sistema de Auditoria Solutions.lnk");
+                CreateShortcut(shortcutPath, exePath, targetDir, icoPath);
+
+                string startMenu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Sistema de Auditoria Solutions");
+                if (!Directory.Exists(startMenu)) Directory.CreateDirectory(startMenu);
+                string startShortcut = Path.Combine(startMenu, "Sistema de Auditoria Solutions.lnk");
+                CreateShortcut(startShortcut, exePath, targetDir, icoPath);
+
+                RegisterUninstaller(targetDir, exePath);
+
+                // 4. Inicia o aplicativo atualizado
+                if (launchAfter && File.Exists(exePath))
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = exePath,
+                        WorkingDirectory = targetDir
+                    });
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        [STAThread]
+        static void Main(string[] args)
+        {
+            bool isSilent = false;
+            if (args != null && args.Length > 0)
+            {
+                foreach (var arg in args)
+                {
+                    if (arg.Equals("/silent", StringComparison.OrdinalIgnoreCase) ||
+                        arg.Equals("/update", StringComparison.OrdinalIgnoreCase) ||
+                        arg.Equals("-silent", StringComparison.OrdinalIgnoreCase) ||
+                        arg.Equals("/quiet", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isSilent = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isSilent)
+            {
+                string targetDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SistemaAuditoriaSolutions");
+                ExecuteSilentInstallation(targetDir, true);
+                return;
+            }
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new InstallerForm());

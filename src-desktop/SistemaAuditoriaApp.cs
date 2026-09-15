@@ -54,26 +54,25 @@ namespace SistemaAuditoriaSolutions
             CleanProfileLocks(profileDir);
 
             // =========================================================================
-            // 2. CONTROLE DE INSTÂNCIA ÚNICA
+            // 2. CONTROLE DE INSTÂNCIA ÚNICA (LOCAL MUTEX SEGURO)
             // =========================================================================
-            bool isNewInstance;
-            using (Mutex singleInstanceMutex = new Mutex(true, "Global\\SistemaAuditoriaSolutions_SingleInstance_Mutex", out isNewInstance))
+            bool isNewInstance = true;
+            Mutex singleInstanceMutex = null;
+            try
             {
+                singleInstanceMutex = new Mutex(true, "Local\\SistemaAuditoriaSolutions_SingleInstance_Mutex", out isNewInstance);
                 if (!isNewInstance)
                 {
                     if (singleInstanceMutex.WaitOne(1500, false))
                     {
                         isNewInstance = true;
                     }
-                    else
-                    {
-                        try
-                        {
-                            File.AppendAllText(logPath, string.Format("[{0}] Aguardou liberacao do Mutex e prosseguindo com instancia limpa.\n", DateTime.Now));
-                        }
-                        catch {}
-                    }
                 }
+            }
+            catch
+            {
+                isNewInstance = true;
+            }
 
                 try
                 {
@@ -102,7 +101,13 @@ namespace SistemaAuditoriaSolutions
                         MessageBoxIcon.Error
                     );
                 }
-            }
+                finally
+                {
+                    if (singleInstanceMutex != null)
+                    {
+                        try { singleInstanceMutex.Dispose(); } catch {}
+                    }
+                }
         }
 
         public static void CleanProfileLocks(string profilePath)
@@ -450,6 +455,49 @@ namespace SistemaAuditoriaSolutions
                     return;
                 }
 
+                if (req.Url.AbsolutePath == "/api/system/version")
+                {
+                    int vCod = 110;
+                    string vStr = "1.1.0";
+                    string vJsonPath = Path.Combine(rootDir, "version.json");
+                    if (File.Exists(vJsonPath))
+                    {
+                        try
+                        {
+                            byte[] vFileBytes = File.ReadAllBytes(vJsonPath);
+                            res.ContentType = "application/json; charset=utf-8";
+                            res.StatusCode = 200;
+                            res.OutputStream.Write(vFileBytes, 0, vFileBytes.Length);
+                            res.Close();
+                            return;
+                        }
+                        catch {}
+                    }
+                    string fallbackJson = string.Format("{{\"versao\":\"{0}\",\"versaoCodigo\":{1},\"isDesktop\":true}}", vStr, vCod);
+                    byte[] vBytes = Encoding.UTF8.GetBytes(fallbackJson);
+                    res.ContentType = "application/json; charset=utf-8";
+                    res.StatusCode = 200;
+                    res.OutputStream.Write(vBytes, 0, vBytes.Length);
+                    res.Close();
+                    return;
+                }
+
+                if (req.Url.AbsolutePath == "/api/system/update")
+                {
+                    Log("Recebida solicitacao de atualizacao automatica (/api/system/update).");
+                    byte[] updBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Download do instalador atualizado iniciado...\"}");
+                    res.ContentType = "application/json; charset=utf-8";
+                    res.StatusCode = 200;
+                    res.OutputStream.Write(updBytes, 0, updBytes.Length);
+                    res.Close();
+
+                    ThreadPool.QueueUserWorkItem((state) =>
+                    {
+                        ExecutarAtualizacaoAutomatica();
+                    });
+                    return;
+                }
+
                 // Proxy transparente para requisições de API central online (/api/...)
                 if (req.Url.AbsolutePath.StartsWith("/api/"))
                 {
@@ -589,6 +637,51 @@ namespace SistemaAuditoriaSolutions
                 case ".wasm": return "application/wasm";
                 case ".exe": return "application/x-msdos-program";
                 default: return "application/octet-stream";
+            }
+        }
+
+        private void ExecutarAtualizacaoAutomatica()
+        {
+            try
+            {
+                Log("ExecutarAtualizacaoAutomatica: Iniciando download do instalador oficial atualizado...");
+                string tempDir = Path.GetTempPath();
+                string tempInstaller = Path.Combine(tempDir, "Sistema-Auditoria-Solutions-Setup-Update.exe");
+
+                if (File.Exists(tempInstaller))
+                {
+                    try { File.Delete(tempInstaller); } catch {}
+                }
+
+                string downloadUrl = "https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe";
+                using (var client = new WebClient())
+                {
+                    client.Headers.Add("User-Agent", "SistemaAuditoriaSolutions-Desktop-Updater");
+                    client.DownloadFile(downloadUrl, tempInstaller);
+                }
+
+                if (File.Exists(tempInstaller) && new FileInfo(tempInstaller).Length > 100000)
+                {
+                    Log("Download concluido com sucesso. Executando instalador em modo silencioso (/silent)...");
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = tempInstaller,
+                        Arguments = "/silent",
+                        UseShellExecute = true
+                    };
+                    Process.Start(psi);
+
+                    Thread.Sleep(1000);
+                    ExecuteFullShutdown();
+                }
+                else
+                {
+                    Log("Arquivo baixado parece invalido ou incompleto.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Falha em ExecutarAtualizacaoAutomatica: " + ex.ToString());
             }
         }
 

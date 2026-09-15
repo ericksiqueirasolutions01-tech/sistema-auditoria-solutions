@@ -15,16 +15,29 @@ import { HistoricoEnvios } from './pages/HistoricoEnvios';
 import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 import { ModalPrimeiraSincronizacao } from './components/ModalPrimeiraSincronizacao';
+import { ModalAtualizacaoObrigatoria } from './components/ModalAtualizacaoObrigatoria';
 import { iniciarMonitoramentoCicloVida } from './services/systemLifecycle';
+import { updateService, StatusAtualizacao } from './services/updateService';
 
 export const App: React.FC = () => {
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
   const [precisaSincronizacaoInicial, setPrecisaSincronizacaoInicial] = useState(
     () => !db.isConfiguracaoInicialConcluida()
   );
+  const [statusAtualizacao, setStatusAtualizacao] = useState<StatusAtualizacao>({
+    verificando: false,
+    temAtualizacao: false,
+    atualizando: false,
+  });
   const [activeTab, setActiveTab] = useState(() =>
     usuario?.perfil === 'ADMINISTRADOR' ? 'admin-regionais' : 'bipagem'
   );
+
+  // Monitoramento de atualizações obrigatórias do sistema
+  useEffect(() => {
+    const unsub = updateService.subscrever((st) => setStatusAtualizacao(st));
+    return () => unsub();
+  }, []);
 
   // Monitoramento de ciclo de vida (heartbeat e shutdown ao fechar)
   useEffect(() => {
@@ -101,6 +114,12 @@ export const App: React.FC = () => {
       setActiveTab('bipagem');
     }
   };
+
+  // REGRA FUNDAMENTAL: BLOQUEIO TOTAL POR ATUALIZAÇÃO OBRIGATÓRIA PENDENTE
+  // O sistema não deixa o colaborador acessar enquanto ele não atualizar!
+  if (statusAtualizacao.temAtualizacao) {
+    return <ModalAtualizacaoObrigatoria status={statusAtualizacao} />;
+  }
 
   if (!usuario) {
     return <LoginModal onLoginSucesso={handleLoginSucesso} />;

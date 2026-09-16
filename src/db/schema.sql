@@ -64,10 +64,10 @@ CREATE TABLE IF NOT EXISTS CONFIGURACOES (
 );
 
 -- ===================================================================
--- SEED INICIAL DE USUÁRIOS
+-- SEED INICIAL DE USUÁRIOS (Sem senhas hardcoded em conformidade com Gate 1)
 -- ===================================================================
 INSERT OR IGNORE INTO USUARIOS (ID, Nome, Login, SenhaHash, Perfil, Ativo, CriadoEm)
 VALUES 
-(1, 'Administrador Solutions', 'admin', 'admin123', 'ADMINISTRADOR', 1, datetime('now')),
-(2, 'Operador Bipagem', 'operador', 'operador123', 'OPERADOR', 1, datetime('now'));
+(1, 'Administrador Solutions', 'admin', '', 'ADMINISTRADOR', 1, datetime('now')),
+(2, 'Operador Bipagem', 'operador', '', 'OPERADOR', 1, datetime('now'));
 

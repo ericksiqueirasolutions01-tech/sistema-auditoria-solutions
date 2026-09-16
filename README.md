@@ -37,12 +37,12 @@ O sistema abrirá automaticamente em `http://localhost:5173`.
 
 ---
 
-## 🔑 Credenciais Padrão de Acesso
+## 🔑 Autenticação e Primeiro Acesso (Bootstrap Seguro)
 
-| Perfil | Login | Senha | Permissões |
-| :--- | :--- | :--- | :--- |
-| **Administrador** | `admin` | `admin123` | Acesso total: Bipagem, Espelhos, Consulta, Edição, Exclusão, Importação, Backup e Gestão de Usuários. |
-| **Operador** | `operador` | `operador123` | Bipagem contínua, Consulta e Geração de Espelhos de Auditoria. |
+Em conformidade com as diretrizes de segurança (Gate 1), o sistema **não possui senhas padrão gravadas em código**:
+- No primeiro acesso de qualquer usuário (Administrador ou Operador), o sistema solicita a definição imediata da nova senha (mínimo de 6 caracteres).
+- As senhas são armazenadas localmente com hash criptográfico SHA-256 e salt exclusivo.
+- Usuários adicionais podem ser criados pelo Administrador no menu **Gestão de Usuários**.
 
 ---
 

@@ -58,9 +58,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.pathname.startsWith('/api') ||
     url.pathname.startsWith('/downloads') ||
-    url.hostname.includes('extendsclass.com') ||
-    url.hostname.includes('freeimage.host') ||
-    url.hostname.includes('iili.io')
+    url.hostname.includes('extendsclass.com')
   ) {
     return;
   }

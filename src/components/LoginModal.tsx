@@ -86,11 +86,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
 
   const selecionarUsuario = (loginNome: string) => {
     setLogin(loginNome);
-    if (loginNome === 'ADMIN' || loginNome === 'ADMINISTRADOR') {
-      setSenha('Solutions123');
-    } else {
-      setSenha('');
-    }
+    setSenha('');
     setErro(null);
     setTimeout(() => {
       senhaInputRef.current?.focus();

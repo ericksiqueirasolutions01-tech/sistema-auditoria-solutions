@@ -80,14 +80,8 @@ function writeCentralDb(data: CentralData) {
     data.ultimaAtualizacao = new Date().toISOString();
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 
-    // Sanitizar fotos para a nuvem evitando estouro de limite
-    const fotosLeves = (data.fotos || []).map((f: any) => ({
-      ...f,
-      fotoDataUri:
-        f.fotoDataUri && f.fotoDataUri.startsWith('data:image') && f.fotoDataUri.length > 2000
-          ? 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90"><rect width="120" height="90" fill="%230F172A"/><text x="60" y="45" fill="%2338BDF8" font-size="11" font-family="sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="middle">FOTO REGISTRADA</text></svg>'
-          : f.fotoDataUri,
-    }));
+    // Em conformidade com o Gate 1: Preservar fotos reais sem substituição por SVG estático
+    const fotosLeves = data.fotos || [];
 
     const cloudPayload = JSON.stringify({
       system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',

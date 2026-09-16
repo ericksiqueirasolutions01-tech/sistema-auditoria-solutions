@@ -24,11 +24,12 @@ O **SISTEMA DE AUDITORIA GRUPO SOLUTIONS** é uma solução corporativa desenvol
 2. Dê um duplo-clique no arquivo **`iniciar-sistema.bat`**.
 3. O sistema será iniciado e abrirá automaticamente no navegador da estação em `http://localhost:5173`.
 
-### Credenciais Padrão:
-| Perfil | Login | Senha Padrão | Permissões |
-| :--- | :--- | :--- | :--- |
-| **Administrador** | `admin` | `admin123` | Acesso total: Bipagem, Espelhos, Consulta, Edição, Exclusão, Importação, Backup e Gestão de Usuários. |
-| **Operador** | `operador` | `operador123` | Bipagem contínua, Consulta e Geração de Espelhos de Auditoria. |
+### Procedimento de Primeiro Acesso (Bootstrap Seguro):
+Em atendimento às normas de segurança do sistema:
+- O sistema **não utiliza senhas padrão**.
+- Ao selecionar qualquer usuário pela primeira vez (`ADMIN`, `ADMINISTRADOR` ou operadores regionais), informe uma nova senha com no mínimo 6 caracteres.
+- A senha será criptografada com hash SHA-256 e gravada para os próximos acessos.
+- Novos colaboradores e operadores podem ser adicionados no menu **Gestão de Usuários**.
 
 ---
 

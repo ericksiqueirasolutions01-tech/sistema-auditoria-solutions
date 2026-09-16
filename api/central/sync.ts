@@ -39,6 +39,40 @@ export default async function handler(req: any, res: any) {
       } catch {}
     }
     const { produtos, computador, usuario, regional, fotos } = body || {};
+
+    // 1. Verificação de Autenticação Server-Side (Gate 2: unauthenticated -> denied)
+    if (!usuario || (!usuario.login && !usuario.nome)) {
+      return res.status(401).json({
+        sucesso: false,
+        erro: 'Não autorizado. Identificação de usuário e sessão autenticada são obrigatórias para sincronização.',
+      });
+    }
+
+    // 2. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
+    if (computador?.status === 'REVOGADO') {
+      return res.status(403).json({
+        sucesso: false,
+        erro: `Dispositivo bloqueado. O computador ${computador.nome || computador.id || ''} foi revogado pelo Administrador do Sistema.`,
+      });
+    }
+
+    // 3. Verificação de Escopo Regional (Gate 2: operator cross-region -> denied)
+    const perfilUsuario = usuario.perfil || 'OPERADOR';
+    const regionalUsuario = (usuario.regional || '').trim().toUpperCase();
+
+    if (perfilUsuario === 'OPERADOR' && regionalUsuario) {
+      const temCrossRegion = Array.isArray(produtos) && produtos.some((p: any) => {
+        const pReg = (p.regional || '').trim().toUpperCase();
+        return pReg && pReg !== regionalUsuario;
+      });
+      if (temCrossRegion) {
+        return res.status(403).json({
+          sucesso: false,
+          erro: `Acesso negado: operador da regional "${regionalUsuario}" tentou sincronizar produtos de outra regional. Operação rejeitada.`,
+        });
+      }
+    }
+
     if ((!Array.isArray(produtos) || produtos.length === 0) && (!Array.isArray(fotos) || fotos.length === 0)) {
       return res.status(400).json({ erro: 'Nenhum produto ou foto enviado para sincronizacao.' });
     }

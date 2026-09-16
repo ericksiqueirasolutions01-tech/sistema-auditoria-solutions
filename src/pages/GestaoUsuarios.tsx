@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { db } from '../db/storage';
-import { Usuario, PerfilUsuario } from '../types';
+import { db, isAdminOuSuper, REGIONAIS_PADRAO } from '../db/storage';
+import { Usuario, PerfilUsuario, ComputadorInfo } from '../types';
 import {
   Users,
   ShieldCheck,
@@ -9,13 +9,19 @@ import {
   Lock,
   CheckCircle2,
   AlertTriangle,
+  Monitor,
+  Ban,
+  RefreshCw,
+  Cpu,
 } from 'lucide-react';
 
 export const GestaoUsuarios: React.FC = () => {
   const usuarioLogado = db.getUsuarioAtual();
-  const isAdmin = usuarioLogado?.perfil === 'ADMINISTRADOR';
+  const isAdmin = isAdminOuSuper(usuarioLogado?.perfil);
+  const isSuperAdmin = usuarioLogado?.perfil === 'SUPER_ADMIN';
 
   const [usuarios, setUsuarios] = useState(() => db.listarUsuarios());
+  const [dispositivos, setDispositivos] = useState<ComputadorInfo[]>(() => db.listarComputadoresCadastrados());
   const [historico, setHistorico] = useState(() => db.listarHistorico(100));
 
   // Form New User
@@ -23,7 +29,9 @@ export const GestaoUsuarios: React.FC = () => {
   const [login, setLogin] = useState('');
   const [senha, setSenha] = useState('');
   const [perfil, setPerfil] = useState<PerfilUsuario>('OPERADOR');
+  const [regional, setRegional] = useState<string>('VIA VAREJO RJ');
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
+  const [msgDisp, setMsgDisp] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
 
   const handleCriarUsuario = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,15 +42,23 @@ export const GestaoUsuarios: React.FC = () => {
       return;
     }
 
+    if (senha.trim().length < 6) {
+      setMsg({ tipo: 'erro', texto: 'A senha deve conter no mínimo 6 caracteres.' });
+      return;
+    }
+
+    const regionalFinal = (perfil === 'ADMINISTRADOR' || perfil === 'SUPER_ADMIN') ? null : regional;
+
     const res = db.salvarUsuario({
       nome: nome.trim(),
       login: login.trim().toLowerCase(),
       senha: senha.trim(),
       perfil,
+      regional: regionalFinal,
     });
 
     if (res.sucesso) {
-      setMsg({ tipo: 'ok', texto: `Usuário ${nome} criado com sucesso!` });
+      setMsg({ tipo: 'ok', texto: `Usuário ${nome} cadastrado com sucesso [${perfil}]!` });
       setNome('');
       setLogin('');
       setSenha('');
@@ -66,6 +82,33 @@ export const GestaoUsuarios: React.FC = () => {
     setUsuarios(db.listarUsuarios());
   };
 
+  const handleRevogarDispositivo = (d: ComputadorInfo) => {
+    if (!isAdmin) return;
+    const confirmou = window.confirm(`Deseja realmente revogar o acesso do dispositivo "${d.nome}" (${d.id})? Ele não conseguirá mais bipar nem sincronizar.`);
+    if (!confirmou) return;
+
+    const res = db.revogarDispositivo(d.device_id || d.id);
+    if (res.sucesso) {
+      setMsgDisp({ tipo: 'ok', texto: `Dispositivo ${d.nome} revogado com sucesso!` });
+      setDispositivos(db.listarComputadoresCadastrados());
+      setHistorico(db.listarHistorico(100));
+    } else {
+      setMsgDisp({ tipo: 'erro', texto: res.erro || 'Falha ao revogar dispositivo.' });
+    }
+  };
+
+  const handleReativarDispositivo = (d: ComputadorInfo) => {
+    if (!isAdmin) return;
+    const res = db.reativarDispositivo(d.device_id || d.id);
+    if (res.sucesso) {
+      setMsgDisp({ tipo: 'ok', texto: `Dispositivo ${d.nome} reativado com sucesso!` });
+      setDispositivos(db.listarComputadoresCadastrados());
+      setHistorico(db.listarHistorico(100));
+    } else {
+      setMsgDisp({ tipo: 'erro', texto: res.erro || 'Falha ao reativar dispositivo.' });
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* User Management Section (Admin Only) */}
@@ -74,10 +117,10 @@ export const GestaoUsuarios: React.FC = () => {
           <div className="border-b border-slate-100 pb-4">
             <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2 uppercase">
               <Users className="w-6 h-6 text-purple-600" />
-              Gestão de Usuários e Permissões
+              Gestão de Usuários e Permissões (RBAC)
             </h2>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Cadastre operadores de bipagem e administradores do sistema
+              Cadastre operadores, supervisores regionais e administradores do sistema com controle estrito de escopo
             </p>
           </div>
 
@@ -101,7 +144,7 @@ export const GestaoUsuarios: React.FC = () => {
           {/* Form to create new user */}
           <form
             onSubmit={handleCriarUsuario}
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200"
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200"
           >
             <div>
               <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
@@ -135,7 +178,7 @@ export const GestaoUsuarios: React.FC = () => {
                 type="password"
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
-                placeholder="••••••"
+                placeholder="Min. 6 caracteres"
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -148,8 +191,27 @@ export const GestaoUsuarios: React.FC = () => {
                 onChange={(e) => setPerfil(e.target.value as PerfilUsuario)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-blue-500"
               >
-                <option value="OPERADOR">OPERADOR (Bipagem/Espelhos)</option>
-                <option value="ADMINISTRADOR">ADMINISTRADOR (Total)</option>
+                <option value="OPERADOR">OPERADOR (Bancada/Bipagem)</option>
+                <option value="SUPERVISOR_REGIONAL">SUPERVISOR REGIONAL</option>
+                <option value="ADMINISTRADOR">ADMINISTRADOR (Global)</option>
+                {isSuperAdmin && <option value="SUPER_ADMIN">SUPER ADMIN (Total)</option>}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Escopo Regional
+              </label>
+              <select
+                value={regional}
+                onChange={(e) => setRegional(e.target.value)}
+                disabled={perfil === 'ADMINISTRADOR' || perfil === 'SUPER_ADMIN'}
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                {REGIONAIS_PADRAO.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex items-end">
@@ -171,6 +233,7 @@ export const GestaoUsuarios: React.FC = () => {
                   <th className="py-3 px-4">Nome</th>
                   <th className="py-3 px-4">Login</th>
                   <th className="py-3 px-4">Perfil</th>
+                  <th className="py-3 px-4">Regional Atribuída</th>
                   <th className="py-3 px-3 text-center">Status</th>
                   <th className="py-3 px-4 text-center">Ações</th>
                 </tr>
@@ -183,13 +246,20 @@ export const GestaoUsuarios: React.FC = () => {
                     <td className="py-2.5 px-4">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                          u.perfil === 'ADMINISTRADOR'
+                          u.perfil === 'SUPER_ADMIN'
+                            ? 'bg-rose-100 text-rose-800'
+                            : u.perfil === 'ADMINISTRADOR'
                             ? 'bg-purple-100 text-purple-800'
+                            : u.perfil === 'SUPERVISOR_REGIONAL'
+                            ? 'bg-amber-100 text-amber-800'
                             : 'bg-blue-100 text-blue-800'
                         }`}
                       >
                         {u.perfil}
                       </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-slate-600 font-semibold">
+                      {u.regional || <span className="text-slate-400 italic font-normal">Todas as Regionais</span>}
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <span
@@ -204,10 +274,114 @@ export const GestaoUsuarios: React.FC = () => {
                       <button
                         onClick={() => handleToggleAtivo(u)}
                         disabled={u.id === usuarioLogado?.id}
-                        className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:opacity-30"
+                        className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:opacity-30 cursor-pointer"
                       >
                         {u.ativo ? 'Desativar' : 'Ativar'}
                       </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Device Enrollment & Revocation Management (Gate 2) */}
+      {isAdmin && (
+        <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2 uppercase">
+                <Cpu className="w-6 h-6 text-blue-600" />
+                Estações de Trabalho & Dispositivos Autorizados (Device Enrollment)
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Rastreabilidade de computadores vinculados à operação com emissão de identidade única e revogação remota
+              </p>
+            </div>
+            <span className="text-xs font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-lg border border-blue-200">
+              {dispositivos.length} estações cadastradas
+            </span>
+          </div>
+
+          {msgDisp && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                msgDisp.tipo === 'ok'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                  : 'bg-rose-50 border-rose-300 text-rose-800'
+              }`}
+            >
+              {msgDisp.tipo === 'ok' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+              )}
+              <span>{msgDisp.texto}</span>
+            </div>
+          )}
+
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-900 text-white font-black uppercase text-[11px]">
+                <tr>
+                  <th className="py-3 px-4">Estação / Nome</th>
+                  <th className="py-3 px-4">Identificador Único (Device ID)</th>
+                  <th className="py-3 px-4">Regional</th>
+                  <th className="py-3 px-4 text-center">Versão App</th>
+                  <th className="py-3 px-4">Último Acesso</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {dispositivos.map((d) => (
+                  <tr key={d.device_id || d.id} className="hover:bg-slate-50">
+                    <td className="py-2.5 px-4 font-bold text-slate-800 flex items-center gap-2">
+                      <Monitor className="w-4 h-4 text-slate-400" />
+                      <span>{d.nome}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">({d.id})</span>
+                    </td>
+                    <td className="py-2.5 px-4 font-mono text-[10px] text-slate-500">
+                      {d.device_id || <span className="italic text-slate-400">Emissão Pendente</span>}
+                    </td>
+                    <td className="py-2.5 px-4 font-semibold text-slate-700">{d.regional}</td>
+                    <td className="py-2.5 px-4 text-center font-mono text-[11px] text-slate-600">
+                      {d.app_version || '1.2.0'}
+                    </td>
+                    <td className="py-2.5 px-4 text-slate-500 text-[11px]">
+                      {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString('pt-BR') : 'Sem registro'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                          d.status === 'REVOGADO'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {d.status || 'ATIVO'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-center">
+                      {d.status === 'REVOGADO' ? (
+                        <button
+                          onClick={() => handleReativarDispositivo(d)}
+                          className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 mx-auto cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Reativar
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleRevogarDispositivo(d)}
+                          className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 mx-auto cursor-pointer"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          Revogar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -272,4 +446,3 @@ export const GestaoUsuarios: React.FC = () => {
     </div>
   );
 };
-

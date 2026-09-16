@@ -1,6 +1,9 @@
 import {
   ProdutoAuditoria,
   Usuario,
+  PerfilUsuario,
+  SessaoUsuario,
+  DeviceStatus,
   HistoricoAuditoria,
   ContadoresCaixa,
   MetricasDashboard,
@@ -31,6 +34,7 @@ import {
   RegistroLoteFinalizado,
   FiltroLoteFinalizado,
 } from '../types';
+import { VERSAO_LOCAL } from '../version';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
 const STORAGE_KEY_USUARIOS = 'solutions_auditoria_usuarios_v1';
@@ -204,6 +208,85 @@ export function hashSenha(senha: string): string {
   return sha256Sync(`solutions_auth_salt_2026_${senha.trim()}`);
 }
 
+export function gerarUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function isAdminOuSuper(perfil?: PerfilUsuario | null): boolean {
+  return perfil === 'ADMINISTRADOR' || perfil === 'SUPER_ADMIN';
+}
+
+export function isSupervisor(perfil?: PerfilUsuario | null): boolean {
+  return perfil === 'SUPERVISOR_REGIONAL';
+}
+
+export function podeAcessarRegional(usuario: Usuario | null, regionalAlvo: string): boolean {
+  if (!usuario) return false;
+  if (isAdminOuSuper(usuario.perfil)) return true;
+  if (!regionalAlvo || regionalAlvo === 'TODAS' || regionalAlvo === 'GERAL') {
+    return isAdminOuSuper(usuario.perfil);
+  }
+  return (usuario.regional || '').trim().toUpperCase() === regionalAlvo.trim().toUpperCase();
+}
+
+export function criarTokenSessao(usuario: Usuario, deviceId: string): SessaoUsuario {
+  const iat = Date.now();
+  const exp = iat + 8 * 60 * 60 * 1000; // 8 horas de validade
+  const payloadStr = `${usuario.id}:${usuario.login}:${usuario.perfil}:${usuario.regional || 'GERAL'}:${deviceId}:${iat}:${exp}`;
+  const assinatura = sha256Sync(`solutions_session_key_2026_${payloadStr}`);
+  const token = `${btoa(payloadStr)}.${assinatura}`;
+  return {
+    token,
+    user_id: usuario.id,
+    login: usuario.login,
+    nome: usuario.nome,
+    perfil: usuario.perfil,
+    regional: usuario.regional || null,
+    device_id: deviceId,
+    iat,
+    exp,
+  };
+}
+
+export function validarTokenSessao(token: string): { valido: boolean; sessao?: Partial<SessaoUsuario>; erro?: string } {
+  if (!token || !token.includes('.')) return { valido: false, erro: 'Token ausente ou malformado.' };
+  const [payloadB64, assinatura] = token.split('.');
+  let payloadStr = '';
+  try {
+    payloadStr = atob(payloadB64);
+  } catch {
+    return { valido: false, erro: 'Codificação de token inválida.' };
+  }
+  const signatureExpected = sha256Sync(`solutions_session_key_2026_${payloadStr}`);
+  if (assinatura !== signatureExpected) {
+    return { valido: false, erro: 'Assinatura criptográfica de sessão inválida.' };
+  }
+  const [userIdStr, login, perfil, regional, deviceId, iatStr, expStr] = payloadStr.split(':');
+  const exp = parseInt(expStr, 10);
+  if (Date.now() > exp) {
+    return { valido: false, erro: 'Sessão expirada. Faça login novamente.' };
+  }
+  return {
+    valido: true,
+    sessao: {
+      user_id: parseInt(userIdStr, 10),
+      login,
+      perfil: perfil as PerfilUsuario,
+      regional: regional === 'GERAL' ? null : regional,
+      device_id: deviceId,
+      exp,
+      iat: parseInt(iatStr, 10),
+    },
+  };
+}
+
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
   if (!dataUri) return '';
   // Em conformidade com o Gate 1: Não substitui evidências reais por SVG falso e não usa chave externa no client
@@ -301,6 +384,16 @@ if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.p
 export const DEFAULT_USUARIOS: Usuario[] = [
   {
     id: 1,
+    nome: 'SUPER ADMIN',
+    login: 'SUPERADMIN',
+    senha: '',
+    perfil: 'SUPER_ADMIN',
+    regional: null,
+    ativo: true,
+    criado_em: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 2,
     nome: 'ADMIN',
     login: 'ADMIN',
     senha: '',
@@ -310,7 +403,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: '2026-01-01T00:00:00.000Z',
   },
   {
-    id: 2,
+    id: 3,
     nome: 'ADMINISTRADOR',
     login: 'ADMINISTRADOR',
     senha: '',
@@ -320,7 +413,17 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: '2026-01-01T00:00:00.000Z',
   },
   {
-    id: 3,
+    id: 4,
+    nome: 'SUPERVISOR RJ',
+    login: 'SUPERVISOR RJ',
+    senha: '',
+    perfil: 'SUPERVISOR_REGIONAL',
+    regional: 'VIA VAREJO RJ',
+    ativo: true,
+    criado_em: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 5,
     nome: 'VIA VAREJO RJ',
     login: 'VIA VAREJO RJ',
     senha: '',
@@ -330,7 +433,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: '2026-01-01T00:00:00.000Z',
   },
   {
-    id: 4,
+    id: 6,
     nome: 'VIA VAREJO SP',
     login: 'VIA VAREJO SP',
     senha: '',
@@ -340,7 +443,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: '2026-01-01T00:00:00.000Z',
   },
   {
-    id: 5,
+    id: 7,
     nome: 'VIA VAREJO MG',
     login: 'VIA VAREJO MG',
     senha: '',
@@ -350,7 +453,7 @@ export const DEFAULT_USUARIOS: Usuario[] = [
     criado_em: '2026-01-01T00:00:00.000Z',
   },
   {
-    id: 6,
+    id: 8,
     nome: 'VIA VAREJO BA',
     login: 'VIA VAREJO BA',
     senha: '',
@@ -693,48 +796,90 @@ class AuditoriaDatabase {
   // Cada computador possui identificação única automática (ex: PC-RJ-001)
   // Permite que o mesmo login seja usado em múltiplos computadores simultâneos.
   // =========================================================================
+  // =========================================================================
+  // IDENTIFICAÇÃO E ENROLLMENT DO DISPOSITIVO (WORKSTATION ENROLLMENT)
+  // Cada estação de trabalho possui identidade criptográfica imutável (UUID)
+  // Administradores podem revogar ou autorizar dispositivos remotamente.
+  // =========================================================================
   obterComputadorAtual(regional?: string): ComputadorInfo {
-    const raw = localStorage.getItem(STORAGE_KEY_COMPUTADOR);
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_COMPUTADOR) : null;
+    let comp: ComputadorInfo | null = null;
     if (raw) {
       try {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.id) return parsed;
+        comp = JSON.parse(raw);
       } catch {}
     }
+
     const reg = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
     let sufixo = 'RJ';
     if (reg.includes('SP')) sufixo = 'SP';
     else if (reg.includes('MG')) sufixo = 'MG';
     else if (reg.includes('BA')) sufixo = 'BA';
 
-    const defaultComp: ComputadorInfo = {
-      id: `PC-${sufixo}-001`,
-      nome: `Estação de Bipagem 01`,
-      regional: reg,
-      data_primeiro_uso: new Date().toISOString(),
-    };
-    this.definirComputadorAtual(defaultComp);
-    return defaultComp;
+    if (!comp || !comp.device_id) {
+      const novoDeviceId = gerarUUID();
+      comp = {
+        id: comp?.id || `PC-${sufixo}-001`,
+        device_id: novoDeviceId,
+        nome: comp?.nome || `Estação de Bipagem 01`,
+        regional: reg,
+        data_primeiro_uso: comp?.data_primeiro_uso || new Date().toISOString(),
+        status: 'ATIVO',
+        app_version: VERSAO_LOCAL.versao,
+        last_seen_at: new Date().toISOString(),
+        revoked_at: null,
+      };
+      this.definirComputadorAtual(comp);
+      return comp;
+    }
+
+    // Atualiza metadados em tempo de execução
+    comp.last_seen_at = new Date().toISOString();
+    comp.app_version = VERSAO_LOCAL.versao;
+
+    // Sincroniza com a lista de dispositivos para verificar revogações
+    const lista = this.listarComputadoresCadastrados();
+    const existente = lista.find((c) => c.device_id === comp!.device_id || c.id === comp!.id);
+    if (existente && existente.status === 'REVOGADO') {
+      comp.status = 'REVOGADO';
+      comp.revoked_at = existente.revoked_at;
+    }
+
+    this.definirComputadorAtual(comp);
+    return comp;
   }
 
   definirComputadorAtual(info: ComputadorInfo): void {
-    localStorage.setItem(STORAGE_KEY_COMPUTADOR, JSON.stringify(info));
+    if (!info.device_id) {
+      info.device_id = gerarUUID();
+    }
+    if (!info.status) {
+      info.status = 'ATIVO';
+    }
+    info.last_seen_at = new Date().toISOString();
+    info.app_version = VERSAO_LOCAL.versao;
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_COMPUTADOR, JSON.stringify(info));
+    }
     this.salvarComputadorNaLista(info);
   }
 
   private salvarComputadorNaLista(info: ComputadorInfo): void {
     const lista = this.listarComputadoresCadastrados();
-    const idx = lista.findIndex((c) => c.id === info.id);
+    const idx = lista.findIndex((c) => c.device_id === info.device_id || c.id === info.id);
     if (idx >= 0) {
-      lista[idx] = info;
+      lista[idx] = { ...lista[idx], ...info };
     } else {
       lista.push(info);
     }
-    localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+    }
   }
 
   listarComputadoresCadastrados(regional?: string): ComputadorInfo[] {
-    const raw = localStorage.getItem(STORAGE_KEY_COMPUTADORES);
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_COMPUTADORES) : null;
     let lista: ComputadorInfo[] = [];
     if (raw) {
       try {
@@ -743,23 +888,29 @@ class AuditoriaDatabase {
     }
     if (lista.length === 0) {
       lista = [
-        { id: 'PC-RJ-001', nome: 'Estação 01 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
-        { id: 'PC-RJ-002', nome: 'Estação 02 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
-        { id: 'PC-RJ-003', nome: 'Estação 03 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-02T08:00:00.000Z' },
-        { id: 'PC-SP-001', nome: 'Estação 01 - SP', regional: 'VIA VAREJO SP', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
-        { id: 'PC-SP-002', nome: 'Estação 02 - SP', regional: 'VIA VAREJO SP', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
-        { id: 'PC-MG-001', nome: 'Estação 01 - MG', regional: 'VIA VAREJO MG', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
-        { id: 'PC-BA-001', nome: 'Estação 01 - BA', regional: 'VIA VAREJO BA', data_primeiro_uso: '2026-09-01T08:00:00.000Z' },
+        { id: 'PC-RJ-001', device_id: 'd1000000-0000-4000-8000-000000000001', nome: 'Estação 01 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-RJ-002', device_id: 'd1000000-0000-4000-8000-000000000002', nome: 'Estação 02 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-RJ-003', device_id: 'd1000000-0000-4000-8000-000000000003', nome: 'Estação 03 - RJ', regional: 'VIA VAREJO RJ', data_primeiro_uso: '2026-09-02T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-SP-001', device_id: 'd1000000-0000-4000-8000-000000000004', nome: 'Estação 01 - SP', regional: 'VIA VAREJO SP', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-SP-002', device_id: 'd1000000-0000-4000-8000-000000000005', nome: 'Estação 02 - SP', regional: 'VIA VAREJO SP', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-MG-001', device_id: 'd1000000-0000-4000-8000-000000000006', nome: 'Estação 01 - MG', regional: 'VIA VAREJO MG', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
+        { id: 'PC-BA-001', device_id: 'd1000000-0000-4000-8000-000000000007', nome: 'Estação 01 - BA', regional: 'VIA VAREJO BA', data_primeiro_uso: '2026-09-01T08:00:00.000Z', status: 'ATIVO', app_version: '1.2.0', last_seen_at: '2026-09-15T12:00:00.000Z' },
       ];
-      localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+      }
     }
     for (const p of this.produtos) {
       if (p.computador_id && !lista.some((c) => c.id === p.computador_id)) {
         lista.push({
           id: p.computador_id,
+          device_id: gerarUUID(),
           nome: p.computador_nome || p.computador_id,
           regional: p.regional,
           data_primeiro_uso: p.data_cadastro,
+          status: 'ATIVO',
+          app_version: VERSAO_LOCAL.versao,
+          last_seen_at: p.data_cadastro,
         });
       }
     }
@@ -769,13 +920,96 @@ class AuditoriaDatabase {
     return lista;
   }
 
-  autenticar(login: string, pass: string): { sucesso: boolean; usuario?: Usuario; erro?: string } {
+  isDispositivoRevogado(deviceId?: string): boolean {
+    const comp = this.obterComputadorAtual();
+    const target = deviceId || comp.device_id || comp.id;
+    const lista = this.listarComputadoresCadastrados();
+    const achado = lista.find((c) => c.device_id === target || c.id === target);
+    return achado ? achado.status === 'REVOGADO' : comp.status === 'REVOGADO';
+  }
+
+  revogarDispositivo(identificador: string, motivo?: string): { sucesso: boolean; erro?: string } {
+    if (!isAdminOuSuper(this.usuarioAtual?.perfil)) {
+      return { sucesso: false, erro: 'Apenas Administradores têm permissão para revogar dispositivos.' };
+    }
+    const lista = this.listarComputadoresCadastrados();
+    const idx = lista.findIndex((c) => c.device_id === identificador || c.id === identificador);
+    if (idx === -1) {
+      return { sucesso: false, erro: 'Dispositivo não encontrado.' };
+    }
+    const agora = new Date().toISOString();
+    lista[idx].status = 'REVOGADO';
+    lista[idx].revoked_at = agora;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+    }
+
+    const ativo = this.obterComputadorAtual();
+    if (ativo.device_id === lista[idx].device_id || ativo.id === lista[idx].id) {
+      ativo.status = 'REVOGADO';
+      ativo.revoked_at = agora;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_COMPUTADOR, JSON.stringify(ativo));
+      }
+    }
+
+    const detalheMotivo = motivo?.trim() ? `. Motivo: ${motivo.trim()}` : '';
+    this.registrarHistorico(
+      this.usuarioAtual?.nome || 'Admin',
+      'REVOGACAO_DISPOSITIVO',
+      `Dispositivo ${lista[idx].nome} (${lista[idx].id}) revogado pelo administrador${detalheMotivo}.`
+    );
+    return { sucesso: true };
+  }
+
+  reativarDispositivo(identificador: string): { sucesso: boolean; erro?: string } {
+    if (!isAdminOuSuper(this.usuarioAtual?.perfil)) {
+      return { sucesso: false, erro: 'Apenas Administradores têm permissão para reativar dispositivos.' };
+    }
+    const lista = this.listarComputadoresCadastrados();
+    const idx = lista.findIndex((c) => c.device_id === identificador || c.id === identificador);
+    if (idx === -1) {
+      return { sucesso: false, erro: 'Dispositivo não encontrado.' };
+    }
+    lista[idx].status = 'ATIVO';
+    lista[idx].revoked_at = null;
+    lista[idx].last_seen_at = new Date().toISOString();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_COMPUTADORES, JSON.stringify(lista));
+    }
+
+    const ativo = this.obterComputadorAtual();
+    if (ativo.device_id === lista[idx].device_id || ativo.id === lista[idx].id) {
+      ativo.status = 'ATIVO';
+      ativo.revoked_at = null;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_COMPUTADOR, JSON.stringify(ativo));
+      }
+    }
+
+    this.registrarHistorico(
+      this.usuarioAtual?.nome || 'Admin',
+      'REATIVACAO_DISPOSITIVO',
+      `Dispositivo ${lista[idx].nome} (${lista[idx].id}) reativado com sucesso.`
+    );
+    return { sucesso: true };
+  }
+
+  autenticar(login: string, pass: string): { sucesso: boolean; usuario?: Usuario; sessao?: SessaoUsuario; erro?: string } {
     const loginNorm = login.trim().toUpperCase();
     const passTrim = pass.trim();
 
+    // 0. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
+    if (this.isDispositivoRevogado()) {
+      return {
+        sucesso: false,
+        erro: 'Acesso bloqueado: Este dispositivo foi revogado pelo Administrador do Sistema. Contate o suporte.',
+      };
+    }
+
     // REGRA FUNDAMENTAL: O Painel Administrativo / Servidor Central funciona exclusivamente ONLINE na Web
     // O aplicativo instalado no computador é exclusivo para operação e bipagem dos operadores nas bancadas
-    if ((loginNorm === 'ADMIN' || loginNorm === 'ADMINISTRADOR') && isDesktopApp()) {
+    if ((loginNorm === 'ADMIN' || loginNorm === 'ADMINISTRADOR' || loginNorm === 'SUPERADMIN') && isDesktopApp()) {
       return {
         sucesso: false,
         erro: 'Acesso Restrito: O Painel de Administrador (Servidor Central) deve ser acessado exclusivamente pela versão Web Online (https://sistema-auditoria-solutions.vercel.app). Este aplicativo instalado no computador é exclusivo para operadores nas bancadas.',
@@ -791,7 +1025,7 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'Usuário não encontrado ou usuário inativo.' };
     }
 
-    if (user.perfil === 'ADMINISTRADOR' && isDesktopApp()) {
+    if (isAdminOuSuper(user.perfil) && isDesktopApp()) {
       return {
         sucesso: false,
         erro: 'Acesso Restrito: O Painel de Administrador (Servidor Central) deve ser acessado exclusivamente pela versão Web Online (https://sistema-auditoria-solutions.vercel.app). Este aplicativo instalado no computador é exclusivo para operadores nas bancadas.',
@@ -827,13 +1061,20 @@ class AuditoriaDatabase {
       }
     }
 
+    // Emissão do Token de Sessão Criptográfico (Gate 2)
+    const comp = this.obterComputadorAtual(user.regional || undefined);
+    const sessao = criarTokenSessao(user, comp.device_id || comp.id);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('solutions_auth_session_token_v1', sessao.token);
+    }
+
     this.setUsuarioAtual(user);
     this.registrarHistorico(
       user.nome,
       'LOGIN',
-      `Usuário ${user.nome} (${user.regional || 'Geral'}) acessou o sistema.`
+      `Usuário ${user.nome} [${user.perfil}] (${user.regional || 'Geral'}) autenticado com sucesso no dispositivo ${comp.id}.`
     );
-    return { sucesso: true, usuario: user };
+    return { sucesso: true, usuario: user, sessao };
   }
 
   // Audit History
@@ -938,7 +1179,31 @@ class AuditoriaDatabase {
     aparelho_marcas_uso?: SimNao | null;
     observacao?: string;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
-    const serialNorm = item.serial.trim().toUpperCase();
+    // 0.0. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
+    if (this.isDispositivoRevogado()) {
+      return {
+        sucesso: false,
+        erro: 'Operação bloqueada: Este dispositivo foi revogado pelo Administrador do Sistema.',
+      };
+    }
+
+    // 0.0.1. Verificação de Autenticação Obrigatória (Gate 2: unauthenticated -> denied)
+    if (!this.usuarioAtual) {
+      return {
+        sucesso: false,
+        erro: 'Não autenticado: Efetue login para auditar produtos.',
+      };
+    }
+
+    // 0.0.2. Verificação de Escopo Regional (Gate 2: operator cross-region -> denied)
+    if (item.regional && !podeAcessarRegional(this.usuarioAtual, item.regional)) {
+      return {
+        sucesso: false,
+        erro: `Acesso negado: Usuário (${this.usuarioAtual.login}) com perfil "${this.usuarioAtual.perfil}" está restrito à regional "${this.usuarioAtual.regional || 'atribuída'}" e não pode registrar produtos em "${item.regional}".`,
+      };
+    }
+
+    const serialNorm = (item.serial || '').trim().toUpperCase();
     const loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || '').trim().toUpperCase();
 
     // 0. Validação obrigatória do Número do Lote
@@ -947,12 +1212,12 @@ class AuditoriaDatabase {
     }
 
     const regionalFinal =
-      this.usuarioAtual?.perfil === 'OPERADOR' && this.usuarioAtual.regional
+      this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
         ? this.usuarioAtual.regional
-        : (item.regional?.trim() || (this.usuarioAtual?.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
+        : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
 
     // 0.1. Bloqueio de Lote Finalizado: Colaborador não pode inserir produtos em lote já finalizado
-    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.isLoteFinalizado(loteNorm, regionalFinal)) {
+    if (!isAdminOuSuper(this.usuarioAtual.perfil) && this.isLoteFinalizado(loteNorm, regionalFinal)) {
       return {
         sucesso: false,
         erro: `O Lote ${loteNorm} foi FINALIZADO e bloqueado. Não é permitida a inclusão de novos produtos neste lote. Inicie um novo lote.`,
@@ -1532,8 +1797,22 @@ class AuditoriaDatabase {
     usuarioAdmin: string,
     motivo: string
   ): { sucesso: boolean; erro?: string } {
-    if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR') {
-      return { sucesso: false, erro: 'Apenas Administradores têm permissão para reabrir lotes finalizados.' };
+    const perfil = this.usuarioAtual?.perfil;
+    const isSuperOuAdmin = isAdminOuSuper(perfil);
+    const isSupervisorMesmaRegional =
+      isSupervisor(perfil) && podeAcessarRegional(this.usuarioAtual, regional);
+
+    if (!isSuperOuAdmin && !isSupervisorMesmaRegional) {
+      if (perfil === 'OPERADOR') {
+        return {
+          sucesso: false,
+          erro: 'Acesso negado: Operadores não possuem permissão para reabrir lotes finalizados. Solicite ao Supervisor ou Administrador.',
+        };
+      }
+      return {
+        sucesso: false,
+        erro: 'Acesso negado: Você não possui permissão para reabrir lotes desta regional.',
+      };
     }
 
     const loteNorm = numeroLote.trim().toUpperCase();
@@ -1558,9 +1837,9 @@ class AuditoriaDatabase {
       id: `hist-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       dataHora: agora,
       usuario: usuarioAdmin,
-      perfil: 'ADMINISTRADOR',
+      perfil: this.usuarioAtual?.perfil || 'ADMINISTRADOR',
       acao: 'REABERTURA',
-      detalhes: `Lote reaberto pelo Administrador ${usuarioAdmin}. Motivo: ${motivo.trim()}`,
+      detalhes: `Lote reaberto por ${usuarioAdmin} [${this.usuarioAtual?.perfil || 'ADMIN'}]. Motivo: ${motivo.trim()}`,
     };
 
     lote.historico_alteracoes.push(novoHist);
@@ -3714,10 +3993,18 @@ class AuditoriaDatabase {
     return [...this.usuarios];
   }
 
-  salvarUsuario(u: Partial<Usuario> & { nome: string; login: string; senha?: string; perfil: 'ADMINISTRADOR' | 'OPERADOR'; regional?: string | null }): {
+  salvarUsuario(u: Partial<Usuario> & { nome: string; login: string; senha?: string; perfil: PerfilUsuario; regional?: string | null }): {
     sucesso: boolean;
     erro?: string;
   } {
+    if (!isAdminOuSuper(this.usuarioAtual?.perfil)) {
+      return { sucesso: false, erro: 'Acesso negado: Apenas Administradores podem gerenciar usuários do sistema.' };
+    }
+
+    if (u.perfil === 'SUPER_ADMIN' && this.usuarioAtual?.perfil !== 'SUPER_ADMIN') {
+      return { sucesso: false, erro: 'Apenas Super Administradores podem cadastrar outros usuários com perfil Super Admin.' };
+    }
+
     if (u.id) {
       const idx = this.usuarios.findIndex((item) => item.id === u.id);
       if (idx === -1) return { sucesso: false, erro: 'Usuário não encontrado.' };

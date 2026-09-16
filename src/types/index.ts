@@ -36,11 +36,18 @@ export interface ResultadoSincronizacao {
   mensagem: string;
 }
 
+export type DeviceStatus = 'ATIVO' | 'PENDENTE' | 'REVOGADO';
+
 export interface ComputadorInfo {
   id: string; // Ex: 'PC-RJ-001'
+  device_id?: string; // UUID v4 emitido pelo servidor/sistema
   nome: string; // Ex: 'Estação de Bipagem 01'
   regional: string; // Ex: 'VIA VAREJO RJ'
   data_primeiro_uso: string; // Data ISO
+  status?: DeviceStatus; // 'ATIVO' | 'PENDENTE' | 'REVOGADO'
+  app_version?: string;
+  last_seen_at?: string;
+  revoked_at?: string | null;
 }
 
 export interface RegistroSincronizacaoEnvio {
@@ -102,7 +109,19 @@ export interface ProdutoAuditoria {
   sync_data?: string | null;
 }
 
-export type PerfilUsuario = 'ADMINISTRADOR' | 'OPERADOR';
+export type PerfilUsuario = 'SUPER_ADMIN' | 'ADMINISTRADOR' | 'SUPERVISOR_REGIONAL' | 'OPERADOR';
+
+export interface SessaoUsuario {
+  token: string;
+  user_id: number;
+  login: string;
+  nome: string;
+  perfil: PerfilUsuario;
+  regional: string | null;
+  device_id: string;
+  exp: number;
+  iat: number;
+}
 
 export interface Usuario {
   id: number;
@@ -110,7 +129,7 @@ export interface Usuario {
   login: string;
   senha: string;
   perfil: PerfilUsuario;
-  regional?: string | null; // Para operadores: 'VIA VAREJO RJ', etc. Para admin: null ou 'TODAS'
+  regional?: string | null; // Para operadores e supervisores: 'VIA VAREJO RJ', etc. Para admin: null ou 'TODAS'
   ativo: boolean;
   criado_em: string;
   nome_colaborador?: string; // Nome completo do colaborador identificado no turno

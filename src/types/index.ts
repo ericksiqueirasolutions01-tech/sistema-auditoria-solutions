@@ -362,5 +362,60 @@ export interface FiltroLoteFinalizado {
   status?: 'TODOS' | StatusLote;
 }
 
+// --- GATE 8: MANIFESTO E TIPOS DE BACKUP E RESTORE ---
+export interface BackupManifest {
+  format_version: number;
+  app_version: string;
+  created_at: string;
+  device_id: string;
+  tables: {
+    produtos: ProdutoAuditoria[];
+    lotes_finalizados: RegistroLoteFinalizado[];
+    usuarios: Omit<Usuario, 'senha'>[]; // Regra 12.1: Nunca incluir senha plaintext
+    computadores?: ComputadorInfo[];
+    historico?: HistoricoAuditoria[];
+    tentativas_duplicadas?: LogTentativaDuplicado[];
+  };
+  files?: Record<string, { size_bytes: number; sha256: string; mime_type: string }>;
+  summary: {
+    total_produtos: number;
+    total_lotes: number;
+    total_usuarios: number;
+    total_historico: number;
+  };
+  checksum: string; // Hash SHA-256 do payload canônico de tables
+}
+
+export interface DryRunResultado {
+  valido: boolean;
+  erro?: string;
+  manifest?: BackupManifest;
+  detalhes: {
+    totalProdutos: number;
+    totalLotes: number;
+    totalUsuarios: number;
+    totalFotos?: number;
+    totalHistorico: number;
+    dataCriacao: string;
+    appVersion: string;
+    deviceId: string;
+    checksumValido: boolean;
+  };
+}
+
+export interface ResultadoRestauracao {
+  sucesso: boolean;
+  erro?: string;
+  totalImportado?: number;
+  snapshotId?: string;
+  contagensRestauradas?: {
+    produtos: number;
+    lotes: number;
+    usuarios: number;
+    historico: number;
+  };
+}
+
+
 
 

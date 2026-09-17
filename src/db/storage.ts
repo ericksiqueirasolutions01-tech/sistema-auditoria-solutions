@@ -33,6 +33,7 @@ import {
   HistoricoAlteracaoLote,
   RegistroLoteFinalizado,
   FiltroLoteFinalizado,
+  BackupManifest,
 } from '../types';
 import { VERSAO_LOCAL } from '../version';
 import {
@@ -3933,32 +3934,108 @@ class AuditoriaDatabase {
   }
 
   // Backup and Restore
+  // Backup and Restore (Conforme Gate 8 / Regra 12)
   gerarArquivoBackup(): string {
-    const payload = {
-      versao: '1.0',
-      sistema: 'SISTEMA DE AUDITORIA GRUPO SOLUTIONS',
-      gerado_em: new Date().toISOString(),
-      total_registros: this.produtos.length,
+    const usuariosSanitizados: Omit<Usuario, 'senha'>[] = this.usuarios.map((u) => {
+      const { senha: _senhaOmitida, ...resto } = u;
+      return resto;
+    });
+
+    const tables = {
       produtos: this.produtos,
-      usuarios: this.usuarios,
+      lotes_finalizados: this.lotesFinalizados,
+      usuarios: usuariosSanitizados,
+      computadores: this.listarComputadoresCadastrados(),
       historico: this.historico,
+      tentativas_duplicadas: this.tentativasDuplicadas,
     };
-    return JSON.stringify(payload, null, 2);
+
+    // Serialização canônica com ordenação determinística de chaves para cálculo do checksum
+    const sortedKeys = Object.keys(tables).sort();
+    const canonical: Record<string, any> = {};
+    for (const k of sortedKeys) {
+      canonical[k] = (tables as any)[k];
+    }
+    const checksum = sha256Sync(JSON.stringify(canonical));
+
+    const manifest: BackupManifest = {
+      format_version: 1,
+      app_version: VERSAO_LOCAL.versao,
+      created_at: new Date().toISOString(),
+      device_id: this.obterComputadorAtual().id || 'PC-LOCAL',
+      tables,
+      summary: {
+        total_produtos: this.produtos.length,
+        total_lotes: this.lotesFinalizados.length,
+        total_usuarios: this.usuarios.length,
+        total_historico: this.historico.length,
+      },
+      checksum,
+    };
+
+    return JSON.stringify(manifest, null, 2);
   }
 
   restaurarDeBackup(conteudoJson: string): { sucesso: boolean; totalImportado?: number; erro?: string } {
     try {
       const parsed = JSON.parse(conteudoJson);
-      if (!parsed || !Array.isArray(parsed.produtos)) {
-        return { sucesso: false, erro: 'Arquivo de backup inválido ou corrompido.' };
+      if (!parsed) {
+        return { sucesso: false, erro: 'Arquivo de backup inválido ou vazio.' };
       }
 
-      this.produtos = parsed.produtos;
-      if (Array.isArray(parsed.usuarios)) {
-        this.usuarios = parsed.usuarios;
+      let produtosRestaurar: ProdutoAuditoria[] = [];
+      let lotesRestaurar: RegistroLoteFinalizado[] = [];
+      let historicoRestaurar: HistoricoAuditoria[] = [];
+      let usuariosRestaurar: Omit<Usuario, 'senha'>[] = [];
+
+      // Suporte para Manifest v1 (Gate 8)
+      if (parsed.format_version && parsed.tables) {
+        // Validação de integridade por checksum
+        const sortedKeys = Object.keys(parsed.tables).sort();
+        const canonical: Record<string, any> = {};
+        for (const k of sortedKeys) {
+          canonical[k] = parsed.tables[k];
+        }
+        const calcChecksum = sha256Sync(JSON.stringify(canonical));
+        if (parsed.checksum && parsed.checksum !== calcChecksum) {
+          return {
+            sucesso: false,
+            erro: 'Integridade violada: O checksum SHA-256 do arquivo diverge das tabelas. Restauração abortada.',
+          };
+        }
+
+        produtosRestaurar = parsed.tables.produtos || [];
+        lotesRestaurar = parsed.tables.lotes_finalizados || [];
+        historicoRestaurar = parsed.tables.historico || [];
+        usuariosRestaurar = parsed.tables.usuarios || [];
+      } else if (Array.isArray(parsed.produtos)) {
+        // Compatibilidade com backups legados
+        produtosRestaurar = parsed.produtos;
+        lotesRestaurar = parsed.lotes_finalizados || [];
+        historicoRestaurar = parsed.historico || [];
+        usuariosRestaurar = parsed.usuarios || [];
+      } else {
+        return { sucesso: false, erro: 'Estrutura do backup não reconhecida ou tabela de produtos ausente.' };
       }
-      if (Array.isArray(parsed.historico)) {
-        this.historico = parsed.historico;
+
+      this.produtos = produtosRestaurar;
+      if (lotesRestaurar.length > 0) {
+        this.lotesFinalizados = lotesRestaurar;
+      }
+      if (historicoRestaurar.length > 0) {
+        this.historico = historicoRestaurar;
+      }
+
+      // Preservar senhas locais existentes para não sobrescrever com strings vazias
+      if (usuariosRestaurar.length > 0) {
+        const mapaSenhas = new Map<string, string>();
+        for (const u of this.usuarios) {
+          mapaSenhas.set(u.login.trim().toLowerCase(), u.senha);
+        }
+        this.usuarios = usuariosRestaurar.map((u: any) => ({
+          ...u,
+          senha: mapaSenhas.get(u.login?.trim().toLowerCase()) || u.senha || '',
+        }));
       }
 
       // Rebuild index

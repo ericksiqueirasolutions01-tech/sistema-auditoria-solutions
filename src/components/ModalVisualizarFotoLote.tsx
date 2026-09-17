@@ -16,6 +16,15 @@ export const ModalVisualizarFotoLote: React.FC<ModalVisualizarFotoLoteProps> = (
   fotoDataUri,
   onClose,
 }) => {
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !fotoDataUri) return null;
 
   const handleDownload = () => {
@@ -29,6 +38,9 @@ export const ModalVisualizarFotoLote: React.FC<ModalVisualizarFotoLoteProps> = (
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-visualizar-foto"
       className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fadeIn"
       onClick={onClose}
     >
@@ -41,7 +53,7 @@ export const ModalVisualizarFotoLote: React.FC<ModalVisualizarFotoLoteProps> = (
           <div className="flex items-center gap-2">
             <ZoomIn className="w-4 h-4 text-blue-400 shrink-0" />
             <div>
-              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white">
+              <h3 id="titulo-visualizar-foto" className="text-xs sm:text-sm font-black uppercase tracking-wider text-white">
                 {titulo}
               </h3>
               {subtitulo && <p className="text-[10px] text-slate-400">{subtitulo}</p>}
@@ -50,16 +62,20 @@ export const ModalVisualizarFotoLote: React.FC<ModalVisualizarFotoLoteProps> = (
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleDownload}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              aria-label="Baixar imagem em alta resolução"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
               title="Baixar imagem em alta resolução"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Baixar Foto</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              aria-label="Fechar visualização de foto"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="Fechar visualização"
             >
               <X className="w-5 h-5" />

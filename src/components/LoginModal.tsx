@@ -145,12 +145,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
           {/* Formulário de Identificação */}
           <form onSubmit={handleConfirmarIdentificacao} className="space-y-4 text-xs">
             <div>
-              <label className="block font-black text-slate-800 uppercase mb-1.5 text-xs">
+              <label htmlFor="identificacao-nome-completo" className="block font-black text-slate-800 uppercase mb-1.5 text-xs">
                 Digite seu nome completo: <span className="text-rose-600">*</span>
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
+                  id="identificacao-nome-completo"
                   ref={nomeInputRef}
                   type="text"
                   value={nomeCompleto}
@@ -243,12 +244,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
+            <label htmlFor="login-usuario" className="block font-bold text-slate-700 uppercase mb-1">
               Usuário / Regional
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
+                id="login-usuario"
                 type="text"
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
@@ -260,12 +262,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSucesso }) => {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
+            <label htmlFor="login-senha" className="block font-bold text-slate-700 uppercase mb-1">
               Senha de Acesso
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
+                id="login-senha"
                 ref={senhaInputRef}
                 type="password"
                 value={senha}

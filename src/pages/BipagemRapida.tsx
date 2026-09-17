@@ -1483,23 +1483,40 @@ export const BipagemRapida: React.FC = () => {
         </div>
       </div>
 
+      {/* Screen Reader Live Region para anúncios de bipagem e status */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {sucessoNotif || erroDuplicado || alertaValidacao || ''}
+      </div>
+
       {/* Alertas globais (visíveis em ambos os modos) */}
       {erroDuplicado && (
-        <div className="bg-rose-100 border-2 border-rose-500 text-rose-900 rounded-xl p-3.5 flex items-center gap-3 shadow-md animate-bounce">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-rose-100 border-2 border-rose-500 text-rose-900 rounded-xl p-3.5 flex items-center gap-3 shadow-md animate-bounce"
+        >
           <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
           <span className="text-xs font-black">{erroDuplicado}</span>
         </div>
       )}
 
       {alertaValidacao && (
-        <div className="bg-amber-100 border border-amber-500 text-amber-900 rounded-xl p-3 flex items-center gap-2 shadow-xs">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-amber-100 border border-amber-500 text-amber-900 rounded-xl p-3 flex items-center gap-2 shadow-xs"
+        >
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
           <span className="text-xs font-bold">{alertaValidacao}</span>
         </div>
       )}
 
       {sucessoNotif && (
-        <div className="bg-emerald-100 border border-emerald-500 text-emerald-900 rounded-xl p-2.5 flex items-center gap-2 animate-in fade-in">
+        <div
+          role="status"
+          aria-live="polite"
+          className="bg-emerald-100 border border-emerald-500 text-emerald-900 rounded-xl p-2.5 flex items-center gap-2 animate-in fade-in"
+        >
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span className="text-xs font-bold">{sucessoNotif}</span>
         </div>
@@ -1931,7 +1948,7 @@ export const BipagemRapida: React.FC = () => {
           {/* Card 3: BIPAGEM PRINCIPAL - CÓDIGO IMEI (15 DÍGITOS) */}
           <div className="bg-blue-50 border-2 border-blue-500 rounded-2xl p-4 sm:p-5 shadow-md space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-black text-blue-950 uppercase flex items-center gap-2">
+              <label htmlFor="input-imei-mobile" className="text-sm font-black text-blue-950 uppercase flex items-center gap-2">
                 <CornerDownLeft className="w-4 h-4 text-blue-600" />
                 Bipagem de IMEI (15 Dígitos Numéricos)
               </label>
@@ -1943,6 +1960,8 @@ export const BipagemRapida: React.FC = () => {
             {/* Input de IMEI Gigante */}
             <div className="relative">
               <input
+                id="input-imei-mobile"
+                aria-label="Bipagem de IMEI do aparelho (15 dígitos numéricos)"
                 ref={serialMobileInputRef}
                 type="text"
                 inputMode="numeric"
@@ -1977,7 +1996,8 @@ export const BipagemRapida: React.FC = () => {
                     setSerialInput('');
                     focarInputSerial();
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  aria-label="Limpar campo de IMEI"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer rounded-xl transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -3250,6 +3270,8 @@ export const BipagemRapida: React.FC = () => {
                 {/* IMEI */}
                 <td className="py-2 px-2 border-r border-emerald-300 bg-white">
                   <input
+                    id="input-imei-desktop"
+                    aria-label="Posicione o cursor e bipe o IMEI com 15 dígitos"
                     ref={serialInputRef}
                     type="text"
                     inputMode="numeric"

@@ -122,6 +122,21 @@ export const PainelAdmin: React.FC = () => {
 
   // Seletor de visualização: 'CONSOLIDADO' ou nome de uma regional específica
   const [regionalAtiva, setRegionalAtiva] = useState<string>('CONSOLIDADO');
+
+  // Listener para fechar modals com a tecla Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (fotoVisualizar) setFotoVisualizar(null);
+        else if (fotoAmpliada) setFotoAmpliada(null);
+        else if (mostrarModalReabertura) setMostrarModalReabertura(false);
+        else if (produtoParaEditar) setProdutoParaEditar(null);
+        else if (mostrarModalLimpeza) setMostrarModalLimpeza(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fotoVisualizar, fotoAmpliada, mostrarModalReabertura, produtoParaEditar, mostrarModalLimpeza]);
   
   // Estados de Sincronização em Tempo Real com o Servidor Central
   const [atualizandoServidor, setAtualizandoServidor] = useState(false);
@@ -2998,6 +3013,9 @@ export const PainelAdmin: React.FC = () => {
       {/* Modal Zoom da Foto */}
       {fotoAmpliada && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="titulo-foto-ampliada"
           className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn"
           onClick={() => setFotoAmpliada(null)}
         >
@@ -3007,7 +3025,7 @@ export const PainelAdmin: React.FC = () => {
           >
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <div>
-                <span className="text-sm font-black uppercase tracking-wider block">
+                <span id="titulo-foto-ampliada" className="text-sm font-black uppercase tracking-wider block">
                   📷 {fotoAmpliada.grupoRotulo} ({fotoAmpliada.caixa} - {fotoAmpliada.regional})
                 </span>
                 <span className="text-xs text-slate-400">
@@ -3018,7 +3036,8 @@ export const PainelAdmin: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setFotoAmpliada(null)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                aria-label="Fechar ampliação da evidência fotográfica"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-lg cursor-pointer transition-colors"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -3042,7 +3061,7 @@ export const PainelAdmin: React.FC = () => {
               <a
                 href={fotoAmpliada.fotoDataUri}
                 download={`Foto_${fotoAmpliada.caixa}_${fotoAmpliada.grupoRotulo}.jpg`}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 min-h-[44px] rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <Download className="w-4 h-4" /> Baixar Imagem
               </a>

@@ -4,3 +4,4 @@ export * from './ModalImportacaoRapida';
 export * from './ModalAlterarCaixa';
 export * from './ModalConfirmacaoTrocaCaixa';
 export * from './ModalLimparRegistros';
+

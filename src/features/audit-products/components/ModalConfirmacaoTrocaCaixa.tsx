@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Camera, X, Check, AlertTriangle } from 'lucide-react';
 
 export interface ModalConfirmacaoTrocaCaixaProps {
@@ -26,10 +26,24 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
   onRespostaNao,
   onConfirmarMotivo,
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-confirmar-fotos"
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn"
+    >
       <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div className="flex items-center gap-2.5">
@@ -37,7 +51,7 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
               <Camera className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-900 uppercase">
+              <h3 id="titulo-confirmar-fotos" className="text-base font-black text-slate-900 uppercase">
                 Fotos dos Produtos
               </h3>
               <span className="text-xs font-bold text-slate-500">
@@ -48,7 +62,8 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+            aria-label="Fechar janela de confirmação de fotos"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -72,7 +87,7 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
               <button
                 type="button"
                 onClick={onRespostaSim}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                className="min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
               >
                 <Check className="w-5 h-5" />
                 SIM (Liberar)
@@ -80,7 +95,7 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
               <button
                 type="button"
                 onClick={onRespostaNao}
-                className="bg-amber-600 hover:bg-amber-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                className="min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
               >
                 <X className="w-5 h-5" />
                 NÃO
@@ -90,19 +105,20 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
         ) : (
           <div className="space-y-4 animate-fadeIn">
             <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 space-y-2">
-              <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase">
+              <label htmlFor="textarea-motivo-sem-fotos" className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase cursor-pointer">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                 Informe o motivo de não ter colocado as fotos:
-              </div>
+              </label>
               <p className="text-xs text-slate-600">
                 Para liberar a mudança de caixa sem as fotos anexadas, informe uma breve justificativa abaixo:
               </p>
               <textarea
+                id="textarea-motivo-sem-fotos"
                 value={motivoSemFotosInput}
                 onChange={(e) => setMotivoSemFotosInput(e.target.value)}
                 rows={3}
                 placeholder="Ex: Câmera temporariamente indisponível, caixa lacrada de fábrica pelo fabricante, etc."
-                className="w-full text-xs font-medium text-slate-900 border-2 border-amber-300 rounded-xl p-2.5 focus:outline-none focus:border-amber-600 bg-white"
+                className="w-full text-xs font-medium text-slate-900 border-2 border-amber-300 rounded-xl p-2.5 focus:outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-200 bg-white"
                 autoFocus
               />
             </div>
@@ -111,14 +127,14 @@ export const ModalConfirmacaoTrocaCaixa: React.FC<ModalConfirmacaoTrocaCaixaProp
               <button
                 type="button"
                 onClick={() => setExibirCampoMotivoSemFotos(false)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
+                className="min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer transition-colors"
               >
                 Voltar
               </button>
               <button
                 type="button"
                 onClick={onConfirmarMotivo}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer transition-colors"
+                className="min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer transition-colors active:scale-98"
               >
                 <Check className="w-4 h-4" />
                 Confirmar Motivo e Liberar Caixa

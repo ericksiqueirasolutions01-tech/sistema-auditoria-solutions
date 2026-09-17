@@ -68,3 +68,4 @@ export function validarTokenSessao(token: string): { valido: boolean; sessao?: P
     },
   };
 }
+

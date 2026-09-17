@@ -66,10 +66,24 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
   baixarAmbosEspelhos,
   handleImprimirEspelho,
 }) => {
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs no-print-backdrop">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-espelho-caixa"
+      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs no-print-backdrop"
+    >
       <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-6 print-container">
         {/* Cabeçalho do Espelho com LOGO SOLUTIONS E LOGO SAMSUNG */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
@@ -79,8 +93,10 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
             <SamsungLogo height={24} />
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg no-print cursor-pointer"
+            aria-label="Fechar visualização do espelho da caixa"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg no-print cursor-pointer transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -91,7 +107,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
           <button
             type="button"
             onClick={() => setTipoEspelhoVisualizacao('completo')}
-            className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
+            className={`px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
               tipoEspelhoVisualizacao === 'completo'
                 ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400 scale-[1.02]'
                 : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
@@ -103,7 +119,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
           <button
             type="button"
             onClick={() => setTipoEspelhoVisualizacao('transporte')}
-            className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
+            className={`px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
               tipoEspelhoVisualizacao === 'transporte'
                 ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
                 : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
@@ -116,7 +132,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
 
         {/* Título Oficial */}
         <div className="text-center space-y-1">
-          <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">
+          <h2 id="titulo-espelho-caixa" className="text-xl font-black text-slate-900 tracking-tight uppercase">
             {tipoEspelhoVisualizacao === 'transporte'
               ? 'ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO'
               : 'ESPELHO 1 - COMPLETO (OPERACIONAL)'}
@@ -386,8 +402,9 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
         {/* Ações do Modal do Espelho */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 no-print">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+            className="px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
           >
             Fechar
           </button>
@@ -396,7 +413,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
             <button
               type="button"
               onClick={exportarEspelhoPDF}
-              className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               title="Baixar PDF do Espelho 1 (Completo com Modelos e EANs)"
             >
               <Download className="w-4 h-4" />
@@ -406,7 +423,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
             <button
               type="button"
               onClick={exportarEspelhoTransportePDF}
-              className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               title="Baixar PDF do Espelho 2 (Região, EAN e Quantidade por EAN)"
             >
               <Boxes className="w-4 h-4" />
@@ -416,7 +433,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
             <button
               type="button"
               onClick={baixarAmbosEspelhos}
-              className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               title="Baixar automaticamente os dois espelhos (Completo + Transporte)"
             >
               <Files className="w-4 h-4" />
@@ -424,8 +441,9 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={handleImprimirEspelho}
-              className="px-3 py-2 rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer bg-slate-800 hover:bg-slate-900"
+              className="px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer bg-slate-800 hover:bg-slate-900"
             >
               <Printer className="w-4 h-4" />
               Imprimir
@@ -436,3 +454,4 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
     </div>
   );
 };
+

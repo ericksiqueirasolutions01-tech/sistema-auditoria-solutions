@@ -114,6 +114,23 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
     };
   }, [isOpen, lote, regional]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (fotoZoom) {
+          setFotoZoom(null);
+        } else if (mostrarConfirmacao) {
+          setMostrarConfirmacao(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, fotoZoom, mostrarConfirmacao]);
+
   const iniciarCamera = async () => {
     setErroCamera(null);
     try {
@@ -299,7 +316,12 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
   const slotAtivoConfig = SLOTS_FOTOS.find((s) => s.id === slotAtivo) || SLOTS_FOTOS[0];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-fechamento-lote"
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fadeIn"
+    >
       <div
         className="bg-white rounded-2xl shadow-2xl border-2 border-slate-300 w-full max-w-4xl overflow-hidden flex flex-col max-h-[96vh]"
         onClick={(e) => e.stopPropagation()}
@@ -312,9 +334,9 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
+                <h2 id="titulo-fechamento-lote" className="text-sm sm:text-base font-black uppercase tracking-wider text-white">
                   Fechamento Oficial de Lote
-                </span>
+                </h2>
                 <span className="bg-amber-400 text-slate-950 font-black text-xs px-2.5 py-0.5 rounded-full uppercase">
                   Lote {lote}
                 </span>
@@ -326,8 +348,10 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Fechar fechamento oficial de lote"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             title="Fechar"
           >
             <X className="w-5 h-5" />
@@ -440,18 +464,20 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
                               e.stopPropagation();
                               setFotoZoom({ url: fotoUrl, titulo: slot.titulo });
                             }}
-                            className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer"
+                            aria-label={`Ampliar foto: ${slot.titulo}`}
+                            className="min-h-[44px] min-w-[44px] flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer shadow-sm transition-colors"
                             title="Ampliar foto"
                           >
-                            <Eye className="w-4 h-4" />
+                            <Eye className="w-5 h-5" />
                           </button>
                           <button
                             type="button"
                             onClick={(e) => removerFotoSlot(slot.id, e)}
-                            className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg cursor-pointer"
+                            aria-label={`Remover foto do slot: ${slot.titulo}`}
+                            className="min-h-[44px] min-w-[44px] flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer shadow-sm transition-colors"
                             title="Remover e tirar outra"
                           >
-                            <RotateCcw className="w-4 h-4" />
+                            <RotateCcw className="w-5 h-5" />
                           </button>
                         </div>
                       </>
@@ -549,7 +575,7 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
                 <button
                   type="button"
                   onClick={iniciarCamera}
-                  className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Tentar Ativar Webcam</span>
@@ -573,14 +599,14 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold uppercase transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold uppercase transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={handleValidarAntesDeFinalizar}
-              className="flex-1 sm:flex-none bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+              className="flex-1 sm:flex-none bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 px-5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
             >
               <Lock className="w-4 h-4 text-slate-950" />
               <span>Concluir Fechamento do Lote</span>
@@ -591,14 +617,19 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
 
       {/* Modal de Confirmação de Bloqueio Definitivo */}
       {mostrarConfirmacao && (
-        <div className="fixed inset-0 z-60 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="titulo-confirm-fechamento"
+          className="fixed inset-0 z-60 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn"
+        >
           <div className="bg-white rounded-2xl p-6 max-w-md w-full border-2 border-amber-400 shadow-2xl space-y-4 text-center">
             <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto border border-amber-300">
               <ShieldAlert className="w-7 h-7" />
             </div>
 
             <div>
-              <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
+              <h3 id="titulo-confirm-fechamento" className="text-base font-black text-slate-900 uppercase tracking-tight">
                 Confirmar Fechamento e Bloqueio Definitivo?
               </h3>
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">
@@ -625,14 +656,14 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
               <button
                 type="button"
                 onClick={() => setMostrarConfirmacao(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs uppercase hover:bg-slate-100 cursor-pointer"
+                className="flex-1 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-slate-700 font-bold text-xs uppercase hover:bg-slate-100 cursor-pointer"
               >
                 Voltar e Revisar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmarFechamentoOficial}
-                className="flex-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+                className="flex-1 bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black py-2.5 min-h-[44px] rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
               >
                 <Lock className="w-4 h-4" />
                 <span>Sim, Finalizar Lote</span>

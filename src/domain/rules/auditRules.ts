@@ -131,3 +131,4 @@ export function calcularConformidadeProduto(
 
   return { status_conformidade, divergencia_nf };
 }
+

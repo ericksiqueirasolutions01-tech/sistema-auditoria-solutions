@@ -9,6 +9,14 @@ import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa
 import { ModalAlertaDuplicidadeServidor } from '../components/ModalAlertaDuplicidadeServidor';
 import { ModalFechamentoLote } from '../components/ModalFechamentoLote';
 import {
+  ModalEspelhoCaixa,
+  ModalNovaCaixa,
+  ModalImportacaoRapida,
+  ModalAlterarCaixa,
+  ModalConfirmacaoTrocaCaixa,
+  ModalLimparRegistros,
+} from '../features/audit-products/components';
+import {
   FileSpreadsheet,
   Plus,
   Printer,
@@ -3459,583 +3467,58 @@ export const BipagemRapida: React.FC = () => {
       {/* Mostra Modelo, EAN e Quantidade desse modelo representando esse EAN */}
       {/* SEM colunas de lacre, kit ou marcas (que pertencem aos relatórios) */}
       {/* ========================================================================= */}
-      {mostrarEspelhoModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs no-print-backdrop">
-          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-6 print-container">
-            
-            {/* Cabeçalho do Espelho com LOGO SOLUTIONS E LOGO SAMSUNG */}
-            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-              <div className="flex items-center gap-5">
-                <SolutionsLogo height={38} />
-                <div className="h-8 w-px bg-slate-200" />
-                <SamsungLogo height={24} />
-              </div>
-              <button
-                onClick={() => setMostrarEspelhoModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg no-print cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Seletor do Tipo de Espelho */}
-            <div className="flex flex-wrap items-center justify-center gap-3 no-print bg-slate-100 p-2 rounded-2xl border border-slate-300">
-              <button
-                type="button"
-                onClick={() => setTipoEspelhoVisualizacao('completo')}
-                className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
-                  tipoEspelhoVisualizacao === 'completo'
-                    ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400 scale-[1.02]'
-                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                Espelho 1: Completo (Dentro da Caixa Master)
-              </button>
-              <button
-                type="button"
-                onClick={() => setTipoEspelhoVisualizacao('transporte')}
-                className={`px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 transition-all cursor-pointer ${
-                  tipoEspelhoVisualizacao === 'transporte'
-                    ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
-                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
-                }`}
-              >
-                <Boxes className="w-4 h-4 text-amber-200" />
-                Espelho 2: Expedição (Por EAN)
-              </button>
-            </div>
-
-            {/* Título Oficial */}
-            <div className="text-center space-y-1">
-              <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">
-                {tipoEspelhoVisualizacao === 'transporte'
-                  ? 'ESPELHO 2 - RESUMIDO DE EXPEDIÇÃO'
-                  : 'ESPELHO 1 - COMPLETO (OPERACIONAL)'}
-              </h2>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                Grupo Solutions • Setor de Rastreabilidade e Logística Samsung
-              </p>
-            </div>
-
-            {/* AVISO DA CAIXA MASTER NO ESPELHO 1 */}
-            {tipoEspelhoVisualizacao === 'completo' && (
-              <div className="bg-blue-50 border-2 border-blue-400 text-blue-900 rounded-2xl p-3.5 flex items-center gap-3 shadow-xs">
-                <PackageCheck className="w-5 h-5 text-blue-600 shrink-0" />
-                <span className="text-xs font-bold leading-relaxed">
-                  <strong>INSTRUÇÃO DE EMBARQUE:</strong> Este espelho deve ser colocado <strong>dentro da Caixa Master</strong>.
-                </span>
-              </div>
-            )}
-
-            {/* Quadro de Detalhes da Caixa */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
-                  <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Lote:</span>
-                  <span className="font-black text-amber-600 text-base uppercase">
-                    LOTE {espelhoCaixaAtual.itens.length > 0 && espelhoCaixaAtual.itens[0].numero_lote ? espelhoCaixaAtual.itens[0].numero_lote : loteAtivo}
-                  </span>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Regional / Cliente:</span>
-                  <span className="font-black text-purple-700 text-base uppercase">{regionalAtiva}</span>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-400 uppercase text-[10px] block">Qtd Total no Volume:</span>
-                  <span className="font-black text-emerald-700 text-base">
-                    {espelhoCaixaAtual.totalGeral} peças
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* RENDERIZAÇÃO DO CONTEÚDO CONFORME O TIPO DE ESPELHO SELECIONADO */}
-            {tipoEspelhoVisualizacao === 'transporte' ? (
-              /* ========================================================================= */
-              /* ESPELHO 2: RESUMIDO / EXPEDIÇÃO (POR EAN)                                 */
-              /* ========================================================================= */
-              <div className="space-y-4">
-                <div className="border-2 border-amber-300 rounded-2xl overflow-hidden shadow-xs">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-amber-700 text-white uppercase text-[11px] font-black tracking-wider">
-                      <tr>
-                        <th className="py-3 px-4 text-center w-16 border-r border-amber-600">Item</th>
-                        <th className="py-3 px-5 font-mono border-r border-amber-600">Código EAN</th>
-                        <th className="py-3 px-5 text-center w-48">Quantidade por EAN</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-xs">
-                      {espelhoCaixaAtual.resumoEans.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="py-8 text-center text-slate-400 font-medium">
-                            Nenhum produto registrado nesta caixa até o momento.
-                          </td>
-                        </tr>
-                      ) : (
-                        espelhoCaixaAtual.resumoEans.map((item) => (
-                          <tr key={item.ean} className="hover:bg-amber-50/40">
-                            <td className="py-3.5 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                              {item.item.toString().padStart(2, '0')}
-                            </td>
-                            <td className="py-3.5 px-5 font-mono font-bold text-slate-800 text-sm border-r border-slate-200">
-                              {item.ean}
-                            </td>
-                            <td className="py-3.5 px-5 text-center">
-                              <span className="inline-flex items-center px-3.5 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900">
-                                {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-amber-50 font-black text-slate-900 border-t-2 border-amber-300">
-                      <tr>
-                        <td colSpan={2} className="py-3.5 px-5 text-right uppercase text-xs tracking-wider text-amber-950">
-                          TOTAL GERAL TRANSPORTADO NESTE VOLUME:
-                        </td>
-                        <td className="py-3.5 px-5 text-center text-sm text-amber-900 font-black">
-                          {espelhoCaixaAtual.totalGeral} peças
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              /* ========================================================================= */
-              /* ESPELHO 1: COMPLETO (OPERACIONAL COM MODELOS E EANS)                      */
-              /* ========================================================================= */
-              <div className="space-y-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-black uppercase text-slate-800 tracking-wide">
-                    Conteúdo da Caixa (Modelo, EAN e Quantidade):
-                  </span>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    {espelhoCaixaAtual.resumoModelos.length} item(ns) agrupado(s)
-                  </span>
-                </div>
-
-                <div className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-xs">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#0C4DA2] text-white uppercase text-[11px] font-black tracking-wider">
-                      <tr>
-                        <th className="py-3 px-4 text-center w-16 border-r border-blue-600">Item</th>
-                        <th className="py-3 px-5 border-r border-blue-600">Modelo Produto</th>
-                        <th className="py-3 px-5 font-mono border-r border-blue-600">Código EAN</th>
-                        <th className="py-3 px-5 text-center w-36">Quantidade</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-xs">
-                      {espelhoCaixaAtual.resumoModelos.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="py-10 text-center text-slate-400 font-medium">
-                            Nenhum produto registrado nesta caixa até o momento.
-                          </td>
-                        </tr>
-                      ) : (
-                        espelhoCaixaAtual.resumoModelos.map((item) => (
-                          <tr key={`${item.modelo}___${item.ean}`} className="hover:bg-blue-50/50 transition-colors">
-                            <td className="py-3 px-4 text-center font-bold text-slate-400 border-r border-slate-200">
-                              {item.item.toString().padStart(2, '0')}
-                            </td>
-                            <td className="py-3 px-5 font-bold text-slate-900 text-sm border-r border-slate-200">
-                              {item.modelo}
-                            </td>
-                            <td className="py-3 px-5 font-mono text-slate-700 text-xs border-r border-slate-200 font-bold">
-                              {item.ean}
-                            </td>
-                            <td className="py-3 px-5 text-center border-slate-200">
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800">
-                                {item.total} {item.total === 1 ? 'unidade' : 'unidades'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
-                      <tr>
-                        <td colSpan={3} className="py-3 px-5 text-right uppercase text-xs tracking-wider">
-                          Total Geral de Produtos na Caixa:
-                        </td>
-                        <td className="py-3 px-5 text-center text-sm text-emerald-700 font-black">
-                          {espelhoCaixaAtual.totalGeral} {espelhoCaixaAtual.totalGeral === 1 ? 'produto' : 'produtos'}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-
-                {/* Opção de Controle de Seriais (Impressão e PDF) */}
-                <div className="bg-slate-100 p-3 rounded-2xl border border-slate-300 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black uppercase text-slate-700 whitespace-nowrap">
-                      Modo com IMEI:
-                    </span>
-                    <div className="inline-flex bg-white rounded-xl p-1 border border-slate-300 shadow-xs">
-                      <button
-                        type="button"
-                        onClick={() => setIncluirSeriaisEspelho(false)}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                          !incluirSeriaisEspelho
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                        }`}
-                      >
-                        📄 Sem IMEI (Padrão)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIncluirSeriaisEspelho(true)}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black uppercase transition-all cursor-pointer ${
-                          incluirSeriaisEspelho
-                            ? 'bg-purple-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                        }`}
-                      >
-                        📋 Com IMEI
-                      </button>
-                    </div>
-                  </div>
-                  <span className="text-xs text-slate-600 font-bold">
-                    {incluirSeriaisEspelho
-                      ? '🟢 Modo com IMEI Ativo: Os códigos IMEI sairão na impressão'
-                      : '⚪ Modo Padrão Ativo: Apenas Modelo, EAN e Quantidade'}
-                  </span>
-                </div>
-
-                {/* Relação de IMEIs (Opcional) */}
-                {incluirSeriaisEspelho && (
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase text-slate-700 tracking-wide">
-                        Relação Detalhada de IMEIs da {espelhoCaixaAtual.caixaNome}:
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        {espelhoCaixaAtual.itens.length} IMEIs
-                      </span>
-                    </div>
-
-                    <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-slate-800 text-white uppercase text-[10px] font-black tracking-wider sticky top-0">
-                          <tr>
-                            <th className="py-2 px-3 text-center w-12 border-r border-slate-700">Nº</th>
-                            <th className="py-2 px-4 border-r border-slate-700">Modelo Produto</th>
-                            <th className="py-2 px-4 font-mono border-r border-slate-700">EAN</th>
-                            <th className="py-2 px-4 font-mono">Número IMEI (15 Dígitos)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                          {espelhoCaixaAtual.itens.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className="py-6 text-center text-slate-400 font-sans">
-                                Nenhum IMEI nesta caixa.
-                              </td>
-                            </tr>
-                          ) : (
-                            espelhoCaixaAtual.itens.map((p, index) => (
-                              <tr key={p.id} className="hover:bg-slate-50">
-                                <td className="py-1.5 px-3 text-center text-slate-400 font-sans border-r border-slate-100">
-                                  {(index + 1).toString().padStart(2, '0')}
-                                </td>
-                                <td className="py-1.5 px-4 font-sans font-bold text-slate-700 border-r border-slate-100">
-                                  {p.modelo_produto}
-                                </td>
-                                <td className="py-1.5 px-4 text-slate-500 border-r border-slate-100">
-                                  {p.ean}
-                                </td>
-                                <td className="py-1.5 px-4 font-black text-slate-900 tracking-wider">
-                                  {p.imei || p.serial}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Assinaturas no Espelho (Requisito 5: Responsável Casas Bahia e Responsável Grupo Solutions) */}
-            <div className="pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-center text-xs text-slate-500">
-              <div>
-                <div className="border-t border-slate-300 w-3/4 mx-auto mb-1"></div>
-                <span className="font-bold text-slate-700 block">Responsável Casas Bahia</span>
-                <span className="text-[10px] text-slate-400">Conferência e Recebimento</span>
-              </div>
-              <div>
-                <div className="border-t border-slate-300 w-3/4 mx-auto mb-1"></div>
-                <span className="font-bold text-slate-700 block">Responsável Grupo Solutions</span>
-                <span className="text-[10px] text-slate-400">{usuarioAtual?.nome || 'Operador'}</span>
-              </div>
-            </div>
-
-            {/* Ações do Modal do Espelho */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 no-print">
-              <button
-                onClick={() => setMostrarEspelhoModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                Fechar
-              </button>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={exportarEspelhoPDF}
-                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Baixar PDF do Espelho 1 (Completo com Modelos e EANs)"
-                >
-                  <Download className="w-4 h-4" />
-                  Espelho 1 (Completo)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => exportarEspelhoTransportePDF()}
-                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Baixar PDF do Espelho 2 (Região, EAN e Quantidade por EAN)"
-                >
-                  <Boxes className="w-4 h-4" />
-                  Espelho 2 (Expedição)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={baixarAmbosEspelhos}
-                  className="px-3 py-2 rounded-xl text-xs font-black uppercase bg-indigo-700 hover:bg-indigo-800 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Baixar automaticamente os dois espelhos (Completo + Transporte)"
-                >
-                  <Files className="w-4 h-4" />
-                  Baixar Ambos (2 PDFs)
-                </button>
-
-                <button
-                  onClick={handleImprimirEspelho}
-                  className="px-3 py-2 rounded-xl text-xs font-bold uppercase text-white shadow-xs flex items-center gap-1.5 cursor-pointer bg-slate-800 hover:bg-slate-900"
-                >
-                  <Printer className="w-4 h-4" />
-                  Imprimir
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalEspelhoCaixa
+        isOpen={mostrarEspelhoModal}
+        onClose={() => setMostrarEspelhoModal(false)}
+        espelhoCaixaAtual={espelhoCaixaAtual}
+        loteAtivo={loteAtivo}
+        regionalAtiva={regionalAtiva}
+        usuarioAtual={usuarioAtual}
+        tipoEspelhoVisualizacao={tipoEspelhoVisualizacao}
+        setTipoEspelhoVisualizacao={setTipoEspelhoVisualizacao}
+        incluirSeriaisEspelho={incluirSeriaisEspelho}
+        setIncluirSeriaisEspelho={setIncluirSeriaisEspelho}
+        exportarEspelhoPDF={exportarEspelhoPDF}
+        exportarEspelhoTransportePDF={exportarEspelhoTransportePDF}
+        baixarAmbosEspelhos={baixarAmbosEspelhos}
+        handleImprimirEspelho={handleImprimirEspelho}
+      />
 
       {/* ========================================================================= */}
       {/* 4. MODAL: NOVA AUDITORIA / NOVA CAIXA */}
       {/* ========================================================================= */}
-      {mostrarNovaCaixaModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-900 uppercase flex items-center gap-2">
-                <Boxes className="w-5 h-5 text-blue-600" />
-                Iniciar Nova Caixa
-              </h3>
-              <button
-                onClick={() => setMostrarNovaCaixaModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 font-medium leading-relaxed">
-              Defina a identificação da caixa. Cada caixa pode conter <strong>no máximo 20 produtos</strong> conforme a regra operacional do sistema.
-            </p>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 uppercase">Identificação da Caixa:</label>
-              <input
-                type="text"
-                value={novaCaixaNome}
-                onChange={(e) => setNovaCaixaNome(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    confirmarCriacaoNovaCaixa();
-                  }
-                }}
-                placeholder="Ex: Caixa 02"
-                className="w-full text-sm font-black text-slate-900 border-2 border-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-600"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3">
-              <button
-                onClick={() => setMostrarNovaCaixaModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmarCriacaoNovaCaixa}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-4 py-2 rounded-xl shadow-xs cursor-pointer"
-              >
-                Iniciar Caixa
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalNovaCaixa
+        isOpen={mostrarNovaCaixaModal}
+        onClose={() => setMostrarNovaCaixaModal(false)}
+        novaCaixaNome={novaCaixaNome}
+        setNovaCaixaNome={setNovaCaixaNome}
+        onConfirmar={confirmarCriacaoNovaCaixa}
+      />
 
       {/* ========================================================================= */}
       {/* 5. MODAL: IMPORTAÇÃO EXCEL EM LOTE */}
       {/* ========================================================================= */}
-      {mostrarImportModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-800 uppercase flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-700" />
-                Importar Planilha de Auditoria
-              </h3>
-              <button
-                onClick={() => setMostrarImportModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 leading-relaxed font-medium">
-              Selecione um arquivo Excel (.xlsx, .xls ou .csv) contendo as colunas: <strong>Modelo</strong>,{' '}
-              <strong>EAN</strong>, <strong>IMEI</strong>, <strong>Caixa</strong> e <strong>Data</strong>.
-            </p>
-
-            <div className="border-2 border-dashed border-slate-300 hover:border-emerald-600 rounded-2xl p-8 text-center bg-slate-50 transition-colors">
-              <Upload className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-              <label className="inline-block bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl cursor-pointer shadow-xs transition-transform active:scale-95">
-                Selecionar Planilha Excel
-                <input
-                  type="file"
-                  accept=".xlsx, .xls, .csv"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (evt) => {
-                      try {
-                        const bstr = evt.target?.result;
-                        const wb = XLSX.read(bstr, { type: 'binary' });
-                        const ws = wb.Sheets[wb.SheetNames[0]];
-                        const raw = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws);
-                        const normalizado = raw.map((r) => ({
-                          modelo: String(r['Modelo'] || r['modelo'] || modeloAtivo),
-                          ean: String(r['EAN'] || r['ean'] || eanAtivo),
-                          serial: String(r['IMEI'] || r['imei'] || r['Serial'] || r['serial'] || ''),
-                          caixa: String(r['Caixa'] || r['caixa'] || caixaAtiva),
-                          data: String(r['Data'] || r['data'] || getDataAtualFormatada()),
-                          lacrado: String(r['Lacrado'] || r['lacrado'] || 'SIM'),
-                        }));
-                        const res = db.importarPlanilha(normalizado);
-                        alert(
-                          `Importação concluída!\nProcessados: ${res.totalProcessado}\nGravados: ${res.sucessoCount}\nDuplicados: ${res.duplicadosCount}`
-                        );
-                        recarregarDados(filtroCaixa);
-                        setMostrarImportModal(false);
-                      } catch (err: unknown) {
-                        const message = err instanceof Error ? err.message : String(err);
-                        alert('Erro ao importar planilha: ' + message);
-                      }
-                    };
-                    reader.readAsBinaryString(file);
-                  }}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-
+      <ModalImportacaoRapida
+        isOpen={mostrarImportModal}
+        onClose={() => setMostrarImportModal(false)}
+        modeloAtivo={modeloAtivo}
+        eanAtivo={eanAtivo}
+        caixaAtiva={caixaAtiva}
+        filtroCaixa={filtroCaixa}
+        getDataAtualFormatada={getDataAtualFormatada}
+        recarregarDados={recarregarDados}
+      />
 
       {/* 9. MODAL: ALTERAR CAIXA OPERACIONAL */}
-      {mostrarAlterarCaixaModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-black text-slate-900 uppercase flex items-center gap-2">
-                <Boxes className="w-5 h-5 text-blue-600" />
-                Alterar Caixa Operacional
-              </h3>
-              <button
-                onClick={() => setMostrarAlterarCaixaModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 font-medium leading-relaxed">
-              Todas as fotos da caixa atual <strong>{caixaAtiva}</strong> estão validadas. Escolha a próxima caixa para continuar:
-            </p>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 uppercase">Caixa Alvo:</label>
-              <input
-                list="lista-caixas-existentes"
-                type="text"
-                value={caixaParaMudarInput}
-                onChange={(e) => setCaixaParaMudarInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    confirmarAlterarCaixaModal();
-                  }
-                }}
-                placeholder="Ex: Caixa 02"
-                className="w-full text-sm font-black text-slate-900 border-2 border-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-600 uppercase"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              <span className="text-[11px] font-bold text-slate-400 block w-full">Caixas Existentes:</span>
-              {caixasExistentes.map((cx) => (
-                <button
-                  key={cx}
-                  type="button"
-                  onClick={() => setCaixaParaMudarInput(cx)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                    caixaParaMudarInput === cx
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {cx}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => setMostrarAlterarCaixaModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmarAlterarCaixaModal}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-4 py-2 rounded-xl shadow-xs cursor-pointer"
-              >
-                Confirmar Troca
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalAlterarCaixa
+        isOpen={mostrarAlterarCaixaModal}
+        onClose={() => setMostrarAlterarCaixaModal(false)}
+        caixaAtiva={caixaAtiva}
+        caixaParaMudarInput={caixaParaMudarInput}
+        setCaixaParaMudarInput={setCaixaParaMudarInput}
+        caixasExistentes={caixasExistentes}
+        onConfirmar={confirmarAlterarCaixaModal}
+      />
 
       {/* 10. MODAL: CAPTURA DE FOTOS DA CAIXA */}
       <ModalCaptura10FotosCaixa
@@ -4053,203 +3536,31 @@ export const BipagemRapida: React.FC = () => {
       />
 
       {/* 10.5. MODAL: CONFIRMAÇÃO DE FOTOS ANTES DE MUDAR DE CAIXA (SIM / NÃO COM MOTIVO) */}
-      {mostrarModalConfirmacaoFotos && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-100 border border-blue-300 flex items-center justify-center text-blue-700 shrink-0">
-                  <Camera className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 uppercase">
-                    Fotos dos Produtos
-                  </h3>
-                  <span className="text-xs font-bold text-slate-500">
-                    Confirmação da {caixaAtiva}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setMostrarModalConfirmacaoFotos(false);
-                  setExibirCampoMotivoSemFotos(false);
-                  setMotivoSemFotosInput('');
-                }}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {!exibirCampoMotivoSemFotos ? (
-              <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md">
-                    <Camera className="w-6 h-6" />
-                  </div>
-                  <p className="text-base font-black text-slate-900">
-                    As fotos dos produtos foram anexadas?
-                  </p>
-                  <p className="text-xs text-slate-600">
-                    Se você já anexou as fotos da <strong>{caixaAtiva}</strong>, clique em <strong>SIM</strong> para liberar a mudança de caixa. Caso não tenha fotos, clique em <strong>NÃO</strong> para justificar o motivo.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleRespostaFotosSim}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Check className="w-5 h-5" />
-                    SIM (Liberar)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRespostaFotosNao}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-black text-sm uppercase py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <X className="w-5 h-5" />
-                    NÃO
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 space-y-2">
-                  <div className="flex items-center gap-2 text-amber-900 font-black text-xs uppercase">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    Informe o motivo de não ter colocado as fotos:
-                  </div>
-                  <p className="text-xs text-slate-600">
-                    Para liberar a mudança de caixa sem as fotos anexadas, informe uma breve justificativa abaixo:
-                  </p>
-                  <textarea
-                    value={motivoSemFotosInput}
-                    onChange={(e) => setMotivoSemFotosInput(e.target.value)}
-                    rows={3}
-                    placeholder="Ex: Câmera temporariamente indisponível, caixa lacrada de fábrica pelo fabricante, etc."
-                    className="w-full text-xs font-medium text-slate-900 border-2 border-amber-300 rounded-xl p-2.5 focus:outline-none focus:border-amber-600 bg-white"
-                    autoFocus
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setExibirCampoMotivoSemFotos(false)}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
-                  >
-                    Voltar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmarMotivoSemFotos}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <Check className="w-4 h-4" />
-                    Confirmar Motivo e Liberar Caixa
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <ModalConfirmacaoTrocaCaixa
+        isOpen={mostrarModalConfirmacaoFotos}
+        onClose={() => {
+          setMostrarModalConfirmacaoFotos(false);
+          setExibirCampoMotivoSemFotos(false);
+          setMotivoSemFotosInput('');
+        }}
+        caixaAtiva={caixaAtiva}
+        exibirCampoMotivoSemFotos={exibirCampoMotivoSemFotos}
+        setExibirCampoMotivoSemFotos={setExibirCampoMotivoSemFotos}
+        motivoSemFotosInput={motivoSemFotosInput}
+        setMotivoSemFotosInput={setMotivoSemFotosInput}
+        onRespostaSim={handleRespostaFotosSim}
+        onRespostaNao={handleRespostaFotosNao}
+        onConfirmarMotivo={handleConfirmarMotivoSemFotos}
+      />
 
       {/* 11. MODAL: LIMPAR REGISTROS DA TELA */}
-      {mostrarModalLimparRegistros && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0">
-                  <Trash2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
-                    Limpar Registros da Tela
-                  </h3>
-                  <span className="text-xs font-bold text-amber-700">
-                    Limpa a tela deste computador mantendo os dados seguros na nuvem
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMostrarModalLimparRegistros(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-amber-50/70 border-2 border-amber-200 rounded-2xl p-4 text-slate-800 text-xs font-medium space-y-3">
-              <div className="flex items-center gap-2 font-black text-amber-950 text-sm">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                Deseja limpar a tela deste computador?
-              </div>
-              <p className="leading-relaxed text-slate-700">
-                Esta ação apagará todos os registros visualizados <strong>neste computador</strong> (inclusive os que já foram enviados para o online), deixando a tela 100% limpa para novos trabalhos.
-              </p>
-
-              <div className="grid grid-cols-2 gap-2 pt-1 pb-1">
-                <div className="bg-white p-3 rounded-xl border border-amber-200 shadow-xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Registros na sua Tela</span>
-                  <span className="text-xl font-black text-amber-700">{contagemStatusRegistros.total}</span>
-                  <span className="text-[10px] text-amber-600 block mt-0.5">Serão removidos desta tela</span>
-                </div>
-                <div className="bg-white p-3 rounded-xl border border-emerald-300 shadow-xs">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Salvos na Nuvem</span>
-                  <span className="text-xl font-black text-emerald-700">{contagemStatusRegistros.enviados}</span>
-                  <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">100% preservados no online</span>
-                </div>
-              </div>
-
-              {contagemStatusRegistros.pendentes > 0 && (
-                <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-rose-900 text-[11px] font-medium flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong>Atenção:</strong> Você possui <strong>{contagemStatusRegistros.pendentes} produto(s) pendente(s)</strong> que ainda não foram enviados para o online. Se limpar a tela agora sem enviar, esses itens pendentes serão descartados deste computador.
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-2 text-emerald-900 font-semibold border-t border-amber-200 space-y-1">
-                <p className="flex items-center gap-1.5 text-xs text-emerald-800 font-bold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  A base enviada para a nuvem continua 100% intacta e segura.
-                </p>
-                <p className="text-[11px] text-slate-600 font-normal">
-                  A base online enviada só pode ser excluída ou resetada pelo <strong>Administrador Geral</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={limpandoRegistros}
-                onClick={() => setMostrarModalLimparRegistros(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-300 uppercase cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={limpandoRegistros}
-                onClick={handleConfirmarLimpezaRegistros}
-                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase text-white bg-amber-600 hover:bg-amber-700 shadow-md flex items-center gap-2 cursor-pointer transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-                {limpandoRegistros ? 'Limpando Tela...' : 'CONFIRMAR E LIMPAR TELA'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalLimparRegistros
+        isOpen={mostrarModalLimparRegistros}
+        onClose={() => setMostrarModalLimparRegistros(false)}
+        limpandoRegistros={limpandoRegistros}
+        contagemStatusRegistros={contagemStatusRegistros}
+        onConfirmar={handleConfirmarLimpezaRegistros}
+      />
 
       {/* Modal de Bloqueio por Duplicidade no Servidor Online */}
       {duplicadosAlerta && (

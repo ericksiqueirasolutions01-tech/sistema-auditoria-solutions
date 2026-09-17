@@ -109,105 +109,36 @@ export function isServidorOnlineWeb(): boolean {
 import { sha256Sync, hashSenha, gerarUUID } from '../utils/crypto';
 export { sha256Sync, hashSenha, gerarUUID };
 
-export function isAdminOuSuper(perfil?: PerfilUsuario | null): boolean {
-  return perfil === 'ADMINISTRADOR' || perfil === 'SUPER_ADMIN';
-}
+// Regras de Autenticação e Domínio (Gate 10: Modularização / Clean Architecture)
+export {
+  isAdminOuSuper,
+  isSupervisor,
+  podeAcessarRegional,
+  criarTokenSessao,
+  validarTokenSessao,
+  validarNumeroOuChaveNfe,
+  CAPACIDADE_MAXIMA_CAIXA,
+  isCaixaCompletaQtd,
+  podeFecharCaixaQtd,
+  calcularChecksumLote,
+  validarReaberturaLote,
+  calcularConformidadeProduto,
+} from '../domain';
 
-export function isSupervisor(perfil?: PerfilUsuario | null): boolean {
-  return perfil === 'SUPERVISOR_REGIONAL';
-}
-
-export function podeAcessarRegional(usuario: Usuario | null, regionalAlvo: string): boolean {
-  if (!usuario) return false;
-  if (isAdminOuSuper(usuario.perfil)) return true;
-  if (!regionalAlvo || regionalAlvo === 'TODAS' || regionalAlvo === 'GERAL') {
-    return isAdminOuSuper(usuario.perfil);
-  }
-  return (usuario.regional || '').trim().toUpperCase() === regionalAlvo.trim().toUpperCase();
-}
-
-export function criarTokenSessao(usuario: Usuario, deviceId: string): SessaoUsuario {
-  const iat = Date.now();
-  const exp = iat + 8 * 60 * 60 * 1000; // 8 horas de validade
-  const payloadStr = `${usuario.id}:${usuario.login}:${usuario.perfil}:${usuario.regional || 'GERAL'}:${deviceId}:${iat}:${exp}`;
-  const assinatura = sha256Sync(`solutions_session_key_2026_${payloadStr}`);
-  const token = `${btoa(payloadStr)}.${assinatura}`;
-  return {
-    token,
-    user_id: usuario.id,
-    login: usuario.login,
-    nome: usuario.nome,
-    perfil: usuario.perfil,
-    regional: usuario.regional || null,
-    device_id: deviceId,
-    iat,
-    exp,
-  };
-}
-
-export function validarTokenSessao(token: string): { valido: boolean; sessao?: Partial<SessaoUsuario>; erro?: string } {
-  if (!token || !token.includes('.')) return { valido: false, erro: 'Token ausente ou malformado.' };
-  const [payloadB64, assinatura] = token.split('.');
-  let payloadStr = '';
-  try {
-    payloadStr = atob(payloadB64);
-  } catch {
-    return { valido: false, erro: 'Codificação de token inválida.' };
-  }
-  const signatureExpected = sha256Sync(`solutions_session_key_2026_${payloadStr}`);
-  if (assinatura !== signatureExpected) {
-    return { valido: false, erro: 'Assinatura criptográfica de sessão inválida.' };
-  }
-  const [userIdStr, login, perfil, regional, deviceId, iatStr, expStr] = payloadStr.split(':');
-  const exp = parseInt(expStr, 10);
-  if (Date.now() > exp) {
-    return { valido: false, erro: 'Sessão expirada. Faça login novamente.' };
-  }
-  return {
-    valido: true,
-    sessao: {
-      user_id: parseInt(userIdStr, 10),
-      login,
-      perfil: perfil as PerfilUsuario,
-      regional: regional === 'GERAL' ? null : regional,
-      device_id: deviceId,
-      exp,
-      iat: parseInt(iatStr, 10),
-    },
-  };
-}
-
-/**
- * Validação de integridade de Nota Fiscal / Chave de Acesso NF-e (Gate 6)
- * Aceita:
- * - Número de NF convencional: 1 a 9 dígitos numéricos
- * - Chave de acesso NF-e: exatamente 44 dígitos numéricos
- */
-export function validarNumeroOuChaveNfe(nf: string): {
-  valido: boolean;
-  tipo?: 'NUMERO' | 'CHAVE_ACESSO';
-  erro?: string;
-  identificadorLimpo?: string;
-} {
-  if (!nf || !nf.trim()) {
-    return { valido: false, erro: 'Número ou chave de acesso da NF não informado.' };
-  }
-  const limpo = nf.trim().replace(/[^\d]/g, '');
-  if (!limpo) {
-    return { valido: false, erro: 'A identificação da NF deve conter dígitos numéricos.' };
-  }
-  if (limpo.length === 44) {
-    return { valido: true, tipo: 'CHAVE_ACESSO', identificadorLimpo: limpo };
-  }
-  if (limpo.length >= 1 && limpo.length <= 9) {
-    return { valido: true, tipo: 'NUMERO', identificadorLimpo: limpo };
-  }
-  return {
-    valido: false,
-    erro: `Identificação da NF inválida: informe o número da NF (1 a 9 dígitos) ou chave de acesso de 44 dígitos (informado: ${limpo.length} dígitos numéricos).`,
-    identificadorLimpo: limpo,
-  };
-}
+import {
+  isAdminOuSuper,
+  isSupervisor,
+  podeAcessarRegional,
+  criarTokenSessao,
+  validarTokenSessao,
+  validarNumeroOuChaveNfe,
+  CAPACIDADE_MAXIMA_CAIXA,
+  isCaixaCompletaQtd,
+  podeFecharCaixaQtd,
+  calcularChecksumLote,
+  validarReaberturaLote,
+  calcularConformidadeProduto,
+} from '../domain';
 
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
   if (!dataUri) return '';
@@ -1622,26 +1553,11 @@ class AuditoriaDatabase {
   }
 
   isCaixaCompleta(caixa: string, regional?: string): boolean {
-    return this.obterTotalProdutosNaCaixa(caixa, regional) >= 20;
+    return isCaixaCompletaQtd(this.obterTotalProdutosNaCaixa(caixa, regional));
   }
 
   podeFecharCaixa(caixa: string, regional?: string): { pode: boolean; total: number; motivo?: string } {
-    const total = this.obterTotalProdutosNaCaixa(caixa, regional);
-    if (total === 20) {
-      return { pode: true, total };
-    }
-    if (total < 20) {
-      return {
-        pode: false,
-        total,
-        motivo: `A caixa possui apenas ${total} de 20 produtos (capacidade incompleta). O padrão esperado por caixa é de 20 aparelhos.`,
-      };
-    }
-    return {
-      pode: false,
-      total,
-      motivo: `A caixa excedeu a capacidade máxima de 20 produtos (${total} aparelhos registrados).`,
-    };
+    return podeFecharCaixaQtd(this.obterTotalProdutosNaCaixa(caixa, regional));
   }
 
   obterUltimoLote(): string {
@@ -1804,23 +1720,16 @@ class AuditoriaDatabase {
       detalhes: `Lote ${loteNorm} finalizado oficialmente pelo colaborador ${colaboradorFinal} com 3 fotos anexadas (${totalCaixas} caixas, ${totalProdutos} aparelhos).`,
     };
 
-    // Cálculo criptográfico de Checksum do Lote (Gate 6)
-    const seriaisOrdenados = produtosDoLote
-      .map((p) => (p.serial || p.imei || '').trim().toUpperCase())
-      .filter(Boolean)
-      .sort();
-
-    const payloadChecksum = JSON.stringify({
+    // Cálculo criptográfico de Checksum do Lote (Gate 6 / Domain)
+    const checksumLote = calcularChecksumLote({
       lote: loteNorm,
       regional: regAlvo,
       colaborador: colaboradorFinal,
       total_caixas: totalCaixas,
       total_produtos: totalProdutos,
-      seriais: seriaisOrdenados,
+      seriais: produtosDoLote.map((p) => p.serial || p.imei || ''),
       timestamp: agora,
     });
-
-    const checksumLote = sha256Sync(payloadChecksum);
 
     const novoRegistro: RegistroLoteFinalizado = {
       id: idLote,

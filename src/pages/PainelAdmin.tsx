@@ -80,6 +80,12 @@ export const PainelAdmin: React.FC = () => {
   const [erroReabertura, setErroReabertura] = useState<string | null>(null);
   const [sucessoReabertura, setSucessoReabertura] = useState<string | null>(null);
 
+  // Estados para Exclusão de Lote e Fotos (Exclusivo Administrador)
+  const [mostrarModalExcluirLote, setMostrarModalExcluirLote] = useState(false);
+  const [excluindoLote, setExcluindoLote] = useState(false);
+  const [erroExclusaoLote, setErroExclusaoLote] = useState<string | null>(null);
+  const [sucessoExclusaoLote, setSucessoExclusaoLote] = useState<string | null>(null);
+
   // Pesquisa de Lote (Requisito 3)
   const [inputPesquisaLote, setInputPesquisaLote] = useState<string>(() => db.obterUltimoLote() || '01');
 
@@ -130,13 +136,14 @@ export const PainelAdmin: React.FC = () => {
         if (fotoVisualizar) setFotoVisualizar(null);
         else if (fotoAmpliada) setFotoAmpliada(null);
         else if (mostrarModalReabertura) setMostrarModalReabertura(false);
+        else if (mostrarModalExcluirLote) setMostrarModalExcluirLote(false);
         else if (produtoParaEditar) setProdutoParaEditar(null);
         else if (mostrarModalLimpeza) setMostrarModalLimpeza(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fotoVisualizar, fotoAmpliada, mostrarModalReabertura, produtoParaEditar, mostrarModalLimpeza]);
+  }, [fotoVisualizar, fotoAmpliada, mostrarModalReabertura, mostrarModalExcluirLote, produtoParaEditar, mostrarModalLimpeza]);
   
   // Estados de Sincronização em Tempo Real com o Servidor Central
   const [atualizandoServidor, setAtualizandoServidor] = useState(false);
@@ -559,6 +566,47 @@ export const PainelAdmin: React.FC = () => {
     setSucessoReabertura(`Lote ${alvo} finalizado com sucesso pelo Administrador! Status atualizado para LOTE FINALIZADO.`);
     setForcarAtualizacao((c) => c + 1);
     setTimeout(() => setSucessoReabertura(null), 5000);
+  };
+
+  const handleExcluirLote = async () => {
+    const alvo = (loteSelecionado || loteFinalizadoAtual?.numero_lote || '').trim().toUpperCase();
+    if (!alvo) {
+      setErroExclusaoLote('Número do lote inválido para exclusão.');
+      return;
+    }
+
+    const regAlvo = loteFinalizadoAtual?.regional || (regionalFiltroLote === 'TODAS' ? 'VIA VAREJO RJ' : regionalFiltroLote);
+    setExcluindoLote(true);
+    setErroExclusaoLote(null);
+
+    try {
+      const adminAtual = db.getUsuarioAtual();
+      const adminNome = adminAtual?.nome || 'Administrador Geral';
+      const res = await db.excluirLote(alvo, regAlvo, adminNome);
+
+      if (res.sucesso) {
+        setSucessoExclusaoLote(
+          `Lote ${alvo} excluído com sucesso! Foram removidos ${res.produtosRemovidos} produtos e ${res.fotosRemovidas} evidências fotográficas.`
+        );
+        setMostrarModalExcluirLote(false);
+        const lotesRestantes = db.listarLotesFinalizados();
+        if (lotesRestantes.length > 0) {
+          setLoteSelecionado(lotesRestantes[0].numero_lote);
+          setInputPesquisaLote(lotesRestantes[0].numero_lote);
+        } else {
+          setLoteSelecionado('');
+          setInputPesquisaLote('');
+        }
+        setForcarAtualizacao((c) => c + 1);
+        setTimeout(() => setSucessoExclusaoLote(null), 7000);
+      } else {
+        setErroExclusaoLote(res.erro || 'Falha ao excluir lote.');
+      }
+    } catch (e: any) {
+      setErroExclusaoLote(e?.message || 'Erro inesperado ao excluir o lote.');
+    } finally {
+      setExcluindoLote(false);
+    }
   };
 
   const handlePesquisarLote = (termoCustom?: string) => {
@@ -2054,6 +2102,26 @@ export const PainelAdmin: React.FC = () => {
             </div>
           )}
 
+          {sucessoExclusaoLote && (
+            <div className="bg-emerald-100 border-2 border-emerald-500 text-emerald-900 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-md animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+                <div>
+                  <span className="font-black text-sm block">Lote Excluído com Sucesso:</span>
+                  <span className="text-xs font-semibold">{sucessoExclusaoLote}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSucessoExclusaoLote(null)}
+                className="text-emerald-700 hover:text-emerald-950 p-1.5 rounded-lg cursor-pointer"
+                title="Fechar notificação"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
           {/* Card de Filtros e Seleção do Lote (5 Filtros Obrigatórios: Lote, Cliente, Data, Colaborador, Status) */}
           <div className="bg-white rounded-2xl border-2 border-slate-300 p-6 shadow-xs space-y-5">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -2111,6 +2179,21 @@ export const PainelAdmin: React.FC = () => {
                   >
                     <Lock className="w-4 h-4 text-white" />
                     Finalizar Lote Novamente
+                  </button>
+                )}
+
+                {(loteFinalizadoAtual || loteSelecionado) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErroExclusaoLote(null);
+                      setMostrarModalExcluirLote(true);
+                    }}
+                    className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black text-xs uppercase px-3.5 py-2 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ring-1 ring-rose-500 active:scale-95"
+                    title="Excluir este lote, todas as suas fotos e produtos associados permanentemente (Exclusivo Administrador)"
+                  >
+                    <Trash2 className="w-4 h-4 text-white" />
+                    Excluir Lote
                   </button>
                 )}
 
@@ -3412,6 +3495,144 @@ export const PainelAdmin: React.FC = () => {
           subtitulo={fotoVisualizar.subtitulo}
           onClose={() => setFotoVisualizar(null)}
         />
+      )}
+
+      {/* Modal de Confirmação para Exclusão Definitiva de Lote e Fotos */}
+      {mostrarModalExcluirLote && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="titulo-modal-excluir-lote"
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => {
+            if (!excluindoLote) setMostrarModalExcluirLote(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border-2 border-rose-500 space-y-0 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabeçalho do Modal */}
+            <div className="bg-gradient-to-r from-rose-600 via-rose-700 to-rose-800 text-white p-5 flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white shadow-inner shrink-0">
+                  <Trash2 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 id="titulo-modal-excluir-lote" className="text-lg font-black uppercase tracking-tight text-white">
+                    Excluir Lote {loteSelecionado || loteFinalizadoAtual?.numero_lote}
+                  </h3>
+                  <span className="text-[11px] font-bold text-rose-100 flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-200 shrink-0" />
+                    Exclusivo Administrador • Ação Definitiva e Irreversível
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!excluindoLote) setMostrarModalExcluirLote(false);
+                }}
+                disabled={excluindoLote}
+                aria-label="Fechar modal de confirmação de exclusão"
+                className="p-1.5 text-rose-100 hover:text-white rounded-lg cursor-pointer transition-colors disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Imagem / Ilustração Gráfica de Alerta e Confirmação */}
+              <div className="flex flex-col items-center justify-center text-center p-5 bg-gradient-to-b from-rose-50 to-rose-100/60 rounded-3xl border-2 border-rose-200 shadow-inner">
+                <div className="relative mb-3.5">
+                  <div className="w-20 h-20 rounded-3xl bg-rose-100 border-2 border-rose-300 flex items-center justify-center text-rose-600 shadow-lg">
+                    <Trash2 className="w-10 h-10 text-rose-600 animate-pulse" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-slate-950 font-black border-2 border-white shadow-md">
+                    <AlertTriangle className="w-4 h-4 text-slate-950" />
+                  </div>
+                </div>
+
+                <h4 className="text-base sm:text-lg font-black text-rose-950 uppercase tracking-tight">
+                  Tem certeza que deseja excluir este lote?
+                </h4>
+                <p className="text-xs text-rose-800 font-medium mt-1.5 max-w-sm leading-relaxed">
+                  Ao confirmar, <strong>todos os registros do lote, fotos de evidência arquivadas e produtos associados</strong> serão apagados definitivamente do sistema.
+                </p>
+              </div>
+
+              {/* Detalhes do Lote Selecionado para Exclusão */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <span className="font-bold text-slate-500 uppercase text-[10px]">Identificação do Lote:</span>
+                  <span className="font-black text-slate-900 bg-slate-200 px-2.5 py-0.5 rounded-lg text-xs">
+                    {loteSelecionado || loteFinalizadoAtual?.numero_lote || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <span className="font-bold text-slate-500 uppercase text-[10px]">Regional:</span>
+                  <span className="font-black text-slate-900">
+                    {loteFinalizadoAtual?.regional || (regionalFiltroLote === 'TODAS' ? 'Todas as Regionais' : regionalFiltroLote)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <span className="font-bold text-slate-500 uppercase text-[10px]">Produtos Vinculados:</span>
+                  <span className="font-black text-rose-600">
+                    {relatorioLote.totalProdutos} produtos cadastrados
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <span className="font-bold text-slate-500 uppercase text-[10px]">Fotos de Evidência Anexadas:</span>
+                  <span className="font-black text-rose-600 flex items-center gap-1">
+                    <Camera className="w-3.5 h-3.5 text-rose-500" />
+                    {loteFinalizadoAtual?.fotos
+                      ? [
+                          loteFinalizadoAtual.fotos.caixaFechada ? 'Caixa Fechada' : null,
+                          loteFinalizadoAtual.fotos.espelhoCaixa ? 'Espelho' : null,
+                          loteFinalizadoAtual.fotos.lacreSeguranca ? 'Lacre' : null,
+                        ].filter(Boolean).length + ' fotos arquivadas'
+                      : 'Todas as evidências do lote'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500 uppercase text-[10px]">Status do Lote:</span>
+                  <span className="font-black text-slate-700">
+                    {loteFinalizadoAtual?.status === 'FINALIZADO' ? 'Fechado / Bloqueado' : 'Em Aberto'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Mensagem de Erro, se houver */}
+              {erroExclusaoLote && (
+                <div className="bg-rose-50 border-2 border-rose-300 text-rose-900 p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2.5 animate-in fade-in">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <span>{erroExclusaoLote}</span>
+                </div>
+              )}
+
+              {/* Botões de Ação */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalExcluirLote(false)}
+                  disabled={excluindoLote}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-300 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExcluirLote}
+                  disabled={excluindoLote}
+                  className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black text-xs uppercase px-5 py-2.5 rounded-xl shadow-md flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 ring-2 ring-rose-500"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {excluindoLote ? 'Excluindo Lote e Fotos...' : 'Sim, Excluir Lote e Fotos'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

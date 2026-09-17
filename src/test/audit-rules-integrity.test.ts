@@ -444,5 +444,90 @@ describe('GATE 6: Regras de Auditoria e Integridade Operacional', () => {
       expect(p2?.divergencia_nf).toBe(true);
     });
   });
+
+  describe('6. Exclusão de Lote, Evidências Fotográficas e Produtos em Cascata', () => {
+    it('deve impedir que operador exclua lotes finalizados (apenas Administrador)', async () => {
+      db.setUsuarioAtual(usuarioOperadorRJ);
+      const res = await db.excluirLote('01', 'VIA VAREJO RJ');
+      expect(res.sucesso).toBe(false);
+      expect(res.erro).toContain('Acesso negado');
+    });
+
+    it('deve excluir lote, fotos e produtos vinculados com cascata completa', async () => {
+      db.setUsuarioAtual(usuarioOperadorRJ);
+      const loteParaTestar = 'LOTE-EXCLUSAO-01';
+
+      // 1. Inserir produtos no lote com NF conferida
+      for (let i = 1; i <= 3; i++) {
+        const imei = `35784740099900${i}`;
+        db.inserirProduto({
+          modelo_produto: 'Galaxy S24',
+          ean: '7892509133456',
+          serial: imei,
+          numero_caixa: 'CAIXA TESTE 99',
+          numero_lote: loteParaTestar,
+          data_auditoria: '2026-03-16',
+          produto_lacrado: 'SIM',
+          nf_conferida: 'SIM',
+          regional: 'VIA VAREJO RJ',
+        });
+      }
+
+      // 2. Finalizar o lote com 3 fotos de evidência
+      const resFin = db.finalizarLote({
+        numeroLote: loteParaTestar,
+        regional: 'VIA VAREJO RJ',
+        colaborador: 'Operador Teste',
+        fotos: fotosValidas,
+      });
+      expect(resFin.sucesso).toBe(true);
+      expect(db.obterLoteFinalizado(loteParaTestar, 'VIA VAREJO RJ')).toBeDefined();
+
+      // 3. Executar exclusão como Administrador
+      db.setUsuarioAtual(usuarioAdmin);
+      const resDel = await db.excluirLote(loteParaTestar, 'VIA VAREJO RJ', 'Administrador Geral');
+      expect(resDel.sucesso).toBe(true);
+      expect(resDel.produtosRemovidos).toBe(3);
+      expect(resDel.fotosRemovidas).toBe(3);
+
+      // 4. Verificar que lote não existe mais
+      expect(db.obterLoteFinalizado(loteParaTestar, 'VIA VAREJO RJ')).toBeNull();
+
+      // 5. Verificar que produtos foram removidos da memória e serialMap
+      expect(db.obterProdutoPorSerial('357847400999001')).toBeNull();
+      expect(db.obterProdutoPorSerial('357847400999002')).toBeNull();
+      expect(db.obterProdutoPorSerial('357847400999003')).toBeNull();
+    });
+
+    it('limparBaseOperacional deve resetar lotes finalizados, ultimoLote e produtos', async () => {
+      db.setUsuarioAtual(usuarioAdmin);
+      db.inserirProduto({
+        modelo_produto: 'Galaxy S24',
+        ean: '7892509133456',
+        serial: '357847400999111',
+        numero_caixa: 'CAIXA RESET 01',
+        numero_lote: 'LOTE-TESTE-RESET',
+        data_auditoria: '2026-03-16',
+        produto_lacrado: 'SIM',
+        nf_conferida: 'SIM',
+        regional: 'VIA VAREJO RJ',
+      });
+
+      const resFin = db.finalizarLote({
+        numeroLote: 'LOTE-TESTE-RESET',
+        regional: 'VIA VAREJO RJ',
+        colaborador: 'Admin',
+        fotos: fotosValidas,
+      });
+      expect(resFin.sucesso).toBe(true);
+      expect(db.listarLotesFinalizados().length).toBeGreaterThan(0);
+
+      await db.limparBaseOperacional();
+
+      expect(db.listarLotesFinalizados()).toHaveLength(0);
+      expect(db.obterUltimoLote()).toBe('01');
+      expect(db.listarProdutos()).toHaveLength(0);
+    });
+  });
 });
 

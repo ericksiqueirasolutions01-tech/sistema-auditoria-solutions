@@ -44,6 +44,7 @@ import {
   executarMigracaoLegadoParaIndexedDB,
 } from './indexedDb';
 import { enfileirarEventoOutbox } from './syncOutbox';
+import { observability } from '../services/observability';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
 const STORAGE_KEY_USUARIOS = 'solutions_auditoria_usuarios_v1';
@@ -1958,6 +1959,135 @@ class AuditoriaDatabase {
     }
   }
 
+  async excluirLote(
+    numeroLote: string,
+    regional?: string,
+    usuarioAdmin?: string
+  ): Promise<{ sucesso: boolean; erro?: string; produtosRemovidos: number; fotosRemovidas: number }> {
+    const perfil = this.usuarioAtual?.perfil;
+    if (!isAdminOuSuper(perfil)) {
+      return {
+        sucesso: false,
+        erro: 'Acesso negado: Apenas Administradores têm permissão para excluir um lote e seus registros.',
+        produtosRemovidos: 0,
+        fotosRemovidas: 0,
+      };
+    }
+
+    const loteNorm = (numeroLote || '').trim().toUpperCase();
+    const regNorm = (regional || '').trim().toUpperCase();
+
+    if (!loteNorm) {
+      return { sucesso: false, erro: 'Número do lote não informado.', produtosRemovidos: 0, fotosRemovidas: 0 };
+    }
+
+    const loteIdx = this.lotesFinalizados.findIndex((l) => {
+      const matchLote = l.numero_lote.trim().toUpperCase() === loteNorm;
+      const matchReg = !regNorm || regNorm === 'TODAS' || l.regional.trim().toUpperCase() === regNorm;
+      return matchLote && matchReg;
+    });
+
+    const loteParaExcluir = loteIdx !== -1 ? this.lotesFinalizados[loteIdx] : null;
+    const regionalLote = loteParaExcluir?.regional || (regNorm && regNorm !== 'TODAS' ? regNorm : undefined);
+    const adminNome = usuarioAdmin || this.usuarioAtual?.nome || 'Administrador Geral';
+
+    // 1. Identificar e remover todos os produtos vinculados ao lote
+    const produtosDoLote = this.produtos.filter(
+      (p) =>
+        (p.numero_lote || '').trim().toUpperCase() === loteNorm &&
+        (!regionalLote || regionalLote === 'TODAS' || (p.regional || '').trim().toUpperCase() === regionalLote.trim().toUpperCase())
+    );
+
+    if (!loteParaExcluir && produtosDoLote.length === 0) {
+      return { sucesso: false, erro: `Lote ${numeroLote} não encontrado para exclusão.`, produtosRemovidos: 0, fotosRemovidas: 0 };
+    }
+
+    const idsProdutos = produtosDoLote.map((p) => p.id);
+    for (const p of produtosDoLote) {
+      if (p.serial) this.serialMap.delete(p.serial.trim().toUpperCase());
+      if (p.imei) this.serialMap.delete(p.imei.trim().toUpperCase());
+    }
+
+    this.produtos = this.produtos.filter((p) => !idsProdutos.includes(p.id));
+
+    // 2. Remover o lote da lista de lotesFinalizados se presente
+    if (loteIdx !== -1) {
+      this.lotesFinalizados.splice(loteIdx, 1);
+    }
+
+    // Se o lote ativo na bancada for o lote excluído, resetar para '01'
+    if (this.obterUltimoLote().trim().toUpperCase() === loteNorm) {
+      this.salvarUltimoLote('01');
+    }
+
+    // 3. Exclusão das fotos no IndexedDB e em memória
+    let fotosRemovidasCount = 0;
+    if (loteParaExcluir?.fotos) {
+      if (loteParaExcluir.fotos.caixaFechada) fotosRemovidasCount++;
+      if (loteParaExcluir.fotos.espelhoCaixa) fotosRemovidasCount++;
+      if (loteParaExcluir.fotos.lacreSeguranca) fotosRemovidasCount++;
+    }
+
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      try {
+        if (loteParaExcluir) {
+          await idb.lotes_finalizados.delete(loteParaExcluir.id);
+        }
+        if (idsProdutos.length > 0) {
+          await idb.produtos.bulkDelete(idsProdutos);
+        }
+        // Excluir registros em fotos_evidencias associados a este lote
+        const fotosLote = await idb.fotos_evidencias
+          .where('entity_type')
+          .equals('LOTE')
+          .and((f) => f.entity_id === loteNorm || (loteParaExcluir ? f.entity_id === loteParaExcluir.id : false))
+          .toArray();
+        if (fotosLote.length > 0) {
+          fotosRemovidasCount = Math.max(fotosRemovidasCount, fotosLote.length);
+          await idb.fotos_evidencias.bulkDelete(fotosLote.map((f) => f.id));
+        }
+      } catch (err) {
+        console.warn('[Storage] Erro ao remover lote do IndexedDB:', err);
+      }
+    }
+
+    // 4. Persistir estado atualizado
+    this.salvarTudo();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
+    }
+
+    // 5. Registrar em auditoria e histórico
+    observability.logAdminMutation(
+      adminNome,
+      'EXCLUSAO_LOTE',
+      'LOTE',
+      loteNorm,
+      { lote: loteNorm, total_produtos: produtosDoLote.length, fotos: fotosRemovidasCount },
+      null,
+      `Exclusão completa do Lote ${loteNorm} com remoção de fotos e ${produtosDoLote.length} produtos.`
+    );
+
+    this.registrarHistorico(
+      adminNome,
+      'EXCLUSAO_LOTE',
+      `Administrador ${adminNome} excluiu o Lote ${loteNorm} [${regionalLote}], suas fotos e ${produtosDoLote.length} produtos associados.`,
+      regionalLote
+    );
+
+    // 6. Notificar componentes reativos
+    this.notificarMudanca('lotes');
+    this.notificarMudanca('produtos');
+    this.notificarMudanca('fotos');
+    this.notificarMudanca('dados');
+
+    return {
+      sucesso: true,
+      produtosRemovidos: produtosDoLote.length,
+      fotosRemovidas: fotosRemovidasCount,
+    };
+  }
+
   obterRelatorioLote(lote: string, regional?: string): RelatorioLoteInfo {
     const loteNorm = lote.trim().toUpperCase();
     const regAlvo =
@@ -2727,6 +2857,8 @@ class AuditoriaDatabase {
     this.historico = [];
     this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
+    this.lotesFinalizados = [];
+    this.salvarUltimoLote('01');
 
     // 4. Limpar completamente o LocalStorage
     if (typeof window !== 'undefined') {
@@ -2736,13 +2868,24 @@ class AuditoriaDatabase {
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify([]));
       localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
       localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
       localStorage.removeItem('solutions_ultima_sincronizacao');
+      localStorage.removeItem(STORAGE_KEY_ULTIMO_LOTE);
     }
 
     // 5. Limpar completamente o IndexedDB de forma síncrona/aguardada
     await limparIndexedDB();
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      try {
+        await idb.produtos.clear();
+        await idb.lotes_finalizados.clear();
+        await idb.fotos_evidencias.clear();
+      } catch (errIdb) {
+        console.warn('[Storage] Erro ao limpar tabelas do IndexedDB:', errIdb);
+      }
+    }
 
     // 6. Zerar o servidor central online e repositórios de nuvem com carimbo de reset
     try {
@@ -2752,6 +2895,7 @@ class AuditoriaDatabase {
         fotos: [],
         historico_envios: [],
         tentativas_duplicadas: [],
+        lotes_finalizados: [],
         reset_timestamp: agora,
         ultimaAtualizacao: agora,
       });
@@ -2790,6 +2934,8 @@ class AuditoriaDatabase {
     this.historico = [];
     this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
+    this.lotesFinalizados = [];
+    this.salvarUltimoLote('01');
 
     this.salvarTudo();
 
@@ -2800,6 +2946,7 @@ class AuditoriaDatabase {
     this.notificarMudanca('produtos');
     this.notificarMudanca('fotos');
     this.notificarMudanca('caixas');
+    this.notificarMudanca('lotes');
     this.notificarMudanca('sync');
     this.notificarMudanca('dados');
 

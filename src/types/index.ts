@@ -266,6 +266,9 @@ export interface GrupoFotosInfo {
   temFoto: boolean;
 }
 
+// Estados do Ciclo de Vida de Evidências Fotográficas (Gate 7)
+export type FotoLifecycleStatus = 'LOCAL_ONLY' | 'PENDING_UPLOAD' | 'UPLOADING' | 'UPLOADED' | 'FAILED';
+
 // FOTOS DOS PRODUTOS DA CAIXA (INICIAL: FOTO 1 E FOTO 2 + ADICIONAIS)
 export const ROTULOS_2_FOTOS_CAIXA = [
   { id: 1, rotulo: 'Foto dos produtos 1', descricao: 'Primeira foto dos produtos da caixa' },

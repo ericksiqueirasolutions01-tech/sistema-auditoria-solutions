@@ -445,3 +445,4 @@ describe('GATE 6: Regras de Auditoria e Integridade Operacional', () => {
     });
   });
 });
+

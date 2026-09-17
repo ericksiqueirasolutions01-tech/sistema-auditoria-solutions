@@ -6,6 +6,7 @@ import type {
   HistoricoAuditoria,
   LogTentativaDuplicado,
   RegistroLoteFinalizado,
+  FotoLifecycleStatus,
 } from '../types';
 import { sha256Sync, gerarUUID } from '../utils/crypto';
 
@@ -19,8 +20,13 @@ export interface FotoEvidencia {
   tamanho_bytes: number;
   sha256: string; // Hash SHA-256 do payload binário da foto
   dados_base64: string; // Armazenamento desacoplado em store dedicada
-  sync_status: 'PENDENTE' | 'SINCRONIZADO' | 'ERRO';
+  sync_status: FotoLifecycleStatus | 'PENDENTE' | 'SINCRONIZADO' | 'ERRO';
   sync_url?: string | null;
+  storage_path?: string | null;
+  signed_url?: string | null;
+  signed_url_expires_at?: string | null;
+  upload_attempts?: number;
+  last_error?: string | null;
   criado_em: string;
   sincronizado_em?: string | null;
 }

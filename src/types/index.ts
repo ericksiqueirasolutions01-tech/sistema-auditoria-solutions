@@ -90,11 +90,13 @@ export interface ProdutoAuditoria {
   numero_caixa: string;
   numero_lote?: string; // Número do Lote (Ex: '01', 'LOTE 01')
   numero_nf?: string; // Número da Nota Fiscal (Ex: 'NF 001', '12345')
-  nf_conferida?: SimNao; // 'SIM' ou 'NÃO' (Conferência de NF)
+  nf_conferida?: SimNao | null; // 'SIM' ou 'NÃO' ou null (Conferência de NF)
   produto_lacrado: SimNao;
   kit_completo: SimNao | null;
   aparelho_marcas_uso: SimNao | null;
   observacao: string;
+  status_conformidade?: 'CONFORME' | 'NAO_CONFORME';
+  divergencia_nf?: boolean;
   data_cadastro: string;
   usuario_cadastro: string;
   computador_id: string; // Ex: 'PC-RJ-001'
@@ -342,6 +344,7 @@ export interface RegistroLoteFinalizado {
   total_produtos: number;
   fotos: FotosFechamentoLote;
   observacao?: string;
+  checksum_lote?: string;
   reaberto_por?: string | null;
   data_reabertura?: string | null;
   motivo_reabertura?: string | null;

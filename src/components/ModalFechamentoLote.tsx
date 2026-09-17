@@ -97,7 +97,7 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
   const totalProdutos = produtosDoLote.length;
   const caixasUnicas = Array.from(new Set(produtosDoLote.map((p) => p.numero_caixa || 'SEM CAIXA')));
   const totalCaixas = caixasUnicas.length;
-  const totalNfConferidas = produtosDoLote.filter((p) => p.nf_conferida === 'SIM' || p.nf_conferida === 'NÃO' || p.nf_conferida === 'NAO').length;
+  const totalNfConferidas = produtosDoLote.filter((p) => p.nf_conferida === 'SIM' || p.nf_conferida === 'NÃO').length;
 
   useEffect(() => {
     if (isOpen) {
@@ -263,7 +263,7 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
 
     // Regra 8: Validação obrigatória da NF conferida para todos os produtos do lote
     const produtosSemNf = produtosDoLote.filter(
-      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO' && p.nf_conferida !== 'NAO')
+      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO')
     );
     if (produtosSemNf.length > 0) {
       setErroValidacao(

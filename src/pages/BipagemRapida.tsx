@@ -75,7 +75,7 @@ export const BipagemRapida: React.FC = () => {
   const [serialInput, setSerialInput] = useState('');
   const [dataAtiva, setDataAtiva] = useState(getDataAtualFormatada());
   const [lacreAtivo, setLacreAtivo] = useState<SimNao>('SIM');
-  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao>('SIM');
+  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao | null>(null);
   const [kitAtivo, setKitAtivo] = useState<SimNao | ''>('');
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
@@ -118,7 +118,7 @@ export const BipagemRapida: React.FC = () => {
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
   const [editObs, setEditObs] = useState('');
-  const [editNfConferida, setEditNfConferida] = useState<SimNao>('SIM');
+  const [editNfConferida, setEditNfConferida] = useState<SimNao | null>(null);
 
   // UI Modals
   const [mostrarEspelhoModal, setMostrarEspelhoModal] = useState(false);
@@ -223,6 +223,7 @@ export const BipagemRapida: React.FC = () => {
   const tableBottomRef = useRef<HTMLDivElement>(null);
   const kitSelectRef = useRef<HTMLSelectElement>(null);
   const marcasSelectRef = useRef<HTMLSelectElement>(null);
+  const isProcessingScanRef = useRef(false);
 
   const focarInputSerial = () => {
     if (modoVisualizacao === 'celular') {
@@ -278,7 +279,12 @@ export const BipagemRapida: React.FC = () => {
 
   // Main Bipagem Process (Excel Row Enter)
   const processarBipagemLinha = () => {
-    const serialLimpo = serialInput.trim().toUpperCase();
+    // Trava de concorrência / debounce para leitores de código de barras laser rápidos (Gate 6)
+    if (isProcessingScanRef.current) return;
+    isProcessingScanRef.current = true;
+
+    try {
+      const serialLimpo = serialInput.trim().toUpperCase();
     const eanLimpo = eanAtivo.trim();
     const modeloLimpo = modeloAtivo.trim();
     const caixaLimpa = caixaAtiva.trim();
@@ -424,6 +430,11 @@ export const BipagemRapida: React.FC = () => {
       setAlertaValidacao(res.erro || 'Erro ao registrar linha de auditoria.');
       focarInputSerial();
     }
+    } finally {
+      setTimeout(() => {
+        isProcessingScanRef.current = false;
+      }, 100);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -454,7 +465,7 @@ export const BipagemRapida: React.FC = () => {
     setEditCaixa(item.numero_caixa);
     setEditLote(item.numero_lote || db.obterUltimoLote() || '01');
     setEditLacre(item.produto_lacrado);
-    setEditNfConferida(item.nf_conferida || 'SIM');
+    setEditNfConferida(item.nf_conferida ?? null);
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
     setEditObs(item.observacao || '');
@@ -2045,8 +2056,8 @@ export const BipagemRapida: React.FC = () => {
                   <span className="text-xs font-black text-slate-800 uppercase">
                     NF FOI CONFERIDA:
                   </span>
-                  <span className={`text-[10px] font-bold ${nfConferidaAtiva === 'SIM' ? 'text-emerald-700' : 'text-rose-600'}`}>
-                    {nfConferidaAtiva === 'SIM' ? 'CONFERIDA COM A NF' : 'NÃO CONFERIDA'}
+                  <span className={`text-[10px] font-bold ${nfConferidaAtiva === 'SIM' ? 'text-emerald-700' : nfConferidaAtiva === 'NÃO' ? 'text-rose-600' : 'text-amber-600'}`}>
+                    {nfConferidaAtiva === 'SIM' ? 'CONFERIDA COM A NF' : nfConferidaAtiva === 'NÃO' ? 'NÃO CONFERIDA' : 'PENDENTE DE SELEÇÃO'}
                   </span>
                 </div>
 
@@ -2478,6 +2489,11 @@ export const BipagemRapida: React.FC = () => {
               <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
                 NF foi Conferida:
               </span>
+              {nfConferidaAtiva === null && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded mr-1">
+                  ⏳ Pendente
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -2949,10 +2965,11 @@ export const BipagemRapida: React.FC = () => {
                       {/* NF Conferida */}
                       <td className="py-2 px-2 text-center border-r border-amber-200 bg-emerald-50/40">
                         <select
-                          value={editNfConferida}
-                          onChange={(e) => setEditNfConferida(e.target.value as SimNao)}
+                          value={editNfConferida || ''}
+                          onChange={(e) => setEditNfConferida((e.target.value as SimNao) || null)}
                           className="text-[11px] font-black px-2 py-1 rounded border bg-white cursor-pointer text-emerald-900"
                         >
+                          <option value="">PENDENTE</option>
                           <option value="SIM">SIM</option>
                           <option value="NÃO">NÃO</option>
                         </select>
@@ -3086,10 +3103,12 @@ export const BipagemRapida: React.FC = () => {
                         className={`font-black px-2.5 py-0.5 rounded text-[10px] border ${
                           item.nf_conferida === 'NÃO'
                             ? 'bg-rose-100 text-rose-800 border-rose-300'
-                            : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : item.nf_conferida === 'SIM'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
                         }`}
                       >
-                        {item.nf_conferida === 'NÃO' ? 'NÃO' : 'SIM'}
+                        {item.nf_conferida === 'NÃO' ? 'NÃO' : item.nf_conferida === 'SIM' ? 'SIM' : 'PENDENTE'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center font-bold border-r border-slate-200">
@@ -3315,21 +3334,24 @@ export const BipagemRapida: React.FC = () => {
                 {/* NF FOI CONFERIDA */}
                 <td className="py-2 px-2 text-center border-r border-emerald-300 bg-emerald-50/50">
                   <select
-                    value={nfConferidaAtiva}
+                    value={nfConferidaAtiva || ''}
                     onChange={(e) => {
-                      const val = e.target.value as SimNao;
+                      const val = (e.target.value as SimNao) || null;
                       setNfConferidaAtiva(val);
                       serialInputRef.current?.focus();
                     }}
                     className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
                       nfConferidaAtiva === 'SIM'
                         ? 'bg-emerald-700 text-white border-emerald-800'
-                        : 'bg-rose-600 text-white border-rose-700'
+                        : nfConferidaAtiva === 'NÃO'
+                        ? 'bg-rose-600 text-white border-rose-700'
+                        : 'bg-amber-100 text-amber-900 border-amber-400'
                     }`}
-                    title="A Nota Fiscal foi conferida? (SIM / NÃO)"
+                    title="A Nota Fiscal foi conferida? (SIM / NÃO / PENDENTE)"
                   >
-                    <option value="SIM">SIM</option>
-                    <option value="NÃO">NÃO</option>
+                    <option value="">⏳ PENDENTE</option>
+                    <option value="SIM">🟢 SIM</option>
+                    <option value="NÃO">❌ NÃO</option>
                   </select>
                 </td>
 

@@ -71,8 +71,16 @@ export const ImportacaoExcel: React.FC = () => {
           const caixa = String(row['Caixa'] || row['caixa'] || row['CAIXA'] || row['Numero_Caixa'] || '');
           const data = String(row['Data'] || row['data'] || row['DATA'] || '');
           const lacrado = String(row['Lacrado'] || row['lacrado'] || row['LACRADO'] || 'SIM');
+          const numero_nf = String(row['NF'] || row['nf'] || row['Nota Fiscal'] || row['Nota_Fiscal'] || row['numero_nf'] || '');
+          const nfConferidaRaw = row['NF Conferida'] || row['nf_conferida'] || row['NF_Conferida'] || row['Conferida'];
+          let nf_conferida: 'SIM' | 'NÃO' | null = null;
+          if (nfConferidaRaw) {
+            const val = String(nfConferidaRaw).trim().toUpperCase();
+            if (val === 'SIM' || val === 'S') nf_conferida = 'SIM';
+            else if (val === 'NÃO' || val === 'NAO' || val === 'N') nf_conferida = 'NÃO';
+          }
 
-          return { modelo, ean, serial, caixa, data, lacrado };
+          return { modelo, ean, serial, caixa, data, lacrado, numero_nf, nf_conferida };
         });
 
         const res = db.importarPlanilha(normalizado);

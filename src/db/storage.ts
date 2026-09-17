@@ -176,6 +176,38 @@ export function validarTokenSessao(token: string): { valido: boolean; sessao?: P
   };
 }
 
+/**
+ * Validação de integridade de Nota Fiscal / Chave de Acesso NF-e (Gate 6)
+ * Aceita:
+ * - Número de NF convencional: 1 a 9 dígitos numéricos
+ * - Chave de acesso NF-e: exatamente 44 dígitos numéricos
+ */
+export function validarNumeroOuChaveNfe(nf: string): {
+  valido: boolean;
+  tipo?: 'NUMERO' | 'CHAVE_ACESSO';
+  erro?: string;
+  identificadorLimpo?: string;
+} {
+  if (!nf || !nf.trim()) {
+    return { valido: false, erro: 'Número ou chave de acesso da NF não informado.' };
+  }
+  const limpo = nf.trim().replace(/[^\d]/g, '');
+  if (!limpo) {
+    return { valido: false, erro: 'A identificação da NF deve conter dígitos numéricos.' };
+  }
+  if (limpo.length === 44) {
+    return { valido: true, tipo: 'CHAVE_ACESSO', identificadorLimpo: limpo };
+  }
+  if (limpo.length >= 1 && limpo.length <= 9) {
+    return { valido: true, tipo: 'NUMERO', identificadorLimpo: limpo };
+  }
+  return {
+    valido: false,
+    erro: `Identificação da NF inválida: informe o número da NF (1 a 9 dígitos) ou chave de acesso de 44 dígitos (informado: ${limpo.length} dígitos numéricos).`,
+    identificadorLimpo: limpo,
+  };
+}
+
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
   if (!dataUri) return '';
   // Em conformidade com o Gate 1: Não substitui evidências reais por SVG falso e não usa chave externa no client
@@ -406,6 +438,16 @@ class AuditoriaDatabase {
 
   iniciarSincronizacaoAutomatica() {
     // Requisito: Envio para Online 100% manual. Nenhum processo automático ou timer deve disparar integração em background.
+  }
+
+  limparTudoMemoria() {
+    this.produtos = [];
+    this.serialMap.clear();
+    this.lotesFinalizados = [];
+    this.historico = [];
+    this.fotosGrupos = [];
+    this.registros10Fotos = [];
+    this.tentativasDuplicadas = [];
   }
 
   private carregarDados() {
@@ -1089,6 +1131,10 @@ class AuditoriaDatabase {
     return this.serialMap.get(serial.trim().toUpperCase());
   }
 
+  obterProdutoPorSerial(serial: string): ProdutoAuditoria | null {
+    return this.buscarPorSerial(serial) || null;
+  }
+
   validarDuplicidade(serial: string): { duplicado: boolean; produto?: ProdutoAuditoria } {
     const norm = serial.trim().toUpperCase();
     const existing = this.serialMap.get(norm);
@@ -1107,7 +1153,7 @@ class AuditoriaDatabase {
     data_auditoria: string;
     numero_caixa: string;
     numero_nf?: string;
-    nf_conferida?: SimNao;
+    nf_conferida?: SimNao | null;
     produto_lacrado: SimNao;
     regional?: string;
     kit_completo?: SimNao | null;
@@ -1182,6 +1228,14 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'Informe se o produto está lacrado (SIM ou NÃO).' };
     }
 
+    // 1.1. Validação de Nota Fiscal / Chave de Acesso se informada
+    if (item.numero_nf && item.numero_nf.trim()) {
+      const nfValida = validarNumeroOuChaveNfe(item.numero_nf);
+      if (!nfValida.valido) {
+        return { sucesso: false, erro: nfValida.erro };
+      }
+    }
+
     // 2. Validate unsealed rules
     if (item.produto_lacrado === 'NÃO') {
       if (!item.kit_completo) {
@@ -1207,18 +1261,20 @@ class AuditoriaDatabase {
 
     // 4. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
     const caixaAlvo = item.numero_caixa.trim().toUpperCase();
-    const totalNaCaixa = this.produtos.filter(
-      (p) =>
-        p.numero_caixa?.trim().toUpperCase() === caixaAlvo &&
-        (!regionalFinal || p.regional?.trim().toUpperCase() === regionalFinal.trim().toUpperCase())
-    ).length;
-
-    if (totalNaCaixa >= 20) {
+    if (this.isCaixaCompleta(caixaAlvo, regionalFinal)) {
       return {
         sucesso: false,
-        erro: 'Limite de produtos por caixa atingido. Por favor, lance os próximos produtos em outra caixa.',
+        erro: 'Limite de produtos por caixa atingido (capacidade máxima de 20 produtos). Por favor, lance os próximos produtos em outra caixa.',
       };
     }
+
+    // 5. REGRA DE CONFERÊNCIA DE NF (Gate 6: sem default implícito para SIM; PENDENTE/null por padrão)
+    const nfConferidaValor: SimNao | null = item.nf_conferida !== undefined ? item.nf_conferida : null;
+    const divergenciaNf = nfConferidaValor === 'NÃO';
+    const statusConformidade: 'CONFORME' | 'NAO_CONFORME' | undefined =
+      nfConferidaValor === null
+        ? undefined
+        : (item.produto_lacrado === 'SIM' && nfConferidaValor === 'SIM' ? 'CONFORME' : 'NAO_CONFORME');
 
     const compAtual = this.obterComputadorAtual(regionalFinal);
     const idLocal = Date.now();
@@ -1237,7 +1293,9 @@ class AuditoriaDatabase {
       numero_caixa: caixaAlvo,
       numero_lote: loteNorm,
       numero_nf: (item.numero_nf || '').trim(),
-      nf_conferida: item.nf_conferida || 'SIM',
+      nf_conferida: nfConferidaValor,
+      status_conformidade: statusConformidade,
+      divergencia_nf: divergenciaNf,
       produto_lacrado: item.produto_lacrado,
       kit_completo: item.produto_lacrado === 'SIM' ? null : item.kit_completo || null,
       aparelho_marcas_uso: item.produto_lacrado === 'SIM' ? null : item.aparelho_marcas_uso || null,
@@ -1358,6 +1416,22 @@ class AuditoriaDatabase {
       marcasUso = null;
     }
 
+    if (dados.numero_nf && dados.numero_nf.trim()) {
+      const nfValida = validarNumeroOuChaveNfe(dados.numero_nf);
+      if (!nfValida.valido) {
+        return { sucesso: false, erro: nfValida.erro };
+      }
+    }
+
+    const nfConferidaAtualizada: SimNao | null =
+      dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida ?? null);
+    const lacradoAtualizado = dados.produto_lacrado !== undefined ? dados.produto_lacrado : anterior.produto_lacrado;
+    const divergenciaNfAtualizada = nfConferidaAtualizada === 'NÃO';
+    const statusConformidadeAtualizada: 'CONFORME' | 'NAO_CONFORME' | undefined =
+      nfConferidaAtualizada === null
+        ? undefined
+        : (lacradoAtualizado === 'SIM' && nfConferidaAtualizada === 'SIM' ? 'CONFORME' : 'NAO_CONFORME');
+
     const atualizado: ProdutoAuditoria = {
       ...anterior,
       ...dados,
@@ -1366,7 +1440,9 @@ class AuditoriaDatabase {
       numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
       numero_lote: dados.numero_lote !== undefined ? (dados.numero_lote || '').trim().toUpperCase() : anterior.numero_lote,
       numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : anterior.numero_nf,
-      nf_conferida: dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida || 'SIM'),
+      nf_conferida: nfConferidaAtualizada,
+      status_conformidade: statusConformidadeAtualizada,
+      divergencia_nf: divergenciaNfAtualizada,
       kit_completo: kitCompleto,
       aparelho_marcas_uso: marcasUso,
       data_alteracao: new Date().toISOString(),
@@ -1531,6 +1607,42 @@ class AuditoriaDatabase {
       .map((p) => ({ ...p }));
   }
 
+  // --- REGRAS DE CAPACIDADE DE CAIXA (Gate 6) ---
+  obterTotalProdutosNaCaixa(caixa: string, regional?: string): number {
+    const caixaNorm = (caixa || '').trim().toUpperCase();
+    if (!caixaNorm) return 0;
+    const regAlvo = regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    return this.produtos.filter((p) => {
+      const matchCaixa = (p.numero_caixa || '').trim().toUpperCase() === caixaNorm;
+      const matchReg = !regAlvo || regAlvo === 'TODAS' || (p.regional || '').trim().toUpperCase() === regAlvo.trim().toUpperCase();
+      return matchCaixa && matchReg;
+    }).length;
+  }
+
+  isCaixaCompleta(caixa: string, regional?: string): boolean {
+    return this.obterTotalProdutosNaCaixa(caixa, regional) >= 20;
+  }
+
+  podeFecharCaixa(caixa: string, regional?: string): { pode: boolean; total: number; motivo?: string } {
+    const total = this.obterTotalProdutosNaCaixa(caixa, regional);
+    if (total === 20) {
+      return { pode: true, total };
+    }
+    if (total < 20) {
+      return {
+        pode: false,
+        total,
+        motivo: `A caixa possui apenas ${total} de 20 produtos (capacidade incompleta). O padrão esperado por caixa é de 20 aparelhos.`,
+      };
+    }
+    return {
+      pode: false,
+      total,
+      motivo: `A caixa excedeu a capacidade máxima de 20 produtos (${total} aparelhos registrados).`,
+    };
+  }
+
   obterUltimoLote(): string {
     return localStorage.getItem(STORAGE_KEY_ULTIMO_LOTE) || '01';
   }
@@ -1665,7 +1777,7 @@ class AuditoriaDatabase {
 
     // Regra 8: Validar se todos os produtos do lote possuem a confirmação da NF conferida (SIM ou NÃO)
     const produtosSemNf = produtosDoLote.filter(
-      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO' && p.nf_conferida !== 'NAO')
+      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO')
     );
     if (produtosSemNf.length > 0) {
       return {
@@ -1691,6 +1803,24 @@ class AuditoriaDatabase {
       detalhes: `Lote ${loteNorm} finalizado oficialmente pelo colaborador ${colaboradorFinal} com 3 fotos anexadas (${totalCaixas} caixas, ${totalProdutos} aparelhos).`,
     };
 
+    // Cálculo criptográfico de Checksum do Lote (Gate 6)
+    const seriaisOrdenados = produtosDoLote
+      .map((p) => (p.serial || p.imei || '').trim().toUpperCase())
+      .filter(Boolean)
+      .sort();
+
+    const payloadChecksum = JSON.stringify({
+      lote: loteNorm,
+      regional: regAlvo,
+      colaborador: colaboradorFinal,
+      total_caixas: totalCaixas,
+      total_produtos: totalProdutos,
+      seriais: seriaisOrdenados,
+      timestamp: agora,
+    });
+
+    const checksumLote = sha256Sync(payloadChecksum);
+
     const novoRegistro: RegistroLoteFinalizado = {
       id: idLote,
       numero_lote: loteNorm,
@@ -1703,6 +1833,7 @@ class AuditoriaDatabase {
       total_produtos: totalProdutos,
       fotos: dados.fotos,
       observacao: dados.observacao?.trim() || '',
+      checksum_lote: checksumLote,
       reaberto_por: null,
       data_reabertura: null,
       motivo_reabertura: null,
@@ -1725,10 +1856,19 @@ class AuditoriaDatabase {
 
     this.salvarTudo();
 
+    // Enfileirar na Outbox durável para sincronização Delta
+    enfileirarEventoOutbox({
+      device_id: compAtual.id,
+      entity_type: 'LOTE',
+      entity_id: novoRegistro.id,
+      operation: 'INSERT',
+      payload: novoRegistro,
+    }).catch((e) => console.warn('Falha ao enfileirar fechamento de lote na outbox:', e));
+
     this.registrarHistorico(
       colaboradorFinal,
       'FECHAMENTO_LOTE',
-      `Colaborador ${colaboradorFinal} finalizou oficialmente o Lote ${loteNorm} com ${totalCaixas} caixas e ${totalProdutos} produtos [${regAlvo}]`,
+      `Colaborador ${colaboradorFinal} finalizou oficialmente o Lote ${loteNorm} com ${totalCaixas} caixas e ${totalProdutos} produtos [${regAlvo}] (Checksum: ${checksumLote.slice(0, 12)}...)`,
       regAlvo
     );
 
@@ -1742,6 +1882,10 @@ class AuditoriaDatabase {
     usuarioAdmin: string,
     motivo: string
   ): { sucesso: boolean; erro?: string } {
+    if (!motivo || !motivo.trim()) {
+      return { sucesso: false, erro: 'O motivo para reabertura do lote é obrigatório.' };
+    }
+
     const perfil = this.usuarioAtual?.perfil;
     const isSuperOuAdmin = isAdminOuSuper(perfil);
     const isSupervisorMesmaRegional =
@@ -3847,6 +3991,8 @@ class AuditoriaDatabase {
       data?: string;
       lacrado?: string;
       regional?: string;
+      numero_nf?: string;
+      nf_conferida?: SimNao | null;
     }[]
   ): {
     totalProcessado: number;
@@ -3879,6 +4025,8 @@ class AuditoriaDatabase {
         produto_lacrado: item.lacrado?.toUpperCase() === 'NÃO' ? 'NÃO' : 'SIM',
         kit_completo: item.lacrado?.toUpperCase() === 'NÃO' ? 'SIM' : null,
         aparelho_marcas_uso: item.lacrado?.toUpperCase() === 'NÃO' ? 'NÃO' : null,
+        numero_nf: item.numero_nf || '',
+        nf_conferida: item.nf_conferida !== undefined ? item.nf_conferida : null,
       });
 
       if (res.sucesso) {

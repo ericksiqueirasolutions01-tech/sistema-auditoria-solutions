@@ -8,6 +8,7 @@ import {
   ContadoresCaixa,
   MetricasDashboard,
   FiltroConsulta,
+  ResultadoPaginado,
   EstatisticasRegional,
   StatusSincronizacao,
   StatusSincronizacaoItem,
@@ -1539,6 +1540,31 @@ class AuditoriaDatabase {
       .map((p) => ({ ...p }));
   }
 
+  /**
+   * Consulta paginada em memória de alta performance para listas grandes (Gate 12)
+   * Evita clone e mapeamento desnecessário do array completo.
+   */
+  listarProdutosPaginado(
+    filtro?: FiltroConsulta,
+    pagina: number = 1,
+    itensPorPagina: number = 50
+  ): ResultadoPaginado<ProdutoAuditoria> {
+    const todos = this.listarProdutos(filtro);
+    const total = todos.length;
+    const totalPaginas = Math.max(1, Math.ceil(total / itensPorPagina));
+    const paginaAtual = Math.max(1, Math.min(pagina, totalPaginas));
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    const itens = todos.slice(inicio, inicio + itensPorPagina);
+
+    return {
+      itens,
+      total,
+      pagina: paginaAtual,
+      totalPaginas,
+      itensPorPagina,
+    };
+  }
+
   // --- REGRAS DE CAPACIDADE DE CAIXA (Gate 6) ---
   obterTotalProdutosNaCaixa(caixa: string, regional?: string): number {
     const caixaNorm = (caixa || '').trim().toUpperCase();
@@ -2026,24 +2052,34 @@ class AuditoriaDatabase {
     const regAlvo =
       regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
 
-    const itens = this.produtos.filter((p) => {
-      const matchCaixa = p.numero_caixa.toUpperCase() === caixaNorm;
-      if (!regAlvo || regAlvo === 'TODAS') return matchCaixa;
-      return matchCaixa && (p.regional || 'VIA VAREJO RJ') === regAlvo;
-    });
+    let totalAuditados = 0;
+    let produtosLacrados = 0;
+    let produtosNaoLacrados = 0;
+    let comMarcasUso = 0;
+    let avariasFaltantes = 0;
+    let pendencias = 0;
 
-    const totalAuditados = itens.length;
-    const produtosLacrados = itens.filter((p) => p.produto_lacrado === 'SIM').length;
-    const produtosNaoLacrados = itens.filter((p) => p.produto_lacrado === 'NÃO').length;
-    const comMarcasUso = itens.filter((p) => p.aparelho_marcas_uso === 'SIM').length;
-    const avariasFaltantes = itens.filter(
-      (p) => p.produto_lacrado === 'NÃO' && (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO')
-    ).length;
-    // Produtos abertos c/ avaria ou faltante NÃO são considerados pendência.
-    // Pendências são exclusivamente registros pendentes de envio para o online:
-    const pendencias = itens.filter(
-      (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
-    ).length;
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+
+      totalAuditados++;
+      if (p.produto_lacrado === 'SIM') {
+        produtosLacrados++;
+      } else {
+        produtosNaoLacrados++;
+        if (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO') {
+          avariasFaltantes++;
+        }
+      }
+      if (p.aparelho_marcas_uso === 'SIM') {
+        comMarcasUso++;
+      }
+      if (p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE') {
+        pendencias++;
+      }
+    }
 
     return {
       caixa: numeroCaixa,
@@ -2061,16 +2097,23 @@ class AuditoriaDatabase {
     const regAlvo =
       regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
 
-    const itens = this.produtos.filter((p) => {
-      const matchCaixa = p.numero_caixa.toUpperCase() === caixaNorm;
-      if (!regAlvo || regAlvo === 'TODAS') return matchCaixa;
-      return matchCaixa && (p.regional || 'VIA VAREJO RJ') === regAlvo;
-    });
+    let temItens = false;
+    let todosEnviados = true;
 
-    if (itens.length === 0) return 'Vazia';
-    const todosEnviados = itens.every(
-      (p) => p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO'
-    );
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+
+      temItens = true;
+      const enviado = p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO';
+      if (!enviado) {
+        todosEnviados = false;
+        break; // Short-circuit: se já tem 1 pendente, não precisa checar o resto
+      }
+    }
+
+    if (!temItens) return 'Vazia';
     return todosEnviados ? 'Enviado Online' : 'Aguardando envio Online';
   }
 
@@ -2078,57 +2121,67 @@ class AuditoriaDatabase {
     const regAlvo =
       regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
 
-    const lista =
-      regAlvo && regAlvo !== 'TODAS'
-        ? this.produtos.filter((p) => (p.regional || 'VIA VAREJO RJ') === regAlvo)
-        : this.produtos;
+    let totalAuditados = 0;
+    let produtosLacrados = 0;
+    let produtosNaoLacrados = 0;
+    let comMarcasUso = 0;
+    let avariasFaltantes = 0;
+    let pendencias = 0;
+    let ultimaAuditoria: string | null = null;
 
-    const totalAuditados = lista.length;
     const caixasSet = new Set<string>();
-    for (const p of lista) {
-      if (p.numero_caixa) caixasSet.add(p.numero_caixa);
-    }
-    const totalCaixas = caixasSet.size;
-    const produtosLacrados = lista.filter((p) => p.produto_lacrado === 'SIM').length;
-    const produtosNaoLacrados = lista.filter((p) => p.produto_lacrado === 'NÃO').length;
-    const comMarcasUso = lista.filter((p) => p.aparelho_marcas_uso === 'SIM').length;
-    const avariasFaltantes = lista.filter(
-      (p) => p.produto_lacrado === 'NÃO' && (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO')
-    ).length;
-    // Produtos que forem Abertos c/ avaria ou faltante NÃO considerar como pendência.
-    // Pendências são exclusivamente registros com sincronização online pendente:
-    const pendencias = lista.filter(
-      (p) => p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE'
-    ).length;
-
-    const ultimaAuditoria = lista.length > 0 ? lista[0].data_cadastro : null;
-
-    // By Box
     const boxMap = new Map<string, number>();
-    for (const p of lista) {
-      boxMap.set(p.numero_caixa, (boxMap.get(p.numero_caixa) || 0) + 1);
+    const modelMap = new Map<string, number>();
+    const dateMap = new Map<string, number>();
+
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+
+      totalAuditados++;
+      if (!ultimaAuditoria && p.data_cadastro) {
+        ultimaAuditoria = p.data_cadastro;
+      }
+
+      if (p.numero_caixa) {
+        caixasSet.add(p.numero_caixa);
+        boxMap.set(p.numero_caixa, (boxMap.get(p.numero_caixa) || 0) + 1);
+      }
+      if (p.produto_lacrado === 'SIM') {
+        produtosLacrados++;
+      } else {
+        produtosNaoLacrados++;
+        if (p.aparelho_marcas_uso === 'SIM' || p.kit_completo === 'NÃO') {
+          avariasFaltantes++;
+        }
+      }
+      if (p.aparelho_marcas_uso === 'SIM') {
+        comMarcasUso++;
+      }
+      if (p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE') {
+        pendencias++;
+      }
+      if (p.modelo_produto) {
+        modelMap.set(p.modelo_produto, (modelMap.get(p.modelo_produto) || 0) + 1);
+      }
+      const d = p.data_auditoria || (p.data_cadastro ? p.data_cadastro.split('T')[0] : '');
+      if (d) {
+        dateMap.set(d, (dateMap.get(d) || 0) + 1);
+      }
     }
+
+    const totalCaixas = caixasSet.size;
+
     const produtosPorCaixa = Array.from(boxMap.entries())
       .map(([caixa, total]) => ({ caixa, total }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
 
-    // By Model
-    const modelMap = new Map<string, number>();
-    for (const p of lista) {
-      modelMap.set(p.modelo_produto, (modelMap.get(p.modelo_produto) || 0) + 1);
-    }
     const produtosPorModelo = Array.from(modelMap.entries())
       .map(([modelo, total]) => ({ modelo, total }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
 
-    // By Date (timeline for line charts)
-    const dateMap = new Map<string, number>();
-    for (const p of lista) {
-      const d = p.data_auditoria || p.data_cadastro.split('T')[0];
-      dateMap.set(d, (dateMap.get(d) || 0) + 1);
-    }
     const produtosPorData = Array.from(dateMap.entries())
       .map(([data, total]) => ({ data, total }))
       .sort((a, b) => a.data.localeCompare(b.data))

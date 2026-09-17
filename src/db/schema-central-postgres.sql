@@ -151,6 +151,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_products_caixa ON audit_products(numero_cai
 CREATE INDEX IF NOT EXISTS idx_audit_products_regional ON audit_products(regional_id);
 CREATE INDEX IF NOT EXISTS idx_audit_products_data ON audit_products(data_auditoria);
 CREATE INDEX IF NOT EXISTS idx_audit_products_status ON audit_products(status_sincronizacao);
+CREATE INDEX IF NOT EXISTS idx_audit_products_delta_sync ON audit_products(regional_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_audit_products_lote_caixa ON audit_products(numero_lote, numero_caixa);
 
 CREATE TRIGGER set_timestamp_audit_products
 BEFORE UPDATE ON audit_products

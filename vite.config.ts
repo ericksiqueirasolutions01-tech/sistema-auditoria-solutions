@@ -33,4 +33,24 @@ export default defineConfig({
     host: true,
     open: false,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('xlsx')) {
+              return 'vendor-xlsx';
+            }
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('purify')) {
+              return 'vendor-pdf';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
 });

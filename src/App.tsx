@@ -1,23 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { db, isDesktopApp } from './db/storage';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
 import { LoginModal } from './components/LoginModal';
-import { Dashboard } from './pages/Dashboard';
 import { BipagemRapida } from './pages/BipagemRapida';
-import { ConsultaProdutos } from './pages/ConsultaProdutos';
-import { GeradorEspelhos } from './pages/GeradorEspelhos';
-import { ImportacaoExcel } from './pages/ImportacaoExcel';
-import { BackupSistema } from './pages/BackupSistema';
-import { GestaoUsuarios } from './pages/GestaoUsuarios';
-import { PainelAdmin } from './pages/PainelAdmin';
-import { HistoricoEnvios } from './pages/HistoricoEnvios';
 import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 import { ModalPrimeiraSincronizacao } from './components/ModalPrimeiraSincronizacao';
 import { ModalAtualizacaoObrigatoria } from './components/ModalAtualizacaoObrigatoria';
 import { iniciarMonitoramentoCicloVida } from './services/systemLifecycle';
 import { updateService, StatusAtualizacao } from './services/updateService';
+
+// Lazy loading de módulos e páginas secundárias para minimizar o chunk inicial
+const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
+const PainelAdmin = lazy(() => import('./pages/PainelAdmin').then((m) => ({ default: m.PainelAdmin })));
+const ConsultaProdutos = lazy(() => import('./pages/ConsultaProdutos').then((m) => ({ default: m.ConsultaProdutos })));
+const GeradorEspelhos = lazy(() => import('./pages/GeradorEspelhos').then((m) => ({ default: m.GeradorEspelhos })));
+const ImportacaoExcel = lazy(() => import('./pages/ImportacaoExcel').then((m) => ({ default: m.ImportacaoExcel })));
+const BackupSistema = lazy(() => import('./pages/BackupSistema').then((m) => ({ default: m.BackupSistema })));
+const GestaoUsuarios = lazy(() => import('./pages/GestaoUsuarios').then((m) => ({ default: m.GestaoUsuarios })));
+const HistoricoEnvios = lazy(() => import('./pages/HistoricoEnvios').then((m) => ({ default: m.HistoricoEnvios })));
+
+const LoadingModuloFallback = () => (
+  <div className="flex flex-col items-center justify-center p-16 text-slate-500 text-xs font-bold gap-3">
+    <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+    <span className="uppercase tracking-wider">Carregando módulo...</span>
+  </div>
+);
 
 export const App: React.FC = () => {
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
@@ -147,19 +156,21 @@ export const App: React.FC = () => {
 
       {/* Main Content Area (100% da Largura do Monitor - Modo Excel Completo) */}
       <main className="flex-1 w-full px-1 sm:px-2 py-1">
-        {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
-        {activeTab === 'admin-regionais' && <PainelAdmin />}
-        {activeTab === 'relatorios' && <ConsultaProdutos />}
-        {activeTab === 'graficos' && <PainelAdmin />}
-        {activeTab === 'exportacoes' && <BackupSistema />}
-        {activeTab === 'bipagem' && <BipagemRapida />}
-        {activeTab === 'sincronizacao' && <HistoricoEnvios />}
-        {activeTab === 'historico-envios' && <HistoricoEnvios />}
-        {activeTab === 'consulta' && <ConsultaProdutos />}
-        {activeTab === 'espelhos' && <GeradorEspelhos />}
-        {activeTab === 'importar' && <ImportacaoExcel />}
-        {activeTab === 'backup' && <BackupSistema />}
-        {activeTab === 'usuarios' && <GestaoUsuarios />}
+        <Suspense fallback={<LoadingModuloFallback />}>
+          {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
+          {activeTab === 'admin-regionais' && <PainelAdmin />}
+          {activeTab === 'relatorios' && <ConsultaProdutos />}
+          {activeTab === 'graficos' && <PainelAdmin />}
+          {activeTab === 'exportacoes' && <BackupSistema />}
+          {activeTab === 'bipagem' && <BipagemRapida />}
+          {activeTab === 'sincronizacao' && <HistoricoEnvios />}
+          {activeTab === 'historico-envios' && <HistoricoEnvios />}
+          {activeTab === 'consulta' && <ConsultaProdutos />}
+          {activeTab === 'espelhos' && <GeradorEspelhos />}
+          {activeTab === 'importar' && <ImportacaoExcel />}
+          {activeTab === 'backup' && <BackupSistema />}
+          {activeTab === 'usuarios' && <GestaoUsuarios />}
+        </Suspense>
       </main>
 
       {/* Corporate Footer (No Print) */}

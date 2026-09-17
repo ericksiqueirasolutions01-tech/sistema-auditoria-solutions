@@ -195,3 +195,4 @@ describe('GATE 11: Responsividade e Acessibilidade (WCAG 2.1 AA)', () => {
     });
   });
 });
+

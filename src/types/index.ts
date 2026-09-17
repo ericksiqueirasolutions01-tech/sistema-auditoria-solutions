@@ -220,6 +220,13 @@ export interface StatusSincronizacao {
   quantidadeBloqueada: number;
 }
 
+export interface ResultadoPaginado<T> {
+  itens: T[];
+  total: number;
+  pagina: number;
+  totalPaginas: number;
+  itensPorPagina: number;
+}
 
 export interface FiltroConsulta {
   termoBusca?: string;

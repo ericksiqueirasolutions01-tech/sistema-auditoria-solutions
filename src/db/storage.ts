@@ -41,6 +41,7 @@ import {
   salvarFotoEvidencia,
   executarMigracaoLegadoParaIndexedDB,
 } from './indexedDb';
+import { enfileirarEventoOutbox } from './syncOutbox';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
 const STORAGE_KEY_USUARIOS = 'solutions_auditoria_usuarios_v1';
@@ -1263,6 +1264,16 @@ class AuditoriaDatabase {
     }
 
     this.salvarTudo();
+
+    // Registro na fila durável Outbox para sincronização Delta (Gate 5)
+    enfileirarEventoOutbox({
+      device_id: compAtual.device_id || compAtual.id,
+      entity_type: 'PRODUTO',
+      entity_id: String(novoProduto.id),
+      operation: 'INSERT',
+      base_revision: 1,
+      payload: novoProduto,
+    }).catch(() => {});
 
     this.registrarHistorico(
       usuarioNome,

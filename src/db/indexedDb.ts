@@ -54,6 +54,22 @@ export interface ConfiguracaoLocal {
   atualizado_em: string;
 }
 
+export interface OutboxEvent {
+  event_id: string; // UUID v4
+  idempotency_key: string; // `${device_id}_${operation}_${event_id}`
+  device_id: string;
+  entity_type: 'PRODUTO' | 'LOTE' | 'FOTO' | 'CAIXA';
+  entity_id: string;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  base_revision: number;
+  payload: Record<string, any>;
+  created_at: string;
+  attempts: number;
+  status: 'PENDENTE' | 'PROCESSANDO' | 'SINCRONIZADO' | 'CONFLITO' | 'ERRO';
+  last_error?: string | null;
+  synced_at?: string | null;
+}
+
 export class SolutionsDexieDB extends Dexie {
   produtos!: EntityTable<ProdutoAuditoria, 'id'>;
   lotes_finalizados!: EntityTable<RegistroLoteFinalizado, 'id'>;
@@ -64,10 +80,11 @@ export class SolutionsDexieDB extends Dexie {
   tentativas_duplicadas!: EntityTable<LogTentativaDuplicado & { id?: number }, 'id'>;
   configuracoes!: EntityTable<ConfiguracaoLocal, 'chave'>;
   migration_meta!: EntityTable<MigrationMeta, 'id'>;
+  sync_outbox!: EntityTable<OutboxEvent, 'event_id'>;
 
   constructor() {
     super('SolutionsAuditoriaDB_v2');
-    this.version(1).stores({
+    this.version(2).stores({
       produtos: 'id, serial, imei, numero_lote, numero_caixa, regional, status_sincronizacao, data_auditoria',
       lotes_finalizados: 'id, numero_lote, regional, status, data_fechamento',
       fotos_evidencias: 'id, entity_type, entity_id, sha256, sync_status, criado_em',
@@ -77,6 +94,7 @@ export class SolutionsDexieDB extends Dexie {
       tentativas_duplicadas: '++id, serial, imei, lote, dataHora',
       configuracoes: 'chave, atualizado_em',
       migration_meta: 'id, status, executada_em',
+      sync_outbox: 'event_id, idempotency_key, device_id, entity_type, entity_id, status, created_at',
     });
   }
 }

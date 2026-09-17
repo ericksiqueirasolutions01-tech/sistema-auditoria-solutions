@@ -201,20 +201,49 @@ CREATE TABLE IF NOT EXISTS sync_events (
 CREATE INDEX IF NOT EXISTS idx_sync_events_event_id ON sync_events(event_id);
 CREATE INDEX IF NOT EXISTS idx_sync_events_regional ON sync_events(regional_id);
 
--- ------------------------------------------------------------------------------
--- 8. TABELA DE AUDIT TRAIL / LOG DE AUDITORIA (AUDIT_LOG)
+-- 8. TABELA DE AUDIT TRAIL / LOG DE AUDITORIA (AUDIT_LOG - APPEND-ONLY)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_log (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    usuario VARCHAR(100) NOT NULL,
-    acao VARCHAR(50) NOT NULL,
-    detalhes TEXT NOT NULL,
+    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_user_id VARCHAR(100) NOT NULL,
+    device_id VARCHAR(100) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100) NOT NULL,
+    entity_id VARCHAR(100) NOT NULL,
+    before JSONB NULL,
+    after JSONB NULL,
+    reason TEXT NULL,
+    server_timestamp TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    request_id VARCHAR(100) NULL,
+    regional VARCHAR(100) NOT NULL,
+    -- Campos compatíveis para consultas legadas
+    id UUID NULL,
+    usuario VARCHAR(100) NULL,
+    acao VARCHAR(100) NULL,
+    detalhes TEXT NULL,
     regional_id UUID REFERENCES regions(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_log_regional ON audit_log(regional_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(server_timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_regional ON audit_log(regional);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_id ON audit_log(event_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+
+-- Regra de Segurança Append-Only: impede UPDATE e DELETE
+CREATE OR REPLACE FUNCTION prevent_audit_log_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log é estritamente append-only: atualizações e exclusões são proibidas no servidor';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_log_append_only ON audit_log;
+CREATE TRIGGER trg_audit_log_append_only
+    BEFORE UPDATE OR DELETE ON audit_log
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_audit_log_modification();
 
 -- ------------------------------------------------------------------------------
 -- 9. TABELA DE RELEASES DO EXECUTÁVEL / ATUALIZADOR (APP_RELEASES)

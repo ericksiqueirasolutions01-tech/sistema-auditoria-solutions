@@ -67,7 +67,7 @@ namespace SistemaAuditoriaInstaller
 
             lblSubtitle = new Label
             {
-                Text = "Conferência, Qualidade e Rastreabilidade Samsung • Versão 1.0.0",
+                Text = "Conferência, Qualidade e Rastreabilidade Samsung • Versão 1.2.0",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(148, 163, 184),
                 Location = new Point(20, 42),
@@ -424,9 +424,20 @@ namespace SistemaAuditoriaInstaller
                         {
                             using (var archive = new System.IO.Compression.ZipArchive(resStream))
                             {
+                                string canonicalTarget = Path.GetFullPath(targetDir);
+                                if (!canonicalTarget.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                                {
+                                    canonicalTarget += Path.DirectorySeparatorChar;
+                                }
+
                                 foreach (var entry in archive.Entries)
                                 {
                                     string destPath = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
+                                    if (!destPath.StartsWith(canonicalTarget, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        throw new InvalidOperationException(string.Format("Entrada maliciosa de arquivo detectada no pacote ZIP (Zip Slip bloqueado): {0}", entry.FullName));
+                                    }
+
                                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                                     {
                                         Directory.CreateDirectory(destPath);
@@ -552,8 +563,8 @@ namespace SistemaAuditoriaInstaller
                 {
                     if (key != null)
                     {
-                        key.SetValue("DisplayName", "Sistema de Auditoria Grupo Solutions - Samsung");
-                        key.SetValue("DisplayVersion", "1.0.0");
+                        key.SetValue("DisplayName", "Sistema de Auditoria Grupo Solutions - Samsung v1.2.0");
+                        key.SetValue("DisplayVersion", "1.2.0");
                         key.SetValue("Publisher", "Grupo Solutions");
                         key.SetValue("InstallLocation", installDir);
                         key.SetValue("DisplayIcon", exePath);
@@ -590,9 +601,20 @@ namespace SistemaAuditoriaInstaller
                         {
                             using (var archive = new System.IO.Compression.ZipArchive(resStream))
                             {
+                                string canonicalTarget = Path.GetFullPath(targetDir);
+                                if (!canonicalTarget.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                                {
+                                    canonicalTarget += Path.DirectorySeparatorChar;
+                                }
+
                                 foreach (var entry in archive.Entries)
                                 {
                                     string destPath = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
+                                    if (!destPath.StartsWith(canonicalTarget, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        throw new InvalidOperationException(string.Format("Entrada maliciosa de arquivo detectada no pacote ZIP (Zip Slip bloqueado): {0}", entry.FullName));
+                                    }
+
                                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                                     {
                                         Directory.CreateDirectory(destPath);

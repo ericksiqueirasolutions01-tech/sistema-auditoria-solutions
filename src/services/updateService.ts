@@ -1,5 +1,6 @@
 import { isDesktopApp } from '../db/storage';
 import { VERSAO_LOCAL, InfoVersaoSistema } from '../version';
+import { obterDesktopSecret } from './systemLifecycle';
 
 export interface StatusAtualizacao {
   verificando: boolean;
@@ -62,7 +63,12 @@ class UpdateService {
       let versaoLocalEmUso = VERSAO_LOCAL.versaoCodigo;
       if (isDesktopApp()) {
         try {
-          const resLocal = await fetch('/api/system/version', { cache: 'no-store' });
+          const resLocal = await fetch('/api/system/version', {
+            cache: 'no-store',
+            headers: {
+              'X-System-Secret': obterDesktopSecret(),
+            },
+          });
           if (resLocal.ok) {
             const dataLocal = await resLocal.json();
             if (dataLocal && typeof dataLocal.versaoCodigo === 'number') {
@@ -117,7 +123,10 @@ class UpdateService {
 
         const res = await fetch('/api/system/update', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-System-Secret': obterDesktopSecret(),
+          },
           signal: controller.signal,
         });
         clearTimeout(timeout);

@@ -3,6 +3,13 @@ import { isDesktopApp } from '../db/storage';
 let heartbeatTimer: any = null;
 let monitorIniciado = false;
 
+export function obterDesktopSecret(): string {
+  if (typeof window !== 'undefined' && (window as any).__SOLUTIONS_DESKTOP_SECRET__) {
+    return (window as any).__SOLUTIONS_DESKTOP_SECRET__;
+  }
+  return '';
+}
+
 /**
  * Inicia o monitoramento de ciclo de vida do aplicativo desktop.
  * Envia heartbeat periódico ao servidor local C# e registra eventos
@@ -14,9 +21,17 @@ export function iniciarMonitoramentoCicloVida(): void {
   }
   monitorIniciado = true;
 
-  // 1. Envia heartbeat a cada 5 segundos para o executável local saber que a janela está ativa
+  // 1. Envia heartbeat a cada 5 segundos com X-System-Secret
   const enviarHeartbeat = () => {
-    fetch('/api/system/heartbeat', { cache: 'no-store' }).catch(() => {});
+    const secret = obterDesktopSecret();
+    fetch('/api/system/heartbeat', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-System-Secret': secret,
+      },
+    }).catch(() => {});
   };
 
   enviarHeartbeat();
@@ -43,13 +58,17 @@ export async function fecharSistemaCompleto(): Promise<void> {
     heartbeatTimer = null;
   }
 
-  // Notifica o host desktop C# para desligar todos os processos
+  // Notifica o host desktop C# com autorização X-System-Secret para desligar todos os processos
   try {
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/system/shutdown');
-    } else {
-      await fetch('/api/system/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
-    }
+    const secret = obterDesktopSecret();
+    await fetch('/api/system/shutdown', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-System-Secret': secret,
+      },
+      keepalive: true,
+    }).catch(() => {});
   } catch {}
 
   // Exibe tela de encerramento

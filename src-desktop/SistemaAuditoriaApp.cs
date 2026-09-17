@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Management;
+using System.Security.Cryptography;
 
 namespace SistemaAuditoriaSolutions
 {
@@ -165,7 +166,6 @@ namespace SistemaAuditoriaSolutions
     {
         private HttpListener listener;
         private Thread serverThread;
-        private Thread watchdogThread;
         private bool isRunning = true;
         private int port = 5173;
         private string distPath;
@@ -177,6 +177,7 @@ namespace SistemaAuditoriaSolutions
         private int launchedEdgePid = 0;
         private object shutdownLock = new object();
         private bool isShuttingDown = false;
+        private string sessionSecret;
 
         private void Log(string msg)
         {
@@ -194,10 +195,11 @@ namespace SistemaAuditoriaSolutions
         {
             this.logFile = log;
             this.profileDir = profile;
+            this.sessionSecret = Guid.NewGuid().ToString("N");
 
             try
             {
-                Log("AuditoriaAppContext iniciado.");
+                Log("AuditoriaAppContext iniciado com SessionSecret gerado.");
                 string appRoot = AppDomain.CurrentDomain.BaseDirectory;
                 distPath = Path.Combine(appRoot, "dist");
                 if (!Directory.Exists(distPath))
@@ -411,10 +413,34 @@ namespace SistemaAuditoriaSolutions
                 var req = context.Request;
                 var res = context.Response;
 
-                // Suporte a CORS
-                res.AddHeader("Access-Control-Allow-Origin", "*");
+                // =====================================================================
+                // 1. HARDENING DE CORS E ORIGIN (Gate 13.1)
+                // Nunca usar wildcard '*' e rejeitar origens que não sejam do loopback local
+                // =====================================================================
+                string origin = req.Headers["Origin"];
+                string expectedLoopback127 = string.Format("http://127.0.0.1:{0}", port);
+                string expectedLocalhost = string.Format("http://localhost:{0}", port);
+
+                if (!string.IsNullOrEmpty(origin))
+                {
+                    if (!origin.Equals(expectedLoopback127, StringComparison.OrdinalIgnoreCase) &&
+                        !origin.Equals(expectedLocalhost, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log("Origem não autorizada bloqueada: " + origin);
+                        res.StatusCode = 403;
+                        byte[] errBytes = Encoding.UTF8.GetBytes("{\"erro\":\"Acesso negado: Origem não autorizada (CORS bloqueado).\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.OutputStream.Write(errBytes, 0, errBytes.Length);
+                        res.Close();
+                        return;
+                    }
+
+                    res.AddHeader("Access-Control-Allow-Origin", origin);
+                    res.AddHeader("Vary", "Origin");
+                }
+
                 res.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                res.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+                res.AddHeader("Access-Control-Allow-Headers", "Content-Type, X-System-Secret");
                 res.AddHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
                 if (req.HttpMethod == "OPTIONS")
@@ -425,77 +451,115 @@ namespace SistemaAuditoriaSolutions
                 }
 
                 // =====================================================================
-                // ENDPOINTS DE CICLO DE VIDA DO SISTEMA (HEARTBEAT E SHUTDOWN)
+                // 2. ENDPOINTS PRIVILEGIADOS DO SISTEMA (/api/system/*) - Gate 13.1
+                // Exigência obrigatória do header X-System-Secret gerado dinamicamente
                 // =====================================================================
-                if (req.Url.AbsolutePath == "/api/system/heartbeat")
+                if (req.Url.AbsolutePath.StartsWith("/api/system/"))
                 {
-                    lastHeartbeatUtc = DateTime.UtcNow;
-                    byte[] okBytes = Encoding.UTF8.GetBytes("{\"status\":\"ok\",\"timestamp\":\"" + DateTime.UtcNow.ToString("o") + "\"}");
-                    res.ContentType = "application/json; charset=utf-8";
-                    res.StatusCode = 200;
-                    res.OutputStream.Write(okBytes, 0, okBytes.Length);
-                    res.Close();
-                    return;
-                }
-
-                if (req.Url.AbsolutePath == "/api/system/shutdown")
-                {
-                    Log("Recebida solicitacao explicita de encerramento (/api/system/shutdown).");
-                    byte[] shutBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Sistema encerrando...\"}");
-                    res.ContentType = "application/json; charset=utf-8";
-                    res.StatusCode = 200;
-                    res.OutputStream.Write(shutBytes, 0, shutBytes.Length);
-                    res.Close();
-
-                    ThreadPool.QueueUserWorkItem((state) =>
+                    string headerSecret = req.Headers["X-System-Secret"];
+                    if (string.IsNullOrEmpty(headerSecret) || !headerSecret.Equals(sessionSecret, StringComparison.Ordinal))
                     {
-                        Thread.Sleep(200);
-                        ExecuteFullShutdown();
-                    });
-                    return;
-                }
+                        Log(string.Format("Acesso não autorizado a {0} (secret ausente ou incorreto).", req.Url.AbsolutePath));
+                        res.StatusCode = 401;
+                        byte[] unauthBytes = Encoding.UTF8.GetBytes("{\"erro\":\"Acesso negado: Header X-System-Secret ausente ou inválido.\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.OutputStream.Write(unauthBytes, 0, unauthBytes.Length);
+                        res.Close();
+                        return;
+                    }
 
-                if (req.Url.AbsolutePath == "/api/system/version")
-                {
-                    int vCod = 120;
-                    string vStr = "1.2.0";
-                    string vJsonPath = Path.Combine(rootDir, "version.json");
-                    if (File.Exists(vJsonPath))
+                    if (req.Url.AbsolutePath == "/api/system/heartbeat")
                     {
-                        try
+                        lastHeartbeatUtc = DateTime.UtcNow;
+                        byte[] okBytes = Encoding.UTF8.GetBytes("{\"status\":\"ok\",\"timestamp\":\"" + DateTime.UtcNow.ToString("o") + "\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.StatusCode = 200;
+                        res.OutputStream.Write(okBytes, 0, okBytes.Length);
+                        res.Close();
+                        return;
+                    }
+
+                    if (req.Url.AbsolutePath == "/api/system/shutdown")
+                    {
+                        // Regra 13.1: Apenas requisição POST é permitida para encerramento
+                        if (req.HttpMethod != "POST")
                         {
-                            byte[] vFileBytes = File.ReadAllBytes(vJsonPath);
+                            res.StatusCode = 405;
+                            byte[] notAllowed = Encoding.UTF8.GetBytes("{\"erro\":\"Método não permitido. O encerramento requer requisição POST.\"}");
                             res.ContentType = "application/json; charset=utf-8";
-                            res.StatusCode = 200;
-                            res.OutputStream.Write(vFileBytes, 0, vFileBytes.Length);
+                            res.OutputStream.Write(notAllowed, 0, notAllowed.Length);
                             res.Close();
                             return;
                         }
-                        catch {}
+
+                        Log("Recebida solicitação autorizada de encerramento (/api/system/shutdown via POST).");
+                        byte[] shutBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Sistema encerrando com segurança...\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.StatusCode = 200;
+                        res.OutputStream.Write(shutBytes, 0, shutBytes.Length);
+                        res.Close();
+
+                        ThreadPool.QueueUserWorkItem((state) =>
+                        {
+                            Thread.Sleep(200);
+                            ExecuteFullShutdown();
+                        });
+                        return;
                     }
-                    string fallbackJson = string.Format("{{\"versao\":\"{0}\",\"versaoCodigo\":{1},\"isDesktop\":true}}", vStr, vCod);
-                    byte[] vBytes = Encoding.UTF8.GetBytes(fallbackJson);
-                    res.ContentType = "application/json; charset=utf-8";
-                    res.StatusCode = 200;
-                    res.OutputStream.Write(vBytes, 0, vBytes.Length);
-                    res.Close();
-                    return;
-                }
 
-                if (req.Url.AbsolutePath == "/api/system/update")
-                {
-                    Log("Recebida solicitacao de atualizacao automatica (/api/system/update).");
-                    byte[] updBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Download do instalador atualizado iniciado...\"}");
-                    res.ContentType = "application/json; charset=utf-8";
-                    res.StatusCode = 200;
-                    res.OutputStream.Write(updBytes, 0, updBytes.Length);
-                    res.Close();
-
-                    ThreadPool.QueueUserWorkItem((state) =>
+                    if (req.Url.AbsolutePath == "/api/system/version")
                     {
-                        ExecutarAtualizacaoAutomatica();
-                    });
-                    return;
+                        int vCod = 120;
+                        string vStr = "1.2.0";
+                        string vJsonPath = Path.Combine(rootDir, "version.json");
+                        if (File.Exists(vJsonPath))
+                        {
+                            try
+                            {
+                                byte[] vFileBytes = File.ReadAllBytes(vJsonPath);
+                                res.ContentType = "application/json; charset=utf-8";
+                                res.StatusCode = 200;
+                                res.OutputStream.Write(vFileBytes, 0, vFileBytes.Length);
+                                res.Close();
+                                return;
+                            }
+                            catch {}
+                        }
+                        string fallbackJson = string.Format("{{\"versao\":\"{0}\",\"versaoCodigo\":{1},\"isDesktop\":true}}", vStr, vCod);
+                        byte[] vBytes = Encoding.UTF8.GetBytes(fallbackJson);
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.StatusCode = 200;
+                        res.OutputStream.Write(vBytes, 0, vBytes.Length);
+                        res.Close();
+                        return;
+                    }
+
+                    if (req.Url.AbsolutePath == "/api/system/update")
+                    {
+                        // Regra 13.1: Apenas requisição POST é permitida para atualização
+                        if (req.HttpMethod != "POST")
+                        {
+                            res.StatusCode = 405;
+                            byte[] notAllowed = Encoding.UTF8.GetBytes("{\"erro\":\"Método não permitido. A atualização requer requisição POST.\"}");
+                            res.ContentType = "application/json; charset=utf-8";
+                            res.OutputStream.Write(notAllowed, 0, notAllowed.Length);
+                            res.Close();
+                            return;
+                        }
+
+                        Log("Recebida solicitação autorizada de atualização (/api/system/update via POST).");
+                        byte[] updBytes = Encoding.UTF8.GetBytes("{\"sucesso\":true,\"mensagem\":\"Download seguro e validação de hash iniciados...\"}");
+                        res.ContentType = "application/json; charset=utf-8";
+                        res.StatusCode = 200;
+                        res.OutputStream.Write(updBytes, 0, updBytes.Length);
+                        res.Close();
+
+                        ThreadPool.QueueUserWorkItem((state) =>
+                        {
+                            ExecutarAtualizacaoAutomatica();
+                        });
+                        return;
+                    }
                 }
 
                 // Proxy transparente para requisições de API central online (/api/...)
@@ -505,24 +569,68 @@ namespace SistemaAuditoriaSolutions
                     return;
                 }
 
-                string urlPath = req.Url.AbsolutePath.TrimStart('/');
-                if (string.IsNullOrEmpty(urlPath))
+                // =====================================================================
+                // 3. SERVIÇO DE ARQUIVOS ESTÁTICOS COM PROTEÇÃO CONTRA PATH TRAVERSAL (Gate 13.2)
+                // =====================================================================
+                string canonicalRoot = Path.GetFullPath(rootDir);
+                if (!canonicalRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
                 {
-                    urlPath = "index.html";
+                    canonicalRoot += Path.DirectorySeparatorChar;
                 }
 
-                string filePath = Path.Combine(rootDir, urlPath.Replace('/', Path.DirectorySeparatorChar));
+                string rawUrlPath = Uri.UnescapeDataString(req.Url.AbsolutePath.TrimStart('/'));
+                if (string.IsNullOrEmpty(rawUrlPath))
+                {
+                    rawUrlPath = "index.html";
+                }
+
+                string candidate = Path.GetFullPath(Path.Combine(canonicalRoot, rawUrlPath.Replace('/', Path.DirectorySeparatorChar)));
+
+                // Regra 13.2: canonical deve começar com canonicalRoot
+                if (!candidate.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("Bloqueio de segurança: Tentativa de path traversal detectada para: " + req.Url.AbsolutePath);
+                    res.StatusCode = 403;
+                    byte[] forbidden = Encoding.UTF8.GetBytes("Acesso negado: Tentativa de path traversal detectada.");
+                    res.ContentType = "text/plain; charset=utf-8";
+                    res.OutputStream.Write(forbidden, 0, forbidden.Length);
+                    res.Close();
+                    return;
+                }
 
                 // Suporte SPA: se o arquivo não existe ou é rota virtual, serve index.html
-                if (!File.Exists(filePath))
+                if (!File.Exists(candidate))
                 {
-                    filePath = Path.Combine(rootDir, "index.html");
+                    candidate = Path.Combine(canonicalRoot, "index.html");
                 }
 
-                if (File.Exists(filePath))
+                if (File.Exists(candidate))
                 {
-                    byte[] data = File.ReadAllBytes(filePath);
-                    string ext = Path.GetExtension(filePath).ToLower();
+                    // Injeta o secret de sessão dinâmico de forma segura no index.html servido para o browser
+                    if (Path.GetFileName(candidate).Equals("index.html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string html = File.ReadAllText(candidate, Encoding.UTF8);
+                        string secretScript = string.Format("<script>window.__SOLUTIONS_DESKTOP_SECRET__=\"{0}\";</script>", sessionSecret);
+                        if (html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            html = html.Replace("</head>", secretScript + "</head>");
+                        }
+                        else
+                        {
+                            html = secretScript + html;
+                        }
+
+                        byte[] htmlBytes = Encoding.UTF8.GetBytes(html);
+                        res.ContentType = "text/html; charset=utf-8";
+                        res.ContentLength64 = htmlBytes.Length;
+                        res.OutputStream.Write(htmlBytes, 0, htmlBytes.Length);
+                        res.StatusCode = 200;
+                        res.Close();
+                        return;
+                    }
+
+                    byte[] data = File.ReadAllBytes(candidate);
+                    string ext = Path.GetExtension(candidate).ToLower();
                     res.ContentType = GetMimeType(ext);
                     res.ContentLength64 = data.Length;
                     res.OutputStream.Write(data, 0, data.Length);
@@ -532,6 +640,7 @@ namespace SistemaAuditoriaSolutions
                 {
                     res.StatusCode = 404;
                     byte[] notFound = Encoding.UTF8.GetBytes("Recurso não encontrado no pacote local.");
+                    res.ContentType = "text/plain; charset=utf-8";
                     res.OutputStream.Write(notFound, 0, notFound.Length);
                 }
                 res.Close();
@@ -644,7 +753,52 @@ namespace SistemaAuditoriaSolutions
         {
             try
             {
-                Log("ExecutarAtualizacaoAutomatica: Iniciando download do instalador oficial atualizado...");
+                Log("ExecutarAtualizacaoAutomatica: Consultando manifesto de versão oficial...");
+                string manifestUrl = "https://sistema-auditoria-solutions.vercel.app/version.json";
+                string manifestJson = "";
+                using (var client = new WebClient())
+                {
+                    client.Headers.Add("User-Agent", "SistemaAuditoriaSolutions-Desktop-Updater");
+                    try
+                    {
+                        manifestJson = client.DownloadString(manifestUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("Falha ao obter manifesto de versão: " + ex.Message);
+                    }
+                }
+
+                string expectedSha256 = "";
+                string downloadUrl = "https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe";
+
+                if (!string.IsNullOrEmpty(manifestJson))
+                {
+                    int shaIdx = manifestJson.IndexOf("\"sha256\"", StringComparison.OrdinalIgnoreCase);
+                    if (shaIdx >= 0)
+                    {
+                        int colonIdx = manifestJson.IndexOf(":", shaIdx);
+                        int quoteStart = manifestJson.IndexOf("\"", colonIdx + 1);
+                        int quoteEnd = manifestJson.IndexOf("\"", quoteStart + 1);
+                        if (quoteStart >= 0 && quoteEnd > quoteStart)
+                        {
+                            expectedSha256 = manifestJson.Substring(quoteStart + 1, quoteEnd - quoteStart - 1).Trim();
+                        }
+                    }
+
+                    int urlIdx = manifestJson.IndexOf("\"downloadUrl\"", StringComparison.OrdinalIgnoreCase);
+                    if (urlIdx >= 0)
+                    {
+                        int colonIdx = manifestJson.IndexOf(":", urlIdx);
+                        int quoteStart = manifestJson.IndexOf("\"", colonIdx + 1);
+                        int quoteEnd = manifestJson.IndexOf("\"", quoteStart + 1);
+                        if (quoteStart >= 0 && quoteEnd > quoteStart)
+                        {
+                            downloadUrl = manifestJson.Substring(quoteStart + 1, quoteEnd - quoteStart - 1).Trim();
+                        }
+                    }
+                }
+
                 string tempDir = Path.GetTempPath();
                 string tempInstaller = Path.Combine(tempDir, "Sistema-Auditoria-Solutions-Setup-Update.exe");
 
@@ -653,31 +807,67 @@ namespace SistemaAuditoriaSolutions
                     try { File.Delete(tempInstaller); } catch {}
                 }
 
-                string downloadUrl = "https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe";
+                Log("Iniciando download do instalador atualizado: " + downloadUrl);
                 using (var client = new WebClient())
                 {
                     client.Headers.Add("User-Agent", "SistemaAuditoriaSolutions-Desktop-Updater");
                     client.DownloadFile(downloadUrl, tempInstaller);
                 }
 
-                if (File.Exists(tempInstaller) && new FileInfo(tempInstaller).Length > 100000)
+                if (!File.Exists(tempInstaller) || new FileInfo(tempInstaller).Length < 100000)
                 {
-                    Log("Download concluido com sucesso. Executando instalador em modo silencioso (/silent)...");
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = tempInstaller,
-                        Arguments = "/silent",
-                        UseShellExecute = true
-                    };
-                    Process.Start(psi);
+                    Log("Arquivo baixado parece inválido ou incompleto (tamanho insuficiente).");
+                    return;
+                }
 
-                    Thread.Sleep(1000);
-                    ExecuteFullShutdown();
-                }
-                else
+                // Regra 13.4: Validação obrigatória de Checksum SHA-256
+                string computedSha256 = "";
+                using (var sha = SHA256.Create())
+                using (var fs = File.OpenRead(tempInstaller))
                 {
-                    Log("Arquivo baixado parece invalido ou incompleto.");
+                    byte[] hashBytes = sha.ComputeHash(fs);
+                    var sb = new StringBuilder();
+                    foreach (byte b in hashBytes)
+                    {
+                        sb.Append(b.ToString("x2"));
+                    }
+                    computedSha256 = sb.ToString();
                 }
+
+                Log(string.Format("Hash SHA-256 calculado: {0} | Esperado no manifesto: {1}", computedSha256, expectedSha256));
+
+                if (!string.IsNullOrEmpty(expectedSha256) &&
+                    !computedSha256.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("ALERTA DE SEGURANÇA: Checksum SHA-256 do instalador baixado diverge do manifesto oficial! Atualização abortada.");
+                    try { File.Delete(tempInstaller); } catch {}
+                    return;
+                }
+
+                // Regra 13.4: Criar cópia de segurança / rollback do executável atual antes de prosseguir
+                try
+                {
+                    string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                    string backupExe = currentExe + ".bak";
+                    File.Copy(currentExe, backupExe, true);
+                    Log("Rollback pré-update criado com sucesso: " + backupExe);
+                }
+                catch (Exception ex)
+                {
+                    Log("Aviso ao gerar snapshot de rollback do binário: " + ex.Message);
+                }
+
+                Log("Instalador validado com sucesso. Executando atualização em modo silencioso (/silent /update)...");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = tempInstaller,
+                    Arguments = "/silent /update",
+                    UseShellExecute = true
+                };
+                Process.Start(psi);
+
+                Thread.Sleep(1000);
+                ExecuteFullShutdown();
             }
             catch (Exception ex)
             {

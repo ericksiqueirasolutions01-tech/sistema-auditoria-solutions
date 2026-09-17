@@ -7,6 +7,8 @@ export interface InfoVersaoSistema {
   descricao: string;
   novidades: string[];
   downloadUrl: string;
+  sha256?: string;
+  size_bytes?: number;
 }
 
 // Versão compilada neste pacote do aplicativo

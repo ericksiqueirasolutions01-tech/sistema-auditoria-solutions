@@ -106,6 +106,7 @@ export interface ProdutoAuditoria {
   data_sincronizacao: string | null;
   erro_sincronizacao?: string | null;
   duplicado_servidor_info?: DetalheImeiDuplicado | null;
+  revisao?: number;
   // Compatibilidade retroativa com campos anteriores:
   sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
   sync_data?: string | null;

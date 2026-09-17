@@ -23,6 +23,7 @@ describe('GATE 12: Performance e Otimização de Consultas', () => {
       for (let i = 1; i <= 250; i++) {
         produtosMock.push({
           id: i,
+          id_servidor: null,
           uuid: `uuid-perf-${i}`,
           fabricante: 'SAMSUNG',
           modelo_produto: i % 2 === 0 ? 'Galaxy S24' : 'Galaxy A55',
@@ -33,9 +34,13 @@ describe('GATE 12: Performance e Otimização de Consultas', () => {
           data_auditoria: '17/09/2026',
           numero_caixa: `Caixa ${String(Math.ceil(i / 20)).padStart(2, '0')}`,
           produto_lacrado: i % 3 === 0 ? 'NÃO' : 'SIM',
-          kit_completo: i % 3 === 0 ? 'SIM' : undefined,
-          aparelho_marcas_uso: i % 3 === 0 ? 'NÃO' : undefined,
+          kit_completo: i % 3 === 0 ? 'SIM' : null,
+          aparelho_marcas_uso: i % 3 === 0 ? 'NÃO' : null,
           observacao: 'Item de teste de performance',
+          computador_id: 'PC-RJ-001',
+          computador_nome: 'Estação 01',
+          data_alteracao: null,
+          data_sincronizacao: null,
           data_cadastro: new Date().toISOString(),
           usuario_cadastro: 'Admin Teste',
           regional: 'VIA VAREJO RJ',
@@ -94,6 +99,7 @@ describe('GATE 12: Performance e Otimização de Consultas', () => {
       for (let i = 1; i <= 100; i++) {
         produtosMock.push({
           id: i,
+          id_servidor: null,
           uuid: `uuid-box-${i}`,
           fabricante: 'SAMSUNG',
           modelo_produto: i <= 50 ? 'Galaxy S24' : 'Galaxy Z Flip',
@@ -104,6 +110,11 @@ describe('GATE 12: Performance e Otimização de Consultas', () => {
           produto_lacrado: i <= 70 ? 'SIM' : 'NÃO',
           aparelho_marcas_uso: i > 80 ? 'SIM' : 'NÃO',
           kit_completo: i > 90 ? 'NÃO' : 'SIM',
+          observacao: '',
+          computador_id: 'PC-RJ-001',
+          computador_nome: 'Estação 01',
+          data_alteracao: null,
+          data_sincronizacao: null,
           data_cadastro: '2026-09-17T08:00:00Z',
           usuario_cadastro: 'Admin Teste',
           regional: 'VIA VAREJO RJ',
@@ -214,3 +225,4 @@ describe('GATE 12: Performance e Otimização de Consultas', () => {
     });
   });
 });
+

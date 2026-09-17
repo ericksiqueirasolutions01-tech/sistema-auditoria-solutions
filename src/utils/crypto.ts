@@ -121,3 +121,4 @@ export function gerarUUID(): string {
     return v.toString(16);
   });
 }
+

@@ -198,3 +198,4 @@ describe('GATE 3: Persistência Local Confiável e Migrador Transacional', () =>
     });
   });
 });
+

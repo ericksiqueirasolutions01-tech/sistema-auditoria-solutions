@@ -9,6 +9,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lint": "node ./scripts/supply-chain-check.cjs --lint",
+    "security:scan": "node ./scripts/supply-chain-check.cjs --scan-secrets",
+    "security:audit": "npm audit --audit-level=high",
+    "supply-chain": "node ./scripts/supply-chain-check.cjs --all",
     "build:installer": "powershell -ExecutionPolicy Bypass -File ./scripts/build-windows-installer.ps1"
   },
   "dependencies": {

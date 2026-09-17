@@ -112,11 +112,67 @@ if (-not (Test-Path $downloadsDist)) { New-Item -ItemType Directory -Path $downl
 Copy-Item -Force $installerExe "$downloadsPublic\Sistema-Auditoria-Solutions-Setup.exe"
 Copy-Item -Force $installerExe "$downloadsDist\Sistema-Auditoria-Solutions-Setup.exe"
 
+# 6. Assinatura Digital e Hashing Criptográfico de Artefatos (Gate 14 - Supply Chain)
+Write-Host "[6/6] Calculando integridade criptográfica SHA-256 e manifesto de release..." -ForegroundColor Yellow
+
+# Assinatura digital Authenticode se certificado estiver configurado
+if ($env:CSC_CERT_BASE64 -or $env:CODE_SIGN_CERT_THUMBPRINT) {
+    Write-Host " -> Assinando digitalmente binários com certificado corporativo..." -ForegroundColor Cyan
+    try {
+        # Se thumbprint estiver no store
+        if ($env:CODE_SIGN_CERT_THUMBPRINT) {
+            $cert = Get-Item "Cert:\CurrentUser\My\$($env:CODE_SIGN_CERT_THUMBPRINT)" -ErrorAction SilentlyContinue
+            if ($cert) {
+                Set-AuthenticodeSignature -FilePath $appExe -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+                Set-AuthenticodeSignature -FilePath $installerExe -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+                Set-AuthenticodeSignature -FilePath "$downloadsPublic\Sistema-Auditoria-Solutions-Setup.exe" -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+                Set-AuthenticodeSignature -FilePath "$downloadsDist\Sistema-Auditoria-Solutions-Setup.exe" -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+                Write-Host " -> Binários assinados com sucesso." -ForegroundColor Green
+            }
+        }
+    } catch {
+        Write-Warning "Aviso: Não foi possível assinar com certificado: $_"
+    }
+} else {
+    Write-Host " -> Modo Staging/Local: Certificado de produção não informado. Assinatura Authenticode simulada/pendente." -ForegroundColor Gray
+}
+
+# Cálculo dos hashes SHA-256
+$hashApp = (Get-FileHash -Algorithm SHA256 -Path $appExe).Hash.ToLower()
+$hashInstaller = (Get-FileHash -Algorithm SHA256 -Path $installerExe).Hash.ToLower()
+
+$manifestJson = @{
+    generated_at = (Get-Date).ToString("o")
+    version = "1.2.0"
+    app_executable = @{
+        name = "SistemaAuditoriaSolutions.exe"
+        sha256 = $hashApp
+        sizeBytes = (Get-Item $appExe).Length
+    }
+    setup_installer = @{
+        name = "Sistema-Auditoria-Solutions-Setup.exe"
+        sha256 = $hashInstaller
+        sizeBytes = (Get-Item $installerExe).Length
+    }
+} | ConvertTo-Json -Depth 5
+
+$sumsContent = "$hashInstaller  Sistema-Auditoria-Solutions-Setup.exe`n$hashApp  SistemaAuditoriaSolutions.exe"
+
+Set-Content -Path "$buildDir\manifest.json" -Value $manifestJson -Encoding UTF8
+Set-Content -Path "$downloadsPublic\manifest.json" -Value $manifestJson -Encoding UTF8
+Set-Content -Path "$downloadsDist\manifest.json" -Value $manifestJson -Encoding UTF8
+
+Set-Content -Path "$buildDir\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
+Set-Content -Path "$downloadsPublic\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
+Set-Content -Path "$downloadsDist\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
+
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host " SUCESSO! INSTALADOR WINDOWS GERADO COM ÊXITO" -ForegroundColor Green
 Write-Host " Arquivo: $downloadsPublic\Sistema-Auditoria-Solutions-Setup.exe" -ForegroundColor Cyan
 $fileSize = [math]::Round((Get-Item "$downloadsPublic\Sistema-Auditoria-Solutions-Setup.exe").Length / 1KB, 1)
 Write-Host " Tamanho: $fileSize KB" -ForegroundColor Cyan
+Write-Host " SHA256 : $hashInstaller" -ForegroundColor Cyan
 Write-Host " O download já está disponível no botão da tela de login!" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
+
 

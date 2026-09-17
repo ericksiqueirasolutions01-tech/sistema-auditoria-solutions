@@ -1,0 +1,2 @@
+﻿05038fb62a5016a95114d3397d1b531a66a3ceecd732fa4740aa6e985326c4dd  Sistema-Auditoria-Solutions-Setup.exe
+3baa16838ebbfb0174b822cb5bd941073ac8b9c404fffe891dfc2656b3592ed9  SistemaAuditoriaSolutions.exe

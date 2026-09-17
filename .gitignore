@@ -24,12 +24,16 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables
+# Environment variables & secrets
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.crt
 
 # TypeScript cache
 *.tsbuildinfo
@@ -37,7 +41,12 @@ dist-ssr
 # Build Installer temp
 build-installer/
 
-# Local Dev Data Files
+# Local Dev Data Files & Dumps
 data/central_idempotency.json
 data/*.local.json
 data/storage/
+*.sqlite
+*.sqlite3
+*.db
+dump*.sql
+*credential*

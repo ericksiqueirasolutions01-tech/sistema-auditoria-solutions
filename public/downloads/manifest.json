@@ -1,0 +1,14 @@
+﻿{
+    "generated_at":  "2026-09-17T07:47:41.4380809-03:00",
+    "app_executable":  {
+                           "sizeBytes":  29696,
+                           "sha256":  "3baa16838ebbfb0174b822cb5bd941073ac8b9c404fffe891dfc2656b3592ed9",
+                           "name":  "SistemaAuditoriaSolutions.exe"
+                       },
+    "version":  "1.2.0",
+    "setup_installer":  {
+                            "sizeBytes":  19057664,
+                            "sha256":  "05038fb62a5016a95114d3397d1b531a66a3ceecd732fa4740aa6e985326c4dd",
+                            "name":  "Sistema-Auditoria-Solutions-Setup.exe"
+                        }
+}

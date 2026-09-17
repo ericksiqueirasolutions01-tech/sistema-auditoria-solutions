@@ -7,12 +7,12 @@
 O **SISTEMA DE AUDITORIA GRUPO SOLUTIONS** é uma solução corporativa desenvolvida para o setor de auditoria de qualidade e logística, substituindo planilhas manuais e garantindo máxima velocidade, precisão e rastreabilidade na conferência de produtos **Samsung**.
 
 ### Principais Características:
-- **100% Offline**: Funciona com banco local sem necessidade de conexão com a internet.
+- **Arquitetura Offline-First Confiável**: A estação opera de forma totalmente independente sem exigir internet contínua; os dados e fotos são gravados localmente em IndexedDB transacional com backup de segurança SQLite Wasm.
 - **Bipagem Contínua de Alta Velocidade**: Foco automático, auto-save e compatibilidade com qualquer leitor de código de barras (USB ou Bluetooth).
-- **Validação Instantânea de Duplicidade**: Bloqueio sonoro e visual caso um número de série já tenha sido auditado.
-- **Controle Rigoroso de Lacre e Integridade Física**: Validação de acessórios e avarias estéticas para produtos abertos.
+- **Validação Instantânea de Duplicidade**: Bloqueio sonoro e visual imediato caso um número de série já tenha sido auditado na estação ou no servidor central.
+- **Controle Rigoroso de Lacre e Integridade Física**: Validação de acessórios e avarias estéticas para produtos abertos com captura de fotos de evidência.
 - **Emissão Automática de Espelhos de Auditoria**: Relatórios por caixa com logotipos oficiais Samsung e Grupo Solutions prontos para impressão, PDF e Excel.
-- **Arquitetura Pronta para Sincronização Online**: Estrutura com UUIDs e status de sincronização para futura centralização na nuvem.
+- **Sincronização Delta Idempotente**: Motor Outbox em segundo plano que envia os dados automaticamente quando a conexão estiver disponível, sem perigo de duplicação.
 
 ---
 

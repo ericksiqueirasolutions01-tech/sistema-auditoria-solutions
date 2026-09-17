@@ -68,3 +68,4 @@ export default function handler(req: IncomingMessage, res: ServerResponse) {
     return res.end(JSON.stringify({ erro: 'Erro interno ao compilar métricas operacionais.' }));
   }
 }
+

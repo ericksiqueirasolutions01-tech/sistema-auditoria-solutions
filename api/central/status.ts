@@ -50,6 +50,16 @@ function getSupabaseServerAdmin(): SupabaseClient | null {
   }
 }
 
+function sendJson(res: any, statusCode: number, data: any) {
+  res.setHeader('Content-Type', 'application/json');
+  if (typeof res.status === 'function') {
+    const s = res.status(statusCode);
+    if (typeof s?.json === 'function') return s.json(data);
+  }
+  res.statusCode = statusCode;
+  return res.end(JSON.stringify(data));
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -57,7 +67,11 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+    if (typeof res.status === 'function') {
+      return res.status(204).end();
+    }
+    res.statusCode = 204;
+    return res.end();
   }
 
   try {
@@ -91,7 +105,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    return res.status(200).json({
+    return sendJson(res, 200, {
       status: 'online',
       servidor: 'Vercel Serverless + Supabase PostgreSQL (RLS)',
       modo,
@@ -100,6 +114,6 @@ export default async function handler(req: any, res: any) {
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
-    return res.status(200).json({ status: 'online', totalProdutos: 0, erro: err.message });
+    return sendJson(res, 200, { status: 'online', totalProdutos: 0, erro: err?.message || 'Erro desconhecido' });
   }
 }

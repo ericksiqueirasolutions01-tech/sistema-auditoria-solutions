@@ -13,7 +13,7 @@ import {
   HelpCircle,
   Loader2,
 } from 'lucide-react';
-import { db, REGIONAIS_PADRAO, extrairCodigoRegional, normalizeDealer, normalizeImei } from '../../../db/storage';
+import { db, REGIONAIS_PADRAO, extrairCodigoRegional, normalizeDealer, normalizeImei, inferirFabricante } from '../../../db/storage';
 import { isAdminOuSuper } from '../../../domain';
 import type { MetricasValidacaoPlanilha } from '../../../types';
 
@@ -103,6 +103,44 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
         sheetName = workbook.SheetNames[0];
       }
       setNomeAbaUtilizada(sheetName);
+
+      // Mapeamento SKU -> Marca a partir de qualquer aba de apoio (ex: 'sistema', 'marcas', 'produtos')
+      const skuToBrandMap = new Map<string, string>();
+      for (const sName of workbook.SheetNames) {
+        if (sName.trim().toUpperCase() === sheetName.trim().toUpperCase()) continue;
+        const sWorksheet = workbook.Sheets[sName];
+        if (!sWorksheet) continue;
+        const sData: any[][] = XLSX.utils.sheet_to_json(sWorksheet, { header: 1, defval: '' });
+        if (sData.length < 2) continue;
+
+        let sSkuCol = -1;
+        let sMarcaCol = -1;
+        for (let r = 0; r < Math.min(10, sData.length); r++) {
+          const row = sData[r] || [];
+          for (let c = 0; c < row.length; c++) {
+            const val = String(row[c] || '').trim().toUpperCase();
+            if (val === 'SKU' || val.includes('SKU') || val === 'CODIGO' || val === 'CÓDIGO') {
+              sSkuCol = c;
+            }
+            if (val === 'MARCA' || val === 'FABRICANTE' || val.includes('MARCA') || val.includes('FABRICANTE')) {
+              sMarcaCol = c;
+            }
+          }
+          if (sSkuCol !== -1 && sMarcaCol !== -1) {
+            for (let rowIdx = r + 1; rowIdx < sData.length; rowIdx++) {
+              const dataRow = sData[rowIdx];
+              if (!dataRow) continue;
+              const sSku = String(dataRow[sSkuCol] || '').trim();
+              const sMarca = String(dataRow[sMarcaCol] || '').trim().toUpperCase();
+              if (sSku && sMarca) {
+                skuToBrandMap.set(sSku, sMarca);
+                skuToBrandMap.set(sSku.replace(/^0+/, ''), sMarca);
+              }
+            }
+            break;
+          }
+        }
+      }
 
       const worksheet = workbook.Sheets[sheetName];
       const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
@@ -205,12 +243,15 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
         // Coluna I: JAMAIS LIDA
         const rawNfOrigem = row[idxNfOrigem] !== undefined && row[idxNfOrigem] !== null ? String(row[idxNfOrigem]).trim() : null;
 
+        const rawBrand = skuToBrandMap.get(sku) || skuToBrandMap.get(sku.replace(/^0+/, '')) || null;
+        const brandResolvida = inferirFabricante(modelDesc, rawBrand);
+
         imeisValidos++;
         itensTriados.push({
           imei: imeiNorm,
           sku: sku || 'SEM SKU',
           model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
-          brand: 'SAMSUNG',
+          brand: brandResolvida,
           origin_invoice: rawNfOrigem || null,
           dealer: dealerNorm,
           source_row: sourceRow,

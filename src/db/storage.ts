@@ -106,6 +106,62 @@ export function extrairCodigoRegional(regional?: string | null): string {
 }
 
 /**
+ * Infere o fabricante do aparelho a partir da descrição do modelo ou marca de apoio
+ * Prioridade:
+ * 1. Marca explícita informada/mapeada (se não for nula/vazia)
+ * 2. Análise do modelo por palavras-chave (MOTOROLA, MOTO, OPPO, JOVI, APPLE, IPHONE, XIAOMI, REDMI, POCO, SAMSUNG, GALAXY)
+ * 3. Fallback: OUTRA MARCA (nunca assume SAMSUNG indiscriminadamente)
+ */
+export function inferirFabricante(modelo?: string | null, fallbackMarca?: string | null): string {
+  if (fallbackMarca && fallbackMarca.trim()) {
+    const fb = fallbackMarca.trim().toUpperCase();
+    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA') return fb;
+  }
+  const m = (modelo || '').trim().toUpperCase();
+  if (m.includes('MOTOROLA') || m.includes('MOTO ') || m.startsWith('MOTO')) return 'MOTOROLA';
+  if (m.includes('OPPO')) return 'OPPO';
+  if (m.includes('JOVI')) return 'JOVI';
+  if (m.includes('APPLE') || m.includes('IPHONE')) return 'APPLE';
+  if (m.includes('XIAOMI') || m.includes('REDMI') || m.includes('POCO')) return 'XIAOMI';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'SAMSUNG';
+  if (fallbackMarca && fallbackMarca.trim()) return fallbackMarca.trim().toUpperCase();
+  return 'OUTRA MARCA';
+}
+
+/**
+ * Determina a Classificação Automática do Produto conforme Seções 8, 9, 10 do Prompt de Correção:
+ * - LISTADO:
+ *   - Se dealer for SAMSUNG: PRODUTO NA LISTA - SAMSUNG
+ *   - Se dealer for SIRI: PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA
+ *   - Se dealer for OUTRA MARCA: PRODUTO NA LISTA - OUTRA MARCA
+ *   - Outro dealer: PRODUTO NA LISTA - <DEALER NORMALIZADO>
+ * - FORA DA LISTA:
+ *   - Se fabricante for SAMSUNG: FORA DA LISTA - SAMSUNG
+ *   - Se fabricante != SAMSUNG: FORA DA LISTA - OUTRA MARCA
+ */
+export function calcularClassificacaoProduto(params: {
+  sourceType: 'LISTED' | 'OUT_OF_LIST';
+  dealer?: string | null;
+  fabricante?: string | null;
+}): string {
+  const fab = (params.fabricante || '').trim().toUpperCase();
+  const isSamsung = fab === 'SAMSUNG' || fab.includes('SAMSUNG');
+
+  if (params.sourceType === 'LISTED') {
+    const dNorm = normalizeDealer(params.dealer);
+    if (dNorm.includes('SIRI')) {
+      return 'PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA';
+    }
+    if (!isSamsung || dNorm === 'OUTRA MARCA' || dNorm.includes('OUTRA MARCA')) {
+      return 'PRODUTO NA LISTA - OUTRA MARCA';
+    }
+    return 'PRODUTO NA LISTA - SAMSUNG';
+  } else {
+    return isSamsung ? 'FORA DA LISTA - SAMSUNG' : 'FORA DA LISTA - OUTRA MARCA';
+  }
+}
+
+/**
  * Determina o Lote Automático conforme Seções 4, 5, 8 do Prompt Mestre:
  * - LISTADO: `${codigoRegional} - LISTA - ${dealerNormalizado}`
  * - FORA DA LISTA:
@@ -1271,6 +1327,9 @@ class AuditoriaDatabase {
     misuse?: boolean | null;
     reference_id?: string | null;
     import_batch_id?: string | null;
+    classificacao_produto?: string | null;
+    product_classification?: string | null;
+    nf_origem?: string | null;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
     // 0.0. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
     if (this.isDispositivoRevogado()) {
@@ -1302,26 +1361,37 @@ class AuditoriaDatabase {
         ? this.usuarioAtual.regional
         : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
 
-    // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8)
+    // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8, 16)
     const refLookup = this.consultarImeiReferencia(serialNorm, regionalFinal);
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
-    const resolvedFabricante = item.fabricante || (refLookup ? refLookup.brand : 'SAMSUNG');
+    const resolvedFabricante =
+      item.fabricante ||
+      item.brand ||
+      (refLookup
+        ? (refLookup.brand || inferirFabricante(refLookup.model_description, null))
+        : inferirFabricante(item.modelo_produto, null));
 
-    let loteNorm = (item.numero_lote?.trim() || '').trim().toUpperCase();
-    if (!loteNorm) {
-      loteNorm = calcularLoteAutomatico({
-        regional: regionalFinal,
+    // Nova Regra de Lote: informado pelo colaborador (ex: LOTE 1). Não gera "BA - LISTA - SAMSUNG"
+    let loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || 'LOTE 1').toUpperCase();
+
+    // Classificação Automática do Produto (separada do lote manual):
+    const classificacaoCalculada =
+      item.classificacao_produto ||
+      item.product_classification ||
+      calcularClassificacaoProduto({
         sourceType: resolvedSourceType,
         dealer: resolvedDealer,
         fabricante: resolvedFabricante,
       });
-    }
 
-    // Fallback de Lote
-    if (!loteNorm) {
-      loteNorm = (this.obterUltimoLote() || `${extrairCodigoRegional(regionalFinal)} - LOTE 01`).toUpperCase();
-    }
+    // NF de Origem Automática como texto de referência:
+    const resolvedOriginInvoice =
+      item.origin_invoice !== undefined && item.origin_invoice !== null
+        ? String(item.origin_invoice).trim()
+        : refLookup
+        ? (refLookup.origin_invoice || null)
+        : (item.numero_nf && item.numero_nf.trim() ? item.numero_nf.trim() : 'NÃO LOCALIZADA NA BASE');
 
     // Assegurar existência do AuditLot correspondente no catálogo
     this.obterOuCriarLoteAutomatico({
@@ -1361,14 +1431,6 @@ class AuditoriaDatabase {
     }
     if (!item.produto_lacrado) {
       return { sucesso: false, erro: 'Informe se o produto está lacrado (SIM ou NÃO).' };
-    }
-
-    // 1.1. Validação de Nota Fiscal / Chave de Acesso se informada
-    if (item.numero_nf && item.numero_nf.trim()) {
-      const nfValida = validarNumeroOuChaveNfe(item.numero_nf);
-      if (!nfValida.valido) {
-        return { sucesso: false, erro: nfValida.erro };
-      }
     }
 
     // 2. Validate unsealed rules
@@ -1427,7 +1489,7 @@ class AuditoriaDatabase {
       data_auditoria: item.data_auditoria.trim(),
       numero_caixa: caixaAlvo,
       numero_lote: loteNorm,
-      numero_nf: (item.numero_nf || (refLookup?.origin_invoice || '')).trim(),
+      numero_nf: resolvedOriginInvoice || '',
       nf_conferida: nfConferidaValor,
       status_conformidade: statusConformidade,
       divergencia_nf: divergenciaNf,
@@ -1449,10 +1511,13 @@ class AuditoriaDatabase {
       import_batch_id: item.import_batch_id !== undefined ? item.import_batch_id : (refLookup?.import_batch_id || null),
       source_type: resolvedSourceType,
       dealer: resolvedDealer,
-      origin_invoice: item.origin_invoice !== undefined ? item.origin_invoice : (refLookup?.origin_invoice || null),
+      origin_invoice: resolvedOriginInvoice,
+      nf_origem: resolvedOriginInvoice,
       sku: item.sku !== undefined ? item.sku : (refLookup?.sku || eanFinal),
       brand: item.brand !== undefined ? item.brand : resolvedFabricante,
       misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
+      classificacao_produto: classificacaoCalculada,
+      product_classification: classificacaoCalculada,
     };
 
     this.produtos.unshift(novoProduto);
@@ -1560,13 +1625,6 @@ class AuditoriaDatabase {
       marcasUso = null;
     }
 
-    if (dados.numero_nf && dados.numero_nf.trim()) {
-      const nfValida = validarNumeroOuChaveNfe(dados.numero_nf);
-      if (!nfValida.valido) {
-        return { sucesso: false, erro: nfValida.erro };
-      }
-    }
-
     const nfConferidaAtualizada: SimNao | null =
       dados.nf_conferida !== undefined ? dados.nf_conferida : (anterior.nf_conferida ?? null);
     const lacradoAtualizado = dados.produto_lacrado !== undefined ? dados.produto_lacrado : anterior.produto_lacrado;
@@ -1576,14 +1634,40 @@ class AuditoriaDatabase {
         ? undefined
         : (lacradoAtualizado === 'SIM' && nfConferidaAtualizada === 'SIM' ? 'CONFORME' : 'NAO_CONFORME');
 
+    const originInvoiceAtualizado =
+      dados.origin_invoice !== undefined
+        ? dados.origin_invoice
+        : dados.nf_origem !== undefined
+        ? dados.nf_origem
+        : dados.numero_nf !== undefined
+        ? dados.numero_nf
+        : anterior.origin_invoice || anterior.nf_origem || anterior.numero_nf;
+
+    const classificacaoAtualizada =
+      dados.classificacao_produto ||
+      dados.product_classification ||
+      anterior.classificacao_produto ||
+      anterior.product_classification ||
+      calcularClassificacaoProduto({
+        sourceType: dados.source_type || anterior.source_type || 'LISTED',
+        dealer: dados.dealer !== undefined ? dados.dealer : anterior.dealer,
+        fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand,
+      });
+
     const atualizado: ProdutoAuditoria = {
       ...anterior,
       ...dados,
       serial: serialNovo,
       imei: serialNovo,
+      fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand || 'OUTRA MARCA',
+      brand: dados.brand || dados.fabricante || anterior.brand || anterior.fabricante || 'OUTRA MARCA',
       numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
       numero_lote: dados.numero_lote !== undefined ? (dados.numero_lote || '').trim().toUpperCase() : anterior.numero_lote,
-      numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : anterior.numero_nf,
+      numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : (originInvoiceAtualizado || ''),
+      origin_invoice: originInvoiceAtualizado,
+      nf_origem: originInvoiceAtualizado,
+      classificacao_produto: classificacaoAtualizada,
+      product_classification: classificacaoAtualizada,
       nf_conferida: nfConferidaAtualizada,
       status_conformidade: statusConformidadeAtualizada,
       divergencia_nf: divergenciaNfAtualizada,
@@ -1926,17 +2010,6 @@ class AuditoriaDatabase {
       return {
         sucesso: false,
         erro: `Não há produtos cadastrados no Lote ${loteNorm}. Lance os produtos antes de finalizar o lote.`,
-      };
-    }
-
-    // Regra 8: Validar se todos os produtos do lote possuem a confirmação da NF conferida (SIM ou NÃO)
-    const produtosSemNf = produtosDoLote.filter(
-      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO')
-    );
-    if (produtosSemNf.length > 0) {
-      return {
-        sucesso: false,
-        erro: `Existem ${produtosSemNf.length} produto(s) no lote sem confirmação da NF conferida. Todos os produtos devem ter a NF conferida (SIM ou NÃO) antes de finalizar.`,
       };
     }
 
@@ -4689,7 +4762,7 @@ class AuditoriaDatabase {
 
       // Coluna H preservada; Coluna I estritamente omitida e jamais armazenada
       const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
-      const brand = (item.brand ? String(item.brand) : '').trim().toUpperCase() || 'SAMSUNG';
+      const brand = inferirFabricante(modelDesc, item.brand);
 
       imeisValidos++;
       validRefs.push({

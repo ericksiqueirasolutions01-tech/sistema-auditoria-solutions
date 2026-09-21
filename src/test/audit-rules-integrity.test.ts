@@ -159,7 +159,7 @@ describe('GATE 6: Regras de Auditoria e Integridade Operacional', () => {
       expect(validarNumeroOuChaveNfe('123456789012345').valido).toBe(false); // 15 dígitos não é NF nem NFe
     });
 
-    it('deve rejeitar cadastro com número de NF malformado', () => {
+    it('deve aceitar cadastro com identificação de NF contendo texto ou hífen (referência livre informativa)', () => {
       db.setUsuarioAtual(usuarioOperadorRJ);
       const res = db.inserirProduto({
         modelo_produto: 'Galaxy S24',
@@ -169,12 +169,12 @@ describe('GATE 6: Regras de Auditoria e Integridade Operacional', () => {
         numero_lote: 'LOTE-NF-01',
         data_auditoria: '2026-03-16',
         produto_lacrado: 'SIM',
-        numero_nf: 'INVALIDO-LETRAS-APENAS',
+        numero_nf: '004271584-1',
         regional: 'VIA VAREJO RJ',
       });
 
-      expect(res.sucesso).toBe(false);
-      expect(res.erro).toMatch(/identificação da NF/i);
+      expect(res.sucesso).toBe(true);
+      expect(res.produto?.numero_nf).toBe('004271584-1');
     });
 
     it('não deve assumir "SIM" como default quando nf_conferida não for informada (deve ser null/pendente)', () => {
@@ -277,27 +277,25 @@ describe('GATE 6: Regras de Auditoria e Integridade Operacional', () => {
       expect(resSemEspelho.erro).toMatch(/obrigatório anexar as 3 fotos/i);
     });
 
-    it('deve rejeitar fechamento se algum produto do lote estiver com NF pendente de conferência', () => {
+    it('não deve rejeitar fechamento de lote se produto estiver sem NF conferida (validação descontinuada)', () => {
       db.setUsuarioAtual(usuarioOperadorRJ);
       db.inserirProduto({
         modelo_produto: 'Galaxy S24',
         ean: '7892509133456',
         serial: '357847400400002',
         numero_caixa: 'CX 01',
-        numero_lote: 'LOTE-NF-PENDENTE',
+        numero_lote: 'LOTE-NF-SEM-BLOQUEIO',
         data_auditoria: '2026-03-16',
         produto_lacrado: 'SIM',
-        // nf_conferida pendente (null)
         regional: 'VIA VAREJO RJ',
       });
 
       const res = db.finalizarLote({
-        numeroLote: 'LOTE-NF-PENDENTE',
+        numeroLote: 'LOTE-NF-SEM-BLOQUEIO',
         fotos: fotosValidas,
       });
 
-      expect(res.sucesso).toBe(false);
-      expect(res.erro).toMatch(/sem confirmação da NF conferida/i);
+      expect(res.sucesso).toBe(true);
     });
 
     it('deve finalizar lote com sucesso quando requisitos forem atendidos e gerar checksum SHA-256', () => {

@@ -76,6 +76,22 @@ function extrairCodigoRegional(regional: string): string {
   return r || 'GERAL';
 }
 
+function inferirFabricante(modelo?: string | null, fallbackMarca?: string | null): string {
+  if (fallbackMarca && fallbackMarca.trim()) {
+    const fb = fallbackMarca.trim().toUpperCase();
+    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA') return fb;
+  }
+  const m = (modelo || '').trim().toUpperCase();
+  if (m.includes('MOTOROLA') || m.includes('MOTO ') || m.startsWith('MOTO')) return 'MOTOROLA';
+  if (m.includes('OPPO')) return 'OPPO';
+  if (m.includes('JOVI')) return 'JOVI';
+  if (m.includes('APPLE') || m.includes('IPHONE')) return 'APPLE';
+  if (m.includes('XIAOMI') || m.includes('REDMI') || m.includes('POCO')) return 'XIAOMI';
+  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'SAMSUNG';
+  if (fallbackMarca && fallbackMarca.trim()) return fallbackMarca.trim().toUpperCase();
+  return 'OUTRA MARCA';
+}
+
 export default async function handler(req: any, res: any) {
   const origin = req.headers?.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
@@ -207,7 +223,7 @@ export default async function handler(req: any, res: any) {
 
     // Coluna H preservada; Coluna I (Data da NF) estritamente omitida e jamais persistida
     const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
-    const brand = (item.brand ? String(item.brand) : '').trim().toUpperCase() || 'SAMSUNG';
+    const brand = inferirFabricante(modelDesc, item.brand);
 
     imeisValidos++;
     validRefs.push({

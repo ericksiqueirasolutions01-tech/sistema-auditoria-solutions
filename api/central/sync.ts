@@ -334,7 +334,7 @@ export default async function handler(req: any, res: any) {
             imei: item.imei || item.serial,
             ean: item.ean || '',
             modelo: item.modelo_produto || item.modelo || 'Modelo Desconhecido',
-            fabricante: item.fabricante || 'SAMSUNG',
+            fabricante: item.fabricante || item.brand || 'OUTRA MARCA',
             numero_lote: item.numero_lote || item.lote || '01',
             numero_caixa: item.numero_caixa || item.caixa || '01',
             regional_id: regionalId,
@@ -350,9 +350,10 @@ export default async function handler(req: any, res: any) {
             import_batch_id: item.import_batch_id || null,
             source_type: item.source_type || 'OUT_OF_LIST',
             dealer: item.dealer || null,
-            origin_invoice: item.origin_invoice || null,
+            origin_invoice: item.origin_invoice || item.nf_origem || item.numero_nf || null,
             sku: item.sku || null,
-            brand: item.brand || item.fabricante || 'SAMSUNG',
+            brand: item.brand || item.fabricante || 'OUTRA MARCA',
+            product_classification: item.product_classification || item.classificacao_produto || null,
             misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
           }));
 

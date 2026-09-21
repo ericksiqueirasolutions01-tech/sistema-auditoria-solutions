@@ -381,14 +381,16 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
       });
     });
 
-    it('ao bipar item LISTADO: deve auto-preencher lote, dealer, NF de origem e snapshot', () => {
+    it('ao bipar item LISTADO: deve auto-preencher dealer, NF de origem, snapshot e manter lote do operador', () => {
       db.setUsuarioAtual(usuarioOperador);
+      db.salvarUltimoLote('01');
 
       const res = db.inserirProduto({
         serial: '357847400000100',
         imei: '357847400000100',
         modelo_produto: 'GALAXY S21 FE 5G',
         ean: '7892509123456',
+        numero_lote: '01',
         data_auditoria: '2026-03-21',
         numero_caixa: 'Caixa 01',
         produto_lacrado: 'SIM',
@@ -402,12 +404,13 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
       expect(prod.source_type).toBe('LISTED');
       expect(prod.dealer).toBe('SIRI COMERCIO E SERVICOS LTDA');
       expect(prod.origin_invoice).toBe('NF-987654');
-      expect(prod.numero_lote).toBe('BA - LISTA - SIRI COMERCIO E SERVICOS LTDA');
+      expect(prod.numero_lote).toBe('01');
+      expect(prod.classificacao_produto).toBe('PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA');
       expect(prod.reference_id).toBeDefined();
       expect(prod.import_batch_id).toBeDefined();
     });
 
-    it('ao bipar item FORA DA LISTA: deve calcular lote "FORA DA LISTA" e registrar snapshot adequado', () => {
+    it('ao bipar item FORA DA LISTA: deve manter lote do operador e calcular classificacao_produto "FORA DA LISTA"', () => {
       db.setUsuarioAtual(usuarioOperador);
 
       const res = db.inserirProduto({
@@ -416,6 +419,7 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
         modelo_produto: 'iPhone 15 Pro',
         ean: '194253123456',
         fabricante: 'APPLE',
+        numero_lote: '01',
         data_auditoria: '2026-03-21',
         numero_caixa: 'Caixa 01',
         produto_lacrado: 'SIM',
@@ -427,7 +431,8 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
 
       const prod = res.produto!;
       expect(prod.source_type).toBe('OUT_OF_LIST');
-      expect(prod.numero_lote).toBe('BA - FORA DA LISTA - OUTRA MARCA');
+      expect(prod.numero_lote).toBe('01');
+      expect(prod.classificacao_produto).toBe('FORA DA LISTA - OUTRA MARCA');
       expect(prod.reference_id).toBeNull();
       expect(prod.brand).toBe('APPLE');
     });
@@ -742,6 +747,219 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
 
       expect(resIns.sucesso).toBe(false);
       expect(resIns.erro).toContain('FINALIZADO e bloqueado');
+    });
+  });
+
+  describe('NOVA ESPECIFICAÇÃO: Testes A, B, C, D, E de Fabricante Dinâmico, NF Origem, Lote Manual e Classificação', () => {
+    beforeEach(async () => {
+      db.setUsuarioAtual(usuarioAdmin);
+      await db.importarListaReferenciaRegional({
+        regional: 'VIA VAREJO BA',
+        fileName: 'Inventario_Samsung_Camacari.xlsm',
+        itens: [
+          // Item A: Samsung oficial
+          {
+            imei_normalized: '357847400000901',
+            model_description: 'SM-S928B/DS Galaxy S24 Ultra 512GB Titânio',
+            sku: 'SM-S928BZKQZTO',
+            brand: 'SAMSUNG',
+            origin_invoice: '004271584-1',
+            dealer_raw: 'SAMSUNG ELETRONICA DA AMAZONIA LTDA',
+            source_file_name: 'Inventario_Samsung_Camacari.xlsm',
+            source_row: 11,
+          },
+          // Item B: Motorola (Outra marca na base regional)
+          {
+            imei_normalized: '357847400000902',
+            model_description: 'Moto G84 5G 256GB Grafite',
+            sku: 'XT2347-1',
+            brand: 'MOTOROLA',
+            origin_invoice: 'NF-MOTO-7788',
+            dealer_raw: 'MOTOROLA MOBILITY COMERCIO',
+            source_file_name: 'Inventario_Samsung_Camacari.xlsm',
+            source_row: 12,
+          },
+          // Item C: Samsung vendido pela SIRI
+          {
+            imei_normalized: '357847400000903',
+            model_description: 'SM-A546E/DS Galaxy A54 5G 128GB Verde',
+            sku: 'SM-A546EZGLZTO',
+            brand: 'SAMSUNG',
+            origin_invoice: '003988112-2',
+            dealer_raw: 'SIRI COMERCIO E SERVICOS LTDA',
+            source_file_name: 'Inventario_Samsung_Camacari.xlsm',
+            source_row: 13,
+          },
+        ],
+      });
+      db.setUsuarioAtual(usuarioOperador);
+    });
+
+    it('Teste A: Samsung listado -> SAMSUNG, modelo completo, SKU, NF Origem, Dealer, lote manual mantido, classificação PRODUTO NA LISTA - SAMSUNG', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000901',
+        imei: '357847400000901',
+        modelo_produto: 'SM-S928B/DS Galaxy S24 Ultra 512GB Titânio',
+        ean: 'SM-S928BZKQZTO',
+        numero_lote: 'LOTE 1',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 01',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      const prod = res.produto!;
+      expect(prod.fabricante).toBe('SAMSUNG');
+      expect(prod.brand).toBe('SAMSUNG');
+      expect(prod.modelo_produto).toBe('SM-S928B/DS Galaxy S24 Ultra 512GB Titânio');
+      expect(prod.sku).toBe('SM-S928BZKQZTO');
+      expect(prod.origin_invoice).toBe('004271584-1');
+      expect(prod.dealer).toContain('SAMSUNG');
+      expect(prod.numero_lote).toBe('LOTE 1');
+      expect(prod.classificacao_produto).toBe('PRODUTO NA LISTA - SAMSUNG');
+    });
+
+    it('Teste B: Motorola listado -> MOTOROLA, modelo completo, SKU, NF Origem, lote manual mantido, classificação PRODUTO NA LISTA - OUTRA MARCA (nunca vira SAMSUNG)', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000902',
+        imei: '357847400000902',
+        modelo_produto: 'Moto G84 5G 256GB Grafite',
+        ean: 'XT2347-1',
+        numero_lote: 'LOTE 1',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 01',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      const prod = res.produto!;
+      expect(prod.fabricante).toBe('MOTOROLA');
+      expect(prod.brand).toBe('MOTOROLA');
+      expect(prod.fabricante).not.toBe('SAMSUNG');
+      expect(prod.modelo_produto).toBe('Moto G84 5G 256GB Grafite');
+      expect(prod.sku).toBe('XT2347-1');
+      expect(prod.origin_invoice).toBe('NF-MOTO-7788');
+      expect(prod.numero_lote).toBe('LOTE 1');
+      expect(prod.classificacao_produto).toBe('PRODUTO NA LISTA - OUTRA MARCA');
+    });
+
+    it('Teste C: Samsung vendido pela SIRI -> SAMSUNG, dealer SIRI COMERCIO E SERVICOS LTDA, lote manual mantido, classificação PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000903',
+        imei: '357847400000903',
+        modelo_produto: 'SM-A546E/DS Galaxy A54 5G 128GB Verde',
+        ean: 'SM-A546EZGLZTO',
+        numero_lote: 'LOTE 2',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 01',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      const prod = res.produto!;
+      expect(prod.fabricante).toBe('SAMSUNG');
+      expect(prod.dealer).toBe('SIRI COMERCIO E SERVICOS LTDA');
+      expect(prod.origin_invoice).toBe('003988112-2');
+      expect(prod.numero_lote).toBe('LOTE 2');
+      expect(prod.classificacao_produto).toBe('PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA');
+    });
+
+    it('Teste D: Fora da lista Samsung -> manual SAMSUNG, NÃO LOCALIZADA NA BASE, lote manual mantido, classificação FORA DA LISTA - SAMSUNG', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000999',
+        imei: '357847400000999',
+        modelo_produto: 'Galaxy S23 FE',
+        ean: '7892509999999',
+        fabricante: 'SAMSUNG',
+        numero_lote: 'LOTE 3',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 02',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      const prod = res.produto!;
+      expect(prod.source_type).toBe('OUT_OF_LIST');
+      expect(prod.fabricante).toBe('SAMSUNG');
+      expect(prod.origin_invoice).toBe('NÃO LOCALIZADA NA BASE');
+      expect(prod.numero_lote).toBe('LOTE 3');
+      expect(prod.classificacao_produto).toBe('FORA DA LISTA - SAMSUNG');
+    });
+
+    it('Teste E: Fora da lista Motorola -> manual MOTOROLA, NÃO LOCALIZADA NA BASE, lote manual mantido, classificação FORA DA LISTA - OUTRA MARCA', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000888',
+        imei: '357847400000888',
+        modelo_produto: 'Moto Edge 40',
+        ean: '7892509888888',
+        fabricante: 'MOTOROLA',
+        numero_lote: 'LOTE 3',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 02',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      const prod = res.produto!;
+      expect(prod.source_type).toBe('OUT_OF_LIST');
+      expect(prod.fabricante).toBe('MOTOROLA');
+      expect(prod.fabricante).not.toBe('SAMSUNG');
+      expect(prod.origin_invoice).toBe('NÃO LOCALIZADA NA BASE');
+      expect(prod.numero_lote).toBe('LOTE 3');
+      expect(prod.classificacao_produto).toBe('FORA DA LISTA - OUTRA MARCA');
+    });
+
+    it('NF com hífen ou texto livre (ex: 004271584-1) é aceita sem erro de validação numérica', () => {
+      const res = db.inserirProduto({
+        serial: '357847400000777',
+        imei: '357847400000777',
+        modelo_produto: 'Galaxy S24',
+        ean: '7892509123456',
+        numero_lote: 'LOTE 4',
+        origin_invoice: '004271584-1',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 03',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      expect(res.sucesso).toBe(true);
+      expect(res.produto?.origin_invoice).toBe('004271584-1');
+    });
+
+    it('Fechamento de Lote não bloqueia por falta de conferência de NF', () => {
+      db.inserirProduto({
+        serial: '357847400000901',
+        imei: '357847400000901',
+        modelo_produto: 'Galaxy S24',
+        ean: '7892509123456',
+        numero_lote: 'LOTE 1',
+        data_auditoria: '2026-03-21',
+        numero_caixa: 'Caixa 01',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO BA',
+      });
+
+      const fotosMock = {
+        caixaFechada: 'data:image/jpeg;base64,mockCaixa',
+        espelhoCaixa: 'data:image/jpeg;base64,mockEspelho',
+        lacreSeguranca: 'data:image/jpeg;base64,mockLacre',
+      };
+
+      const resFin = db.finalizarLote({
+        numeroLote: 'LOTE 1',
+        regional: 'VIA VAREJO BA',
+        fotos: fotosMock,
+        observacao: 'Fechamento de teste sem NF conferida',
+      });
+
+      expect(resFin.sucesso).toBe(true);
+      expect(db.isLoteFinalizado('LOTE 1', 'VIA VAREJO BA')).toBe(true);
     });
   });
 });

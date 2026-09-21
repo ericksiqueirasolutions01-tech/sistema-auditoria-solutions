@@ -113,9 +113,12 @@ export interface ProdutoAuditoria {
   source_type?: 'LISTED' | 'OUT_OF_LIST';
   dealer?: string | null;
   origin_invoice?: string | null;
+  nf_origem?: string | null;
   sku?: string | null;
   brand?: string | null;
   misuse?: boolean | null;
+  classificacao_produto?: string | null;
+  product_classification?: string | null;
   // Compatibilidade retroativa com campos anteriores:
   sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
   sync_data?: string | null;

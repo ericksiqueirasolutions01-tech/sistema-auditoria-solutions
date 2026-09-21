@@ -97,7 +97,6 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
   const totalProdutos = produtosDoLote.length;
   const caixasUnicas = Array.from(new Set(produtosDoLote.map((p) => p.numero_caixa || 'SEM CAIXA')));
   const totalCaixas = caixasUnicas.length;
-  const totalNfConferidas = produtosDoLote.filter((p) => p.nf_conferida === 'SIM' || p.nf_conferida === 'NÃO').length;
 
   useEffect(() => {
     if (isOpen) {
@@ -278,17 +277,6 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
       return;
     }
 
-    // Regra 8: Validação obrigatória da NF conferida para todos os produtos do lote
-    const produtosSemNf = produtosDoLote.filter(
-      (p) => !p.nf_conferida || (p.nf_conferida !== 'SIM' && p.nf_conferida !== 'NÃO')
-    );
-    if (produtosSemNf.length > 0) {
-      setErroValidacao(
-        `Para finalizar o lote é obrigatório que todos os produtos tenham a conferência de NF realizada.\nExistem ${produtosSemNf.length} produto(s) sem a conferência definida. Atualize todos os itens antes de fechar o lote.`
-      );
-      return;
-    }
-
     // Exibir confirmação do bloqueio definitivo
     setMostrarConfirmacao(true);
   };
@@ -360,7 +348,7 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
 
         {/* Resumo do Lote */}
         <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-2.5 shrink-0">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[10px] font-black text-slate-400 uppercase block">Cliente / Regional</span>
               <span className="font-black text-slate-900 uppercase truncate block">{regional}</span>
@@ -378,18 +366,6 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[10px] font-black text-slate-400 uppercase block">Total de Aparelhos</span>
               <span className="font-black text-slate-900 block">{totalProdutos} unidades</span>
-            </div>
-            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[10px] font-black text-slate-400 uppercase block">NF Conferida</span>
-              <span
-                className={`font-black block text-[11px] truncate ${
-                  totalNfConferidas === totalProdutos && totalProdutos > 0
-                    ? 'text-emerald-700'
-                    : 'text-amber-700'
-                }`}
-              >
-                {totalNfConferidas === totalProdutos && totalProdutos > 0 ? '✓ 100% Conferido' : `${totalNfConferidas}/${totalProdutos} conferidos`}
-              </span>
             </div>
           </div>
         </div>

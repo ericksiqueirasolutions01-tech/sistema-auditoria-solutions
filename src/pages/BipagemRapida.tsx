@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico } from '../db/storage';
+import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico, calcularClassificacaoProduto, inferirFabricante } from '../db/storage';
 import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado, RegionalInventoryReference } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
@@ -83,19 +83,19 @@ export const BipagemRapida: React.FC = () => {
   const [serialInput, setSerialInput] = useState('');
   const [dataAtiva, setDataAtiva] = useState(getDataAtualFormatada());
   const [lacreAtivo, setLacreAtivo] = useState<SimNao>('SIM');
-  const [nfConferidaAtiva, setNfConferidaAtiva] = useState<SimNao | null>(null);
+  const [classificacaoAtiva, setClassificacaoAtiva] = useState<string>('');
   const [kitAtivo, setKitAtivo] = useState<SimNao | ''>('');
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
 
-  // Estados de Referência Regional Ativa & Lote Dinâmico (Prompt Mestre Seções 4, 5, 8, 16)
+  // Estados de Referência Regional Ativa & Fabricante Dinâmico
   const [referenciaDetectada, setReferenciaDetectada] = useState<RegionalInventoryReference | null>(null);
   const [fabricanteAtivo, setFabricanteAtivo] = useState<string>('SAMSUNG');
   const [statusReferencia, setStatusReferencia] = useState<'IDLE' | 'LISTED' | 'OUT_OF_LIST'>('IDLE');
 
-  // Estado do Número do Lote (Obrigatório e Memorizado no Navegador)
+  // Estado do Número do Lote (Informado e Mantido pelo Colaborador, ex: LOTE 1)
   const [loteAtivo, setLoteAtivo] = useState<string>(() => {
-    return db.obterUltimoLote() || '01';
+    return db.obterUltimoLote() || 'LOTE 1';
   });
 
   // Consulta automática de IMEI em tempo real ao bipar ou colar 15 dígitos
@@ -108,26 +108,28 @@ export const BipagemRapida: React.FC = () => {
         setStatusReferencia('LISTED');
         setModeloAtivo(ref.model_description);
         setEanAtivo(ref.sku);
-        setFabricanteAtivo(ref.brand || 'SAMSUNG');
-        const loteCalc = calcularLoteAutomatico({
-          regional: regBusca,
+        const fabResolvido = ref.brand || inferirFabricante(ref.model_description, null);
+        setFabricanteAtivo(fabResolvido);
+        const classif = calcularClassificacaoProduto({
           sourceType: 'LISTED',
           dealer: ref.dealer_normalized,
+          fabricante: fabResolvido,
         });
-        setLoteAtivo(loteCalc);
+        setClassificacaoAtiva(classif);
       } else {
         setReferenciaDetectada(null);
         setStatusReferencia('OUT_OF_LIST');
-        const loteCalc = calcularLoteAutomatico({
-          regional: regBusca,
+        const fabResolvido = inferirFabricante(modeloAtivo, fabricanteAtivo);
+        const classif = calcularClassificacaoProduto({
           sourceType: 'OUT_OF_LIST',
-          fabricante: fabricanteAtivo || 'SAMSUNG',
+          fabricante: fabResolvido,
         });
-        setLoteAtivo(loteCalc);
+        setClassificacaoAtiva(classif);
       }
     } else {
       setReferenciaDetectada(null);
       setStatusReferencia('IDLE');
+      setClassificacaoAtiva('');
     }
   }, [serialInput, regBusca]);
 
@@ -164,7 +166,6 @@ export const BipagemRapida: React.FC = () => {
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
   const [editObs, setEditObs] = useState('');
-  const [editNfConferida, setEditNfConferida] = useState<SimNao | null>(null);
 
   // UI Modals
   const [mostrarEspelhoModal, setMostrarEspelhoModal] = useState(false);
@@ -385,14 +386,26 @@ export const BipagemRapida: React.FC = () => {
         return;
       }
 
-      // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & DETERMINAÇÃO DE LOTE DINÂMICO
+      // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & RESOLUÇÃO DE DADOS
       const refLookup = db.consultarImeiReferencia(serialLimpo, regBusca);
       const sourceType: 'LISTED' | 'OUT_OF_LIST' = refLookup ? 'LISTED' : 'OUT_OF_LIST';
       const dealerResolvido = refLookup?.dealer_normalized || null;
-      const fabricanteResolvido = refLookup?.brand || fabricanteAtivo || 'SAMSUNG';
       const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();
       const skuResolvido = (refLookup?.sku || eanLimpo).trim();
-      const originInvoiceResolvido = refLookup?.origin_invoice || null;
+      const fabricanteResolvido = refLookup?.brand || inferirFabricante(modeloResolvido, fabricanteAtivo);
+      const originInvoiceResolvido = refLookup
+        ? (refLookup.origin_invoice || null)
+        : 'NÃO LOCALIZADA NA BASE';
+
+      // Lote informado pelo colaborador (mantido fielmente)
+      const loteResolvido = (loteAtivo || 'LOTE 1').trim().toUpperCase();
+
+      // Classificação calculada automaticamente
+      const classificacaoResolvida = calcularClassificacaoProduto({
+        sourceType,
+        dealer: dealerResolvido,
+        fabricante: fabricanteResolvido,
+      });
 
       if (!modeloResolvido) {
         setAlertaValidacao('Preencha o modelo do produto.');
@@ -401,18 +414,10 @@ export const BipagemRapida: React.FC = () => {
       }
 
       if (!skuResolvido) {
-        setAlertaValidacao('Preencha o código EAN / SKU do produto.');
+        setAlertaValidacao('Preencha o código SKU do produto.');
         sounds.playError();
         return;
       }
-
-      // Determinar lote dinâmico conforme Seções 4, 5, 8
-      const loteResolvido = calcularLoteAutomatico({
-        regional: regBusca,
-        sourceType,
-        dealer: dealerResolvido,
-        fabricante: fabricanteResolvido,
-      });
 
       // Validação de Lote Finalizado (Regras 4, 5 e 6)
       if (db.isLoteFinalizado(loteResolvido, regBusca) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
@@ -451,10 +456,13 @@ export const BipagemRapida: React.FC = () => {
         serial: serialLimpo,
         imei: serialLimpo,
         numero_lote: loteResolvido,
+        classificacao_produto: classificacaoResolvida,
+        product_classification: classificacaoResolvida,
         data_auditoria: dataLimpa,
         numero_caixa: caixaLimpa,
         numero_nf: originInvoiceResolvido || '',
-        nf_conferida: nfConferidaAtiva,
+        nf_origem: originInvoiceResolvido,
+        origin_invoice: originInvoiceResolvido,
         produto_lacrado: lacreAtivo,
         kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
         aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
@@ -463,7 +471,6 @@ export const BipagemRapida: React.FC = () => {
         fabricante: fabricanteResolvido,
         source_type: sourceType,
         dealer: dealerResolvido,
-        origin_invoice: originInvoiceResolvido,
         brand: fabricanteResolvido,
         misuse: marcasAtivo === 'SIM',
         reference_id: refLookup?.id || null,
@@ -478,6 +485,7 @@ export const BipagemRapida: React.FC = () => {
         // Limpar células para a próxima linha contínua
         setSerialInput('');
         setObsAtivo('');
+        setClassificacaoAtiva('');
         setReferenciaDetectada(null);
         setStatusReferencia('IDLE');
         if (lacreAtivo === 'NÃO') {
@@ -536,7 +544,6 @@ export const BipagemRapida: React.FC = () => {
     setEditCaixa(item.numero_caixa);
     setEditLote(item.numero_lote || db.obterUltimoLote() || '01');
     setEditLacre(item.produto_lacrado);
-    setEditNfConferida(item.nf_conferida ?? null);
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
     setEditObs(item.observacao || '');
@@ -582,16 +589,30 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
 
+    const refLookup = db.consultarImeiReferencia(editSerial.trim(), regItem);
+    const fabResolvido = refLookup?.brand || inferirFabricante(editModelo.trim(), null);
+    const classifResolvida = calcularClassificacaoProduto({
+      sourceType: refLookup ? 'LISTED' : 'OUT_OF_LIST',
+      dealer: refLookup?.dealer_normalized || null,
+      fabricante: fabResolvido,
+    });
+
     // Gravar no storage
     const res = db.atualizarProduto(id, {
       modelo_produto: editModelo.trim(),
       ean: editEan.trim(),
+      sku: editEan.trim(),
+      fabricante: fabResolvido,
+      brand: fabResolvido,
+      classificacao_produto: classifResolvida,
+      product_classification: classifResolvida,
+      origin_invoice: refLookup ? (refLookup.origin_invoice || null) : 'NÃO LOCALIZADA NA BASE',
+      nf_origem: refLookup ? (refLookup.origin_invoice || null) : 'NÃO LOCALIZADA NA BASE',
       serial: editSerial.trim(),
       imei: editSerial.trim(),
       data_auditoria: editData.trim() || getDataAtualFormatada(),
       numero_caixa: editCaixa.trim() || caixaAtiva,
-      numero_lote: editLote.trim() || '01',
-      nf_conferida: editNfConferida,
+      numero_lote: editLote.trim() || 'LOTE 1',
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
@@ -1268,14 +1289,16 @@ export const BipagemRapida: React.FC = () => {
       Regional: p.regional || regionalAtiva,
       'Computador ID': p.computador_id || 'PC-01',
       'Nome Estação': p.computador_nome || 'Estação 01',
-      Fabricante: p.fabricante,
+      Fabricante: p.fabricante || p.brand || 'OUTRA MARCA',
       'Modelo Produto': p.modelo_produto,
-      EAN: p.ean,
+      SKU: p.sku || p.ean,
       IMEI: p.imei || p.serial,
+      'NF Origem': p.origin_invoice || p.nf_origem || p.numero_nf || 'NÃO LOCALIZADA NA BASE',
       'Data Auditoria': p.data_auditoria,
       Caixa: p.numero_caixa,
+      Lote: p.numero_lote || 'LOTE 1',
+      Classificação: p.classificacao_produto || p.product_classification || '-',
       'Produto Lacrado': p.produto_lacrado,
-      'NF Conferida': p.nf_conferida || 'SIM',
       'Kit Completo': p.kit_completo || '-',
       'Marcas de Uso': p.aparelho_marcas_uso || '-',
       Observação: p.observacao || '-',
@@ -1347,10 +1370,12 @@ export const BipagemRapida: React.FC = () => {
       p.regional || regionalAtiva,
       p.numero_caixa,
       p.modelo_produto,
-      p.ean,
+      p.sku || p.ean,
       p.imei || p.serial,
+      p.origin_invoice || p.nf_origem || p.numero_nf || 'NÃO LOCALIZADA',
+      p.numero_lote || 'LOTE 1',
+      p.classificacao_produto || p.product_classification || '-',
       p.produto_lacrado,
-      p.nf_conferida || 'SIM',
       p.kit_completo || '-',
       p.aparelho_marcas_uso || '-',
       p.observacao || '-',
@@ -1359,7 +1384,7 @@ export const BipagemRapida: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'SKU', 'IMEI', 'NF Origem', 'Lote', 'Classificação', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -1586,32 +1611,60 @@ export const BipagemRapida: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* BARRA SUPERIOR: NÚMERO DO LOTE E LIMITE DA CAIXA */}
+      {/* CABEÇALHO DA OPERAÇÃO: REGIONAL, ESTAÇÃO, CAIXA, LOTE ATUAL E CLASSIFICAÇÃO */}
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-4 border-2 border-blue-600/50">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Campo Obrigatório: Número do Lote (Memorizado e Obrigatório) */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/25 border border-amber-400/60 flex items-center justify-center text-amber-400 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-5">
+          {/* Regional */}
+          <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
+            <span className="text-[9px] font-black uppercase tracking-wider text-blue-200 block">Regional</span>
+            <span className="text-xs font-black uppercase text-white truncate block max-w-[140px]">{regionalAtiva}</span>
+          </div>
+
+          {/* Estação */}
+          <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
+            <span className="text-[9px] font-black uppercase tracking-wider text-blue-200 block">Estação</span>
+            <span className="text-xs font-mono font-black text-emerald-300 block">💻 {computadorAtual.id}</span>
+          </div>
+
+          {/* Caixa */}
+          <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
+            <span className="text-[9px] font-black uppercase tracking-wider text-blue-200 block">Caixa</span>
+            <span className="text-xs font-black uppercase text-amber-300 block">{caixaAtiva}</span>
+          </div>
+
+          {/* Campo Obrigatório: LOTE ATUAL (Informado e Mantido pelo Colaborador) */}
+          <div className="flex items-center gap-2 bg-amber-500/15 border border-amber-400/40 rounded-xl px-3 py-1">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/30 flex items-center justify-center text-amber-300 shrink-0">
               <Layers className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block flex items-center gap-1">
-                Número do Lote: <span className="text-rose-400 font-bold">*</span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 block">
+                Lote Atual:
               </span>
               <input
                 type="text"
                 value={loteAtivo}
                 onChange={(e) => handleMudarLoteAtivo(e.target.value)}
-                placeholder="Ex: 01"
-                className={`text-sm font-black text-white bg-blue-950/80 border rounded-xl px-3 py-1 focus:outline-none focus:ring-2 w-36 uppercase tracking-wider shadow-inner transition-all ${
+                placeholder="Ex: LOTE 1"
+                className={`text-xs font-black text-white bg-blue-950/80 border rounded-lg px-2.5 py-0.5 focus:outline-none focus:ring-2 w-32 uppercase tracking-wider shadow-inner transition-all ${
                   !loteAtivo.trim()
                     ? 'border-rose-500 ring-2 ring-rose-500/60 placeholder-rose-400'
                     : 'border-amber-400/80 focus:ring-amber-400'
                 }`}
-                title="Número do Lote (Obrigatório para bipagem e espelho)"
+                title="Número do Lote ativo (informado pelo colaborador, ex: LOTE 1)"
               />
             </div>
+          </div>
+
+          {/* Classificação do Item Bipado (Calculada Automaticamente) */}
+          <div className="bg-indigo-950/70 border border-indigo-400/40 rounded-xl px-3 py-1.5 min-w-[160px]">
+            <span className="text-[9px] font-black uppercase tracking-wider text-indigo-300 block">
+              Classificação do Item:
+            </span>
+            <span className="text-xs font-black uppercase text-indigo-100 truncate block max-w-[240px]" title={classificacaoAtiva || 'Aguardando bipagem...'}>
+              {classificacaoAtiva ? `🏷️ ${classificacaoAtiva}` : '⏳ Aguardando bipagem...'}
+            </span>
           </div>
         </div>
 
@@ -2116,100 +2169,55 @@ export const BipagemRapida: React.FC = () => {
             </div>
 
 
-            {/* Condição Física / Lacre e NF Conferida (Botões Touch Grandes Lado a Lado) */}
+            {/* Condição Física / Lacre */}
             <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
                 {/* 1. Produto Lacrado */}
                 <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-blue-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800 uppercase">
-                    PRODUTO LACRADO:
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-bold">
-                    {lacreAtivo === 'SIM' ? 'LACRADO DE FÁBRICA' : 'ABERTO / SEM LACRE'}
-                  </span>
-                </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-slate-800 uppercase">
+                      PRODUTO LACRADO:
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-bold">
+                      {lacreAtivo === 'SIM' ? 'LACRADO DE FÁBRICA' : 'ABERTO / SEM LACRE'}
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLacreAtivo('SIM');
-                      setKitAtivo('');
-                      setMarcasAtivo('');
-                      focarInputSerial();
-                    }}
-                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      lacreAtivo === 'SIM'
-                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    🟢 SIM (LACRADO)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLacreAtivo('NÃO');
-                    }}
-                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      lacreAtivo === 'NÃO'
-                        ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    NÃO (ABERTO)
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLacreAtivo('SIM');
+                        setKitAtivo('');
+                        setMarcasAtivo('');
+                        focarInputSerial();
+                      }}
+                      className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        lacreAtivo === 'SIM'
+                          ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      🟢 SIM (LACRADO)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLacreAtivo('NÃO');
+                      }}
+                      className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        lacreAtivo === 'NÃO'
+                          ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400 scale-[1.02]'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      NÃO (ABERTO)
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* 2. NF Foi Conferida */}
-              <div className="space-y-2.5 bg-white p-3.5 rounded-xl border border-emerald-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800 uppercase">
-                    NF FOI CONFERIDA:
-                  </span>
-                  <span className={`text-[10px] font-bold ${nfConferidaAtiva === 'SIM' ? 'text-emerald-700' : nfConferidaAtiva === 'NÃO' ? 'text-rose-600' : 'text-amber-600'}`}>
-                    {nfConferidaAtiva === 'SIM' ? 'CONFERIDA COM A NF' : nfConferidaAtiva === 'NÃO' ? 'NÃO CONFERIDA' : 'PENDENTE DE SELEÇÃO'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNfConferidaAtiva('SIM');
-                      focarInputSerial();
-                    }}
-                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      nfConferidaAtiva === 'SIM'
-                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    🟢 SIM (CONFERIDA)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNfConferidaAtiva('NÃO');
-                      focarInputSerial();
-                    }}
-                    className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      nfConferidaAtiva === 'NÃO'
-                        ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400 scale-[1.02]'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    NÃO
-                  </button>
-                </div>
-              </div>
-            </div>
 
               {/* Campos extras obrigatórios se produto NÃO for lacrado */}
               {lacreAtivo === 'NÃO' && (
@@ -2608,48 +2616,6 @@ export const BipagemRapida: React.FC = () => {
                 NÃO (Aberto)
               </button>
             </div>
-
-            {/* 3. Botão: NF FOI CONFERIDA */}
-            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
-              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1">
-                NF foi Conferida:
-              </span>
-              {nfConferidaAtiva === null && (
-                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded mr-1">
-                  ⏳ Pendente
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setNfConferidaAtiva('SIM');
-                  serialInputRef.current?.focus();
-                }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
-                  nfConferidaAtiva === 'SIM'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200'
-                }`}
-                title="Nota Fiscal Conferida: SIM"
-              >
-                🟢 SIM (Conferida)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNfConferidaAtiva('NÃO');
-                  serialInputRef.current?.focus();
-                }}
-                className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
-                  nfConferidaAtiva === 'NÃO'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200'
-                }`}
-                title="Nota Fiscal NÃO Conferida: NÃO"
-              >
-                NÃO
-              </button>
-            </div>
           </div>
 
           {/* ========================================================================= */}
@@ -2969,11 +2935,14 @@ export const BipagemRapida: React.FC = () => {
               <tr>
                 <th className="py-1.5 px-2 w-10 text-center bg-slate-300 border-r border-slate-300">#</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-center">Estação 💻</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 w-20 text-center">Fabricante</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[140px]">Modelo Produto ✏️</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[120px]">EAN ✏️</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 w-24 text-center">Fabricante</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[220px]">Modelo Produto ✏️</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[110px]">SKU ✏️</th>
                 <th className="py-1.5 px-3 border-r border-slate-300 min-w-[160px] bg-blue-100 text-blue-950">
                   IMEI (Bipar / Editar) ⚡
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[110px] bg-slate-100 text-slate-900">
+                  NF Origem
                 </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Data Auditoria</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-indigo-50 text-indigo-950">
@@ -2982,8 +2951,10 @@ export const BipagemRapida: React.FC = () => {
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[95px] bg-amber-50 text-amber-950">
                   Lote ✏️
                 </th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[150px] bg-blue-50 text-blue-950">
+                  Classificação
+                </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24 bg-emerald-100 text-emerald-950">NF Conferida</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[120px]">Observação</th>
@@ -3005,12 +2976,12 @@ export const BipagemRapida: React.FC = () => {
                       <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-slate-700 bg-amber-100/50 border-r border-amber-200 whitespace-nowrap">
                         💻 {item.computador_id || 'PC-01'}
                       </td>
-                      <td className="py-2 px-3 font-bold text-slate-700 border-r border-amber-200">
-                        SAMSUNG
+                      <td className="py-2 px-3 font-bold text-slate-700 border-r border-amber-200 whitespace-nowrap">
+                        {item.brand || item.fabricante || inferirFabricante(editModelo, null)}
                       </td>
 
                       {/* Modelo Produto */}
-                      <td className="py-2 px-2 border-r border-amber-200">
+                      <td className="py-2 px-2 border-r border-amber-200 min-w-[220px]">
                         <input
                           list="lista-modelos-samsung"
                           type="text"
@@ -3020,18 +2991,19 @@ export const BipagemRapida: React.FC = () => {
                         />
                       </td>
 
-                      {/* EAN */}
-                      <td className="py-2 px-2 border-r border-amber-200">
+                      {/* SKU */}
+                      <td className="py-2 px-2 border-r border-amber-200 min-w-[110px]">
                         <input
                           type="text"
                           value={editEan}
                           onChange={(e) => setEditEan(e.target.value)}
+                          placeholder="SKU..."
                           className="w-full font-mono text-xs font-bold text-slate-900 bg-white border border-amber-400 rounded px-2 py-1"
                         />
                       </td>
 
                       {/* IMEI */}
-                      <td className="py-2 px-2 border-r border-amber-200 bg-amber-100/50">
+                      <td className="py-2 px-2 border-r border-amber-200 bg-amber-100/50 min-w-[160px]">
                         <input
                           type="text"
                           inputMode="numeric"
@@ -3040,6 +3012,11 @@ export const BipagemRapida: React.FC = () => {
                           onChange={(e) => setEditSerial(e.target.value.replace(/\D/g, '').slice(0, 15))}
                           className="w-full font-mono text-xs font-black text-slate-950 bg-white border-2 border-amber-500 rounded px-2 py-1 uppercase tracking-wider"
                         />
+                      </td>
+
+                      {/* NF Origem */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 font-mono text-xs text-slate-700 whitespace-nowrap select-none">
+                        {item.origin_invoice || item.nf_origem || item.numero_nf || 'NÃO LOCALIZADA NA BASE'}
                       </td>
 
                       {/* Data */}
@@ -3069,10 +3046,15 @@ export const BipagemRapida: React.FC = () => {
                           type="text"
                           value={editLote}
                           onChange={(e) => setEditLote(e.target.value)}
-                          placeholder="01"
+                          placeholder="LOTE 1"
                           className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-1.5 py-1 uppercase"
                           title="Número do Lote"
                         />
+                      </td>
+
+                      {/* Classificação */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 font-black text-[10px] text-slate-700 whitespace-nowrap">
+                        {item.classificacao_produto || item.product_classification || '-'}
                       </td>
 
                       {/* Produto Lacrado */}
@@ -3082,19 +3064,6 @@ export const BipagemRapida: React.FC = () => {
                           onChange={(e) => setEditLacre(e.target.value as SimNao)}
                           className="text-[11px] font-black px-2 py-1 rounded border bg-white cursor-pointer"
                         >
-                          <option value="SIM">SIM</option>
-                          <option value="NÃO">NÃO</option>
-                        </select>
-                      </td>
-
-                      {/* NF Conferida */}
-                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-emerald-50/40">
-                        <select
-                          value={editNfConferida || ''}
-                          onChange={(e) => setEditNfConferida((e.target.value as SimNao) || null)}
-                          className="text-[11px] font-black px-2 py-1 rounded border bg-white cursor-pointer text-emerald-900"
-                        >
-                          <option value="">PENDENTE</option>
                           <option value="SIM">SIM</option>
                           <option value="NÃO">NÃO</option>
                         </select>
@@ -3189,14 +3158,14 @@ export const BipagemRapida: React.FC = () => {
                     <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-slate-700 bg-slate-100/70 border-r border-slate-200 whitespace-nowrap">
                       💻 {item.computador_id || 'PC-01'}
                     </td>
-                    <td className="py-2 px-3 font-bold text-slate-700 border-r border-slate-200">
-                      {item.fabricante}
+                    <td className="py-2 px-3 font-bold text-slate-700 border-r border-slate-200 whitespace-nowrap">
+                      {item.brand || item.fabricante || 'OUTRA MARCA'}
                     </td>
-                    <td className="py-2 px-3 font-medium text-slate-800 border-r border-slate-200 truncate max-w-[180px]">
+                    <td className="py-2 px-3 font-medium text-slate-800 border-r border-slate-200 min-w-[220px] max-w-[340px] whitespace-normal break-words" title={item.modelo_produto}>
                       {item.modelo_produto}
                     </td>
-                    <td className="py-2 px-3 font-mono text-slate-600 font-medium border-r border-slate-200">
-                      {item.ean}
+                    <td className="py-2 px-3 font-mono text-slate-600 font-medium border-r border-slate-200 whitespace-nowrap">
+                      {item.sku || item.ean}
                     </td>
                     <td className="py-2 px-4 font-mono font-black text-slate-900 tracking-wider border-r border-slate-200 bg-blue-50/30">
                       <div>{item.imei || item.serial}</div>
@@ -3205,11 +3174,6 @@ export const BipagemRapida: React.FC = () => {
                           <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-0.5">
                             ✓ {item.dealer || 'LISTA'}
                           </span>
-                          {item.origin_invoice && (
-                            <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300" title={`NF Origem: ${item.origin_invoice}`}>
-                              NF {item.origin_invoice}
-                            </span>
-                          )}
                         </div>
                       )}
                       {item.source_type === 'OUT_OF_LIST' && (
@@ -3220,6 +3184,9 @@ export const BipagemRapida: React.FC = () => {
                         </div>
                       )}
                     </td>
+                    <td className="py-2 px-3 text-center font-mono text-xs text-slate-700 border-r border-slate-200 whitespace-nowrap" title={item.origin_invoice || item.nf_origem || item.numero_nf || 'NÃO LOCALIZADA NA BASE'}>
+                      {item.origin_invoice || item.nf_origem || item.numero_nf || 'NÃO LOCALIZADA NA BASE'}
+                    </td>
                     <td className="py-2 px-3 text-center text-slate-600 border-r border-slate-200">
                       {item.data_auditoria}
                     </td>
@@ -3227,8 +3194,13 @@ export const BipagemRapida: React.FC = () => {
                       {item.numero_caixa}
                     </td>
                     <td className="py-2 px-2 text-center border-r border-slate-200 bg-amber-50/20">
-                      <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-amber-100 text-amber-800 border-amber-300">
-                        LOTE {item.numero_lote || '01'}
+                      <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-amber-100 text-amber-800 border-amber-300 whitespace-nowrap">
+                        {item.numero_lote || 'LOTE 1'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center border-r border-slate-200 bg-blue-50/20">
+                      <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-blue-100 text-blue-900 border-blue-300 whitespace-nowrap block truncate max-w-[220px]" title={item.classificacao_produto || item.product_classification || '-'}>
+                        {item.classificacao_produto || item.product_classification || '-'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center border-r border-slate-200">
@@ -3240,19 +3212,6 @@ export const BipagemRapida: React.FC = () => {
                         }`}
                       >
                         {item.produto_lacrado}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-center border-r border-slate-200 bg-emerald-50/20">
-                      <span
-                        className={`font-black px-2.5 py-0.5 rounded text-[10px] border ${
-                          item.nf_conferida === 'NÃO'
-                            ? 'bg-rose-100 text-rose-800 border-rose-300'
-                            : item.nf_conferida === 'SIM'
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                            : 'bg-amber-100 text-amber-800 border-amber-300'
-                        }`}
-                      >
-                        {item.nf_conferida === 'NÃO' ? 'NÃO' : item.nf_conferida === 'SIM' ? 'SIM' : 'PENDENTE'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center font-bold border-r border-slate-200">
@@ -3354,12 +3313,12 @@ export const BipagemRapida: React.FC = () => {
                 <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-emerald-950 bg-emerald-100/70 border-r border-emerald-300 whitespace-nowrap">
                   💻 {computadorAtual.id}
                 </td>
-                <td className="py-2 px-3 font-black text-slate-800 border-r border-emerald-300">
-                  SAMSUNG
+                <td className="py-2 px-3 font-black text-slate-800 border-r border-emerald-300 whitespace-nowrap">
+                  {fabricanteAtivo}
                 </td>
 
                 {/* MODELO PRODUTO */}
-                <td className="py-2 px-2 border-r border-emerald-300">
+                <td className="py-2 px-2 border-r border-emerald-300 min-w-[220px]">
                   <input
                     list="lista-modelos-samsung"
                     type="text"
@@ -3371,20 +3330,20 @@ export const BipagemRapida: React.FC = () => {
                   />
                 </td>
 
-                {/* EAN */}
-                <td className="py-2 px-2 border-r border-emerald-300">
+                {/* SKU */}
+                <td className="py-2 px-2 border-r border-emerald-300 min-w-[110px]">
                   <input
                     type="text"
                     value={eanAtivo}
                     onChange={(e) => setEanAtivo(e.target.value)}
-                    placeholder="EAN 789..."
+                    placeholder="SKU..."
                     className="w-full font-mono text-xs font-black text-slate-900 bg-white border-2 border-emerald-500 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                    title="Código EAN editável"
+                    title="Código SKU editável"
                   />
                 </td>
 
                 {/* IMEI */}
-                <td className="py-2 px-2 border-r border-emerald-300 bg-white">
+                <td className="py-2 px-2 border-r border-emerald-300 bg-white min-w-[160px]">
                   <input
                     id="input-imei-desktop"
                     aria-label="Posicione o cursor e bipe o IMEI com 15 dígitos"
@@ -3436,8 +3395,17 @@ export const BipagemRapida: React.FC = () => {
                   )}
                 </td>
 
+                {/* NF ORIGEM */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 font-mono text-xs text-slate-700 whitespace-nowrap bg-emerald-50/50 select-none min-w-[110px]">
+                  {statusReferencia === 'LISTED'
+                    ? (referenciaDetectada?.origin_invoice || '-')
+                    : statusReferencia === 'OUT_OF_LIST'
+                    ? 'NÃO LOCALIZADA NA BASE'
+                    : '-'}
+                </td>
+
                 {/* DATA AUDITORIA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300">
+                <td className="py-2 px-2 text-center border-r border-emerald-300 w-24">
                   <input
                     type="text"
                     value={dataAtiva}
@@ -3448,7 +3416,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* CAIXA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-blue-50/50">
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-blue-50/50 min-w-[95px]">
                   <input
                     list="lista-caixas-existentes"
                     type="text"
@@ -3460,20 +3428,31 @@ export const BipagemRapida: React.FC = () => {
                   />
                 </td>
 
-                {/* NÚMERO DO LOTE (COLUNA 9) */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-amber-50/50">
+                {/* NÚMERO DO LOTE */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-amber-50/50 min-w-[95px]">
                   <input
                     type="text"
                     value={loteAtivo}
                     onChange={(e) => handleMudarLoteAtivo(e.target.value)}
-                    placeholder="Ex: 01"
+                    placeholder="LOTE 1"
                     className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-2 py-1.5 focus:outline-none uppercase"
-                    title="Número do Lote ativo (Obrigatório)"
+                    title="Número do Lote ativo (digitado pelo colaborador)"
                   />
                 </td>
 
-                {/* PRODUTO LACRADO (COLUNA 10) */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300">
+                {/* CLASSIFICAÇÃO */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-blue-50/40 min-w-[150px]">
+                  {classificacaoAtiva ? (
+                    <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-blue-100 text-blue-900 border-blue-300 whitespace-nowrap block truncate max-w-[220px]" title={classificacaoAtiva}>
+                      {classificacaoAtiva}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-bold text-[10px]">-</span>
+                  )}
+                </td>
+
+                {/* PRODUTO LACRADO */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 w-24">
                   <select
                     value={lacreAtivo}
                     onChange={(e) => {
@@ -3498,32 +3477,8 @@ export const BipagemRapida: React.FC = () => {
                   </select>
                 </td>
 
-                {/* NF FOI CONFERIDA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-emerald-50/50">
-                  <select
-                    value={nfConferidaAtiva || ''}
-                    onChange={(e) => {
-                      const val = (e.target.value as SimNao) || null;
-                      setNfConferidaAtiva(val);
-                      serialInputRef.current?.focus();
-                    }}
-                    className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
-                      nfConferidaAtiva === 'SIM'
-                        ? 'bg-emerald-700 text-white border-emerald-800'
-                        : nfConferidaAtiva === 'NÃO'
-                        ? 'bg-rose-600 text-white border-rose-700'
-                        : 'bg-amber-100 text-amber-900 border-amber-400'
-                    }`}
-                    title="A Nota Fiscal foi conferida? (SIM / NÃO / PENDENTE)"
-                  >
-                    <option value="">⏳ PENDENTE</option>
-                    <option value="SIM">🟢 SIM</option>
-                    <option value="NÃO">❌ NÃO</option>
-                  </select>
-                </td>
-
                 {/* KIT COMPLETO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300">
+                <td className="py-2 px-2 text-center border-r border-emerald-300 w-20">
                   {lacreAtivo === 'SIM' ? (
                     <span className="text-slate-400 font-bold">-</span>
                   ) : (
@@ -3544,7 +3499,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* MARCAS DE USO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300">
+                <td className="py-2 px-2 text-center border-r border-emerald-300 w-20">
                   {lacreAtivo === 'SIM' ? (
                     <span className="text-slate-400 font-bold">-</span>
                   ) : (
@@ -3562,7 +3517,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* OBSERVAÇÃO */}
-                <td className="py-2 px-2 border-r border-emerald-300">
+                <td className="py-2 px-2 border-r border-emerald-300 min-w-[120px]">
                   <input
                     type="text"
                     value={obsAtivo}
@@ -3578,7 +3533,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* STATUS SYNC PADRÃO (PENDENTE) */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 whitespace-nowrap">
+                <td className="py-2 px-2 text-center border-r border-emerald-300 whitespace-nowrap min-w-[85px]">
                   <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
                     Pendente
@@ -3586,7 +3541,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* BOTÃO ENTER */}
-                <td className="py-2 px-2 text-center">
+                <td className="py-2 px-2 text-center w-14">
                   <button
                     type="button"
                     onClick={processarBipagemLinha}

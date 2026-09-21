@@ -3,7 +3,52 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getSupabaseServerAdmin } from './_supabaseServer';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+const SUPABASE_FALLBACK_URL = 'https://chvfzqekkmongsrqbwev.supabase.co';
+const SUPABASE_FALLBACK_KEY = 'sb_publishable_F-Lc83bJD87AokRbHPmltg_hp2q6Ghj';
+
+function getSupabaseUrl(): string {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.URL_SUPABASE || SUPABASE_FALLBACK_URL;
+  return url.trim();
+}
+
+function getSupabaseServiceKey(): string {
+  const key =
+    process.env.SUPABASE_SERVER_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    SUPABASE_FALLBACK_KEY;
+  return key.trim();
+}
+
+function isSupabaseServerConfigured(): boolean {
+  return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
+}
+
+let cachedAdminClient: SupabaseClient | null = null;
+
+function getSupabaseServerAdmin(): SupabaseClient | null {
+  if (!isSupabaseServerConfigured()) {
+    return null;
+  }
+  if (cachedAdminClient) {
+    return cachedAdminClient;
+  }
+  try {
+    cachedAdminClient = createClient(getSupabaseUrl(), getSupabaseServiceKey(), {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    return cachedAdminClient;
+  } catch (err) {
+    console.error('[SyncAPI] Erro ao instanciar Supabase:', err);
+    return null;
+  }
+}
 
 const ALLOWED_ORIGINS = [
   'https://sistema-auditoria-solutions.vercel.app',
@@ -159,41 +204,49 @@ export default async function handler(req: any, res: any) {
     let novosCount = 0;
     const duplicadosList: any[] = [];
 
-    // Mapeamento local em memória de seriais existentes
+    // Mapeamento local em memória de seriais e IMEIs existentes
     const mapExistentes = new Map<string, any>();
     for (const p of centralData.produtos) {
-      const sn = (p.serial || p.imei || '').trim().toUpperCase();
-      if (sn) {
-        mapExistentes.set(sn, p);
-      }
+      const sn = (p.serial || '').trim().toUpperCase();
+      const im = (p.imei || '').trim().toUpperCase();
+      if (sn) mapExistentes.set(sn, p);
+      if (im) mapExistentes.set(im, p);
     }
 
     // Se o Supabase estiver conectado, consultar duplicidades direto no PostgreSQL
     if (supabase && Array.isArray(produtos) && produtos.length > 0) {
       try {
-        const serialsConsulta = produtos
-          .map((p: any) => (p.serial || p.imei || '').trim().toUpperCase())
-          .filter(Boolean);
+        const serialsConsulta = Array.from(
+          new Set(
+            produtos
+              .flatMap((p: any) => [
+                (p.serial || '').trim().toUpperCase(),
+                (p.imei || '').trim().toUpperCase(),
+              ])
+              .filter(Boolean)
+          )
+        );
 
         if (serialsConsulta.length > 0) {
           const { data: dbProducts } = await supabase
             .from('audit_products')
             .select('serial, imei, modelo, numero_caixa, created_at, usuario_bipagem, regional_id')
-            .in('serial', serialsConsulta);
+            .or(`serial.in.(${serialsConsulta.join(',')}),imei.in.(${serialsConsulta.join(',')})`);
 
           if (Array.isArray(dbProducts)) {
             for (const dp of dbProducts) {
-              const sn = (dp.serial || dp.imei || '').trim().toUpperCase();
-              if (sn && !mapExistentes.has(sn)) {
-                mapExistentes.set(sn, {
-                  serial: dp.serial,
-                  imei: dp.imei,
-                  modelo_produto: dp.modelo,
-                  numero_caixa: dp.numero_caixa,
-                  data_cadastro: dp.created_at,
-                  usuario_cadastro: dp.usuario_bipagem,
-                });
-              }
+              const sn = (dp.serial || '').trim().toUpperCase();
+              const im = (dp.imei || '').trim().toUpperCase();
+              const info = {
+                serial: dp.serial,
+                imei: dp.imei,
+                modelo_produto: dp.modelo,
+                numero_caixa: dp.numero_caixa,
+                data_cadastro: dp.created_at,
+                usuario_cadastro: dp.usuario_bipagem,
+              };
+              if (sn && !mapExistentes.has(sn)) mapExistentes.set(sn, info);
+              if (im && !mapExistentes.has(im)) mapExistentes.set(im, info);
             }
           }
         }
@@ -202,15 +255,16 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Processamento com detecção estrita de duplicidade
+    // Processamento com detecção estrita de duplicidade por serial e imei
     const novosParaDb: any[] = [];
     if (Array.isArray(produtos)) {
       for (const p of produtos) {
-        const sn = (p.serial || p.imei || '').trim().toUpperCase();
-        if (!sn) continue;
+        const sn = (p.serial || '').trim().toUpperCase();
+        const im = (p.imei || '').trim().toUpperCase();
+        if (!sn && !im) continue;
 
-        if (mapExistentes.has(sn)) {
-          const existente = mapExistentes.get(sn);
+        const existente = (sn && mapExistentes.get(sn)) || (im && mapExistentes.get(im));
+        if (existente) {
           duplicadosList.push({
             imei: p.imei || p.serial,
             serial: p.serial || p.imei,
@@ -237,7 +291,8 @@ export default async function handler(req: any, res: any) {
         } else {
           const itemNormalizado = {
             ...p,
-            serial: sn,
+            serial: sn || im,
+            imei: im || sn,
             id_servidor: `SRV-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
             data_sincronizacao: agora,
             status_sincronizacao: 'ENVIADO',
@@ -248,7 +303,8 @@ export default async function handler(req: any, res: any) {
             regional: p.regional || regional || computador?.regional || regionalNome,
           };
           centralData.produtos.push(itemNormalizado);
-          mapExistentes.set(sn, itemNormalizado);
+          if (sn) mapExistentes.set(sn, itemNormalizado);
+          if (im) mapExistentes.set(im, itemNormalizado);
           novosParaDb.push(itemNormalizado);
           novosCount++;
         }

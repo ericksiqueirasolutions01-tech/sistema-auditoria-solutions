@@ -3,7 +3,52 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getSupabaseServerAdmin, isSupabaseServerConfigured } from './_supabaseServer';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+const SUPABASE_FALLBACK_URL = 'https://chvfzqekkmongsrqbwev.supabase.co';
+const SUPABASE_FALLBACK_KEY = 'sb_publishable_F-Lc83bJD87AokRbHPmltg_hp2q6Ghj';
+
+function getSupabaseUrl(): string {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.URL_SUPABASE || SUPABASE_FALLBACK_URL;
+  return url.trim();
+}
+
+function getSupabaseServiceKey(): string {
+  const key =
+    process.env.SUPABASE_SERVER_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    SUPABASE_FALLBACK_KEY;
+  return key.trim();
+}
+
+function isSupabaseServerConfigured(): boolean {
+  return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
+}
+
+let cachedAdminClient: SupabaseClient | null = null;
+
+function getSupabaseServerAdmin(): SupabaseClient | null {
+  if (!isSupabaseServerConfigured()) {
+    return null;
+  }
+  if (cachedAdminClient) {
+    return cachedAdminClient;
+  }
+  try {
+    cachedAdminClient = createClient(getSupabaseUrl(), getSupabaseServiceKey(), {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    return cachedAdminClient;
+  } catch (err) {
+    console.error('[StatusAPI] Erro ao instanciar Supabase:', err);
+    return null;
+  }
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');

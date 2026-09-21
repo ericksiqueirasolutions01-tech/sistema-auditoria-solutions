@@ -16,6 +16,7 @@
     "build:installer": "powershell -ExecutionPolicy Bypass -File ./scripts/build-windows-installer.ps1"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "@tailwindcss/vite": "^4.0.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",

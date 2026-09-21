@@ -1,8 +1,9 @@
 // Endpoint Central de Sincronização Transacional (Gate 4)
-// Eliminado JSON-bin de terceiros. Persistência transacional e RLS server-side.
+// Suporte ao banco central Supabase (PostgreSQL + RLS) e persistência transacional server-side.
 
 import fs from 'fs';
 import path from 'path';
+import { getSupabaseServerAdmin } from './_supabaseServer';
 
 const ALLOWED_ORIGINS = [
   'https://sistema-auditoria-solutions.vercel.app',
@@ -150,12 +151,15 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ erro: 'Nenhum produto ou foto enviado para sincronização.' });
     }
 
-    const centralData = carregarBaseCentral();
     const agora = new Date().toISOString();
+    const regionalNome = regional || computador?.regional || 'VIA VAREJO RJ';
+    const supabase = getSupabaseServerAdmin();
+
+    const centralData = carregarBaseCentral();
     let novosCount = 0;
     const duplicadosList: any[] = [];
 
-    // Mapeamento de unicidade por serial / IMEI
+    // Mapeamento local em memória de seriais existentes
     const mapExistentes = new Map<string, any>();
     for (const p of centralData.produtos) {
       const sn = (p.serial || p.imei || '').trim().toUpperCase();
@@ -164,7 +168,42 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    // Se o Supabase estiver conectado, consultar duplicidades direto no PostgreSQL
+    if (supabase && Array.isArray(produtos) && produtos.length > 0) {
+      try {
+        const serialsConsulta = produtos
+          .map((p: any) => (p.serial || p.imei || '').trim().toUpperCase())
+          .filter(Boolean);
+
+        if (serialsConsulta.length > 0) {
+          const { data: dbProducts } = await supabase
+            .from('audit_products')
+            .select('serial, imei, modelo, numero_caixa, created_at, usuario_bipagem, regional_id')
+            .in('serial', serialsConsulta);
+
+          if (Array.isArray(dbProducts)) {
+            for (const dp of dbProducts) {
+              const sn = (dp.serial || dp.imei || '').trim().toUpperCase();
+              if (sn && !mapExistentes.has(sn)) {
+                mapExistentes.set(sn, {
+                  serial: dp.serial,
+                  imei: dp.imei,
+                  modelo_produto: dp.modelo,
+                  numero_caixa: dp.numero_caixa,
+                  data_cadastro: dp.created_at,
+                  usuario_cadastro: dp.usuario_bipagem,
+                });
+              }
+            }
+          }
+        }
+      } catch (errDb) {
+        console.warn('[Central] Aviso ao consultar duplicidades no Supabase:', errDb);
+      }
+    }
+
     // Processamento com detecção estrita de duplicidade
+    const novosParaDb: any[] = [];
     if (Array.isArray(produtos)) {
       for (const p of produtos) {
         const sn = (p.serial || p.imei || '').trim().toUpperCase();
@@ -206,16 +245,71 @@ export default async function handler(req: any, res: any) {
             computador_id: computador?.id || p.computador_id || 'PC-001',
             computador_nome: computador?.nome || p.computador_nome || 'Estacao',
             usuario_sincronizacao: usuario.nome || usuario.login || 'Operador',
-            regional: p.regional || regional || computador?.regional || 'VIA VAREJO RJ',
+            regional: p.regional || regional || computador?.regional || regionalNome,
           };
           centralData.produtos.push(itemNormalizado);
           mapExistentes.set(sn, itemNormalizado);
+          novosParaDb.push(itemNormalizado);
           novosCount++;
         }
       }
     }
 
-    // Processamento de Fotos Reais (SEM substituição por SVG falso - Regra 12)
+    // Persistência no banco Supabase se configurado
+    if (supabase && novosParaDb.length > 0) {
+      try {
+        // Obter regional_id
+        let regionalId: string | null = null;
+        const { data: regData } = await supabase
+          .from('regions')
+          .select('id')
+          .or(`codigo.eq.${regionalNome},nome.eq.${regionalNome}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (regData?.id) {
+          regionalId = regData.id;
+        }
+
+        if (regionalId) {
+          const rowsToInsert = novosParaDb.map((item) => ({
+            id_local: item.id || `LOC-${Date.now()}`,
+            serial: item.serial,
+            imei: item.imei || item.serial,
+            ean: item.ean || '',
+            modelo: item.modelo_produto || item.modelo || 'Modelo Desconhecido',
+            fabricante: item.fabricante || 'SAMSUNG',
+            numero_lote: item.numero_lote || item.lote || '01',
+            numero_caixa: item.numero_caixa || item.caixa || '01',
+            regional_id: regionalId,
+            produto_lacrado: item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
+            kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
+            aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+            observacao: item.observacao || null,
+            usuario_bipagem: usuario.nome || usuario.login || 'Operador',
+            status_sincronizacao: 'ENVIADO',
+            data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
+          }));
+
+          await supabase.from('audit_products').insert(rowsToInsert);
+        }
+
+        // Trilha imutável em audit_log
+        await supabase.from('audit_log').insert({
+          actor_user_id: usuario.login || usuario.nome || 'Operador',
+          device_id: computador?.id || 'PC-001',
+          action: 'SYNC_PRODUTOS',
+          entity_type: 'PRODUTO',
+          entity_id: `LOTE-${novosParaDb[0]?.numero_lote || 'GERAL'}`,
+          regional: regionalNome,
+          detalhes: `${novosCount} produtos sincronizados online (${duplicadosList.length} duplicados bloqueados)`,
+        });
+      } catch (errDbSync) {
+        console.warn('[Central] Aviso na sincronização do Supabase:', errDbSync);
+      }
+    }
+
+    // Processamento de Fotos
     let fotosCount = 0;
     if (Array.isArray(fotos)) {
       const mapFotos = new Map<string, any>();
@@ -239,7 +333,7 @@ export default async function handler(req: any, res: any) {
     const logEnvio = {
       id: Date.now(),
       data_envio: new Date().toLocaleString('pt-BR'),
-      regional: regional || computador?.regional || 'VIA VAREJO RJ',
+      regional: regional || computador?.regional || regionalNome,
       computador_id: computador?.id || 'PC-001',
       computador_nome: computador?.nome || 'Estacao',
       usuario: usuario.nome || usuario.login || 'Operador',
@@ -263,7 +357,7 @@ export default async function handler(req: any, res: any) {
           imei: d.serial || d.imei,
           computador: `${computador?.id || 'PC-001'} (${computador?.nome || 'Estacao'})`,
           resultado: 'BLOQUEADO: IMEI JÁ CADASTRADO NO SERVIDOR',
-          regional: regional || computador?.regional || 'VIA VAREJO RJ',
+          regional: regional || computador?.regional || regionalNome,
           data_cadastro_existente: d.data_cadastro_existente,
           usuario_existente: d.usuario_existente,
         });
@@ -273,7 +367,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Persistência transacional no armazenamento central
+    // Persistência local/fallback
     salvarBaseCentral(centralData);
 
     return res.status(200).json({

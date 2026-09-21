@@ -1,5 +1,9 @@
-const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
-const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
+// Health check da API Central (Gate 4)
+// Erradicado extendsclass.com. Conexão e monitoramento direto do Supabase PostgreSQL.
+
+import fs from 'fs';
+import path from 'path';
+import { getSupabaseServerAdmin, isSupabaseServerConfigured } from './_supabaseServer';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,18 +16,41 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
-    if (!getRes.ok) {
-      getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+    const supabase = getSupabaseServerAdmin();
+    let total = 0;
+    let modo = 'local-offline-ready';
+
+    if (supabase) {
+      try {
+        const { count, error } = await supabase
+          .from('audit_products')
+          .select('*', { count: 'exact', head: true })
+          .is('deleted_at', null);
+
+        if (!error && typeof count === 'number') {
+          total = count;
+          modo = 'supabase-postgresql';
+        }
+      } catch (errDb) {
+        console.warn('[Status] Aviso ao consultar contagem no Supabase:', errDb);
+      }
     }
-    if (!getRes.ok) {
-      return res.status(200).json({ status: 'online', totalProdutos: 0, modo: 'cloud-serverless' });
+
+    if (modo !== 'supabase-postgresql') {
+      const dbFile = path.resolve(process.cwd(), 'data', 'central_database.json');
+      if (fs.existsSync(dbFile)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
+          total = Array.isArray(parsed.produtos) ? parsed.produtos.length : 0;
+        } catch {}
+      }
     }
-    const data = await getRes.json();
-    const total = Array.isArray(data.produtos) ? data.produtos.length : 0;
+
     return res.status(200).json({
       status: 'online',
-      servidor: 'Vercel Serverless + Cloud Storage Dual-Bin',
+      servidor: 'Vercel Serverless + Supabase PostgreSQL (RLS)',
+      modo,
+      supabaseConfigured: isSupabaseServerConfigured(),
       totalProdutos: total,
       timestamp: new Date().toISOString(),
     });

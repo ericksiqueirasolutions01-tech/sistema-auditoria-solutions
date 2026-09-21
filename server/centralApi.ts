@@ -71,41 +71,11 @@ function readCentralDb(): CentralData {
   }
 }
 
-const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
-const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
-
 function writeCentralDb(data: CentralData) {
   ensureDataFiles();
   try {
     data.ultimaAtualizacao = new Date().toISOString();
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-
-    // Em conformidade com o Gate 1: Preservar fotos reais sem substituição por SVG estático
-    const fotosLeves = data.fotos || [];
-
-    const cloudPayload = JSON.stringify({
-      system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-      produtos: data.produtos,
-      fotos: fotosLeves,
-      historico_envios: readCentralLogs(),
-      ultimaAtualizacao: data.ultimaAtualizacao,
-    });
-
-    fetch(CLOUD_STORAGE_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: cloudPayload,
-    })
-      .then((res) => {
-        if (!res.ok) {
-          return fetch(CLOUD_STORAGE_BACKUP_URL, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: cloudPayload,
-          });
-        }
-      })
-      .catch(() => {});
   } catch (e) {
     console.error('[CentralServer] Erro ao gravar banco central:', e);
   }

@@ -45,6 +45,7 @@ import {
 } from './indexedDb';
 import { enfileirarEventoOutbox } from './syncOutbox';
 import { observability } from '../services/observability';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 const STORAGE_KEY_PRODUTOS = 'solutions_auditoria_produtos_v1';
 const STORAGE_KEY_USUARIOS = 'solutions_auditoria_usuarios_v1';
@@ -72,8 +73,9 @@ export const REGIONAIS_PADRAO = [
   'VIA VAREJO BA',
 ];
 
-export const CLOUD_STORAGE_URL = 'https://extendsclass.com/api/json-storage/bin/dcccfea';
-export const CLOUD_STORAGE_BACKUP_URL = 'https://extendsclass.com/api/json-storage/bin/ffedcbb';
+// Constantes de compatibilidade (desativadas em favor do Supabase oficial)
+export const CLOUD_STORAGE_URL = '';
+export const CLOUD_STORAGE_BACKUP_URL = '';
 
 export const SERVIDOR_CENTRAL_PADRAO = 'https://sistema-auditoria-solutions.vercel.app';
 
@@ -2905,23 +2907,24 @@ class AuditoriaDatabase {
       await fetch(limparApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ solicitante: this.usuarioAtual?.nome || 'Administrador' }),
+        body: JSON.stringify({
+          solicitante: this.usuarioAtual?.nome || 'Administrador',
+          confirmacao: 'CONFIRMAR_EXCLUSAO_TOTAL_BASE_DADOS',
+        }),
       }).catch((err) => {
         console.warn('[Storage] Chamada a /api/central/limpar falhou:', err);
       });
 
-      // 6.2 Fallback direto para ambos os repositórios em nuvem
-      await fetch(CLOUD_STORAGE_URL, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: cleanPayload,
-      }).catch(() => {});
-
-      await fetch(CLOUD_STORAGE_BACKUP_URL, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: cleanPayload,
-      }).catch(() => {});
+      // 6.2 Fallback direto para o Supabase se configurado no cliente
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const agoraIso = new Date().toISOString();
+          await supabase.from('audit_products').update({ deleted_at: agoraIso }).is('deleted_at', null);
+          await supabase.from('lots').update({ deleted_at: agoraIso }).is('deleted_at', null);
+        } catch (errSup) {
+          console.warn('[Storage] Falha ao zerar no Supabase diretamente:', errSup);
+        }
+      }
     } catch (e) {
       console.warn('Erro ao zerar nuvem central:', e);
     }
@@ -3109,35 +3112,46 @@ class AuditoriaDatabase {
         console.warn('[Storage] Falha ao consultar /api/central/produtos:', errApi);
       }
 
-      // 2. Fallback Nuvem Direta caso a rota local/proxy não responda
-      if (!produtosRemotos) {
+      // 2. Fallback Supabase Direto caso a rota /api/central/produtos não responda
+      if (!produtosRemotos && isSupabaseConfigured && supabase) {
         try {
-          let cloudRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
-          if (!cloudRes.ok) {
-            cloudRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
+          const { data: dbProducts } = await supabase
+            .from('audit_products')
+            .select('*, regions(codigo, nome)')
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+
+          if (Array.isArray(dbProducts) && dbProducts.length > 0) {
+            produtosRemotos = dbProducts.map((p: any, idx: number): ProdutoAuditoria => ({
+              id: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
+              id_local: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
+              id_servidor: p.id || null,
+              uuid: p.id || String(Date.now() + idx),
+              serial: p.serial,
+              imei: p.imei || p.serial,
+              fabricante: p.fabricante || 'SAMSUNG',
+              modelo_produto: p.modelo || 'Modelo Desconhecido',
+              ean: p.ean || '',
+              numero_lote: p.numero_lote || '01',
+              numero_caixa: p.numero_caixa || '01',
+              regional: p.regions?.nome || p.regions?.codigo || 'VIA VAREJO RJ',
+              produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
+              kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
+              aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+              observacao: p.observacao || '',
+              data_cadastro: p.data_auditoria || p.created_at || new Date().toISOString(),
+              usuario_cadastro: p.usuario_bipagem || 'Operador',
+              computador_id: 'PC-SUPABASE',
+              computador_nome: 'Supabase Central',
+              data_alteracao: null,
+              data_auditoria: p.data_auditoria || new Date().toISOString().split('T')[0],
+              data_sincronizacao: p.created_at || new Date().toISOString(),
+              status_sincronizacao: (p.status_sincronizacao as StatusSincronizacaoItem) || 'ENVIADO',
+            }));
           }
-          if (cloudRes.ok) {
-            const cloudData = await cloudRes.json();
-            if (cloudData && Array.isArray(cloudData.produtos)) {
-              produtosRemotos = cloudData.produtos;
-            }
-            if (cloudData && Array.isArray(cloudData.fotos)) {
-              fotosRemotas = cloudData.fotos;
-            }
-            if (cloudData && Array.isArray(cloudData.historico_envios)) {
-              historicoRemoto = cloudData.historico_envios;
-            }
-            if (cloudData && Array.isArray(cloudData.tentativas_duplicadas)) {
-              tentativasRemotas = cloudData.tentativas_duplicadas;
-            }
-            if (cloudData && Array.isArray(cloudData.lotes_finalizados)) {
-              lotesRemotos = cloudData.lotes_finalizados;
-            }
-            if (cloudData && cloudData.reset_timestamp) {
-              resetTimestampRemoto = cloudData.reset_timestamp;
-            }
-          }
-        } catch {}
+        } catch (errSup) {
+          console.warn('[Storage] Falha ao consultar Supabase diretamente:', errSup);
+        }
       }
 
       // Se durante o fetch a base foi limpa, não processar respostas antigas defasadas
@@ -3379,42 +3393,40 @@ class AuditoriaDatabase {
       }
     }
 
-    // 3. Fallback Nuvem Direta caso a rota /api/central/sync não responda (hospedagem estática, Vercel timeout, etc.)
-    if (!sincronizouComSucesso) {
+    // 3. Fallback Supabase Direto caso a rota /api/central/sync não responda (Vercel timeout, offline etc.)
+    if (!sincronizouComSucesso && isSupabaseConfigured && supabase) {
       try {
-        let cloudData: any = {
-          system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-          produtos: [],
-          fotos: [],
-          historico_envios: [],
-          lotes_finalizados: [],
-        };
+        const serialsConsulta = pendentes
+          .map((p) => (p.serial || '').trim().toUpperCase())
+          .filter(Boolean);
 
-        let getRes = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
-        if (!getRes.ok) {
-          getRes = await fetch(`${CLOUD_STORAGE_BACKUP_URL}?_t=${Date.now()}`);
-        }
-        if (getRes.ok) {
-          try {
-            const parsed = await getRes.json();
-            if (parsed && Array.isArray(parsed.produtos)) {
-              cloudData = parsed;
-            }
-          } catch {}
-        }
+        const { data: dbExistentes } = await supabase
+          .from('audit_products')
+          .select('serial, imei, modelo, numero_caixa, created_at, usuario_bipagem')
+          .in('serial', serialsConsulta);
 
         const mapExistentes = new Map<string, any>();
-        if (Array.isArray(cloudData.produtos)) {
-          for (const p of cloudData.produtos) {
-            const sn = (p.serial || '').trim().toUpperCase();
-            if (sn) mapExistentes.set(sn, p);
+        if (Array.isArray(dbExistentes)) {
+          for (const d of dbExistentes) {
+            const sn = (d.serial || '').trim().toUpperCase();
+            if (sn) mapExistentes.set(sn, d);
           }
-        } else {
-          cloudData.produtos = [];
         }
+
+        let regionalId: string | null = null;
+        const regNome = compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ');
+        const { data: reg } = await supabase
+          .from('regions')
+          .select('id')
+          .or(`codigo.eq.${regNome},nome.eq.${regNome}`)
+          .maybeSingle();
+
+        if (reg?.id) regionalId = reg.id;
 
         let novosCount = 0;
         const duplicadosList: DetalheImeiDuplicado[] = [];
+        const paraInserir: any[] = [];
+
         for (const p of pendentes) {
           const sn = (p.serial || '').trim().toUpperCase();
           if (!sn) continue;
@@ -3423,130 +3435,67 @@ class AuditoriaDatabase {
             duplicadosList.push({
               imei: p.serial,
               serial: p.serial,
-              modelo_produto: p.modelo_produto || existente.modelo_produto || '',
+              modelo_produto: p.modelo_produto || existente.modelo || '',
               numero_caixa: p.numero_caixa || existente.numero_caixa || '',
-              data_cadastro_existente:
-                existente.data_cadastro ||
-                existente.data_auditoria ||
-                existente.data_sincronizacao ||
-                'Data anterior não informada',
-              usuario_existente:
-                existente.usuario_cadastro ||
-                existente.usuario_criacao ||
-                existente.usuario ||
-                'Outro Colaborador',
-              computador_existente:
-                existente.computador_nome ||
-                existente.computador_id ||
-                'Outra Estação',
-              regional_existente: existente.regional || 'Geral',
+              data_cadastro_existente: existente.created_at || 'Data anterior',
+              usuario_existente: existente.usuario_bipagem || 'Outro Colaborador',
+              computador_existente: compAtual.nome || 'Estacao',
+              regional_existente: regNome,
               status: 'DUPLICADO NO SERVIDOR',
               id_local: p.id,
             });
           } else {
-            const normalizado = {
-              ...p,
-              regional: p.regional || compAtual.regional || 'VIA VAREJO RJ',
-              computador_id: p.computador_id || compAtual.id || 'PC-001',
-              computador_nome: p.computador_nome || compAtual.nome || 'Estacao',
-              usuario_cadastro: (p as any).usuario_cadastro || (p as any).usuario_criacao || (this.usuarioAtual?.nome || 'Operador'),
+            paraInserir.push({
+              id_local: p.id,
+              serial: sn,
+              imei: p.serial,
+              ean: '',
+              modelo: p.modelo_produto || 'Modelo Desconhecido',
+              fabricante: 'SAMSUNG',
+              numero_lote: p.numero_lote || '01',
+              numero_caixa: p.numero_caixa || '01',
+              regional_id: regionalId,
+              produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
+              kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
+              aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+              observacao: p.observacao || null,
+              usuario_bipagem: this.usuarioAtual?.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',
-              sync_status: 'ENVIADO',
-              data_sincronizacao: agora,
-              sync_data: agora,
-              id_servidor: p.id_servidor || `SRV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            };
-            cloudData.produtos.unshift(normalizado);
-            mapExistentes.set(sn, normalizado);
+              data_auditoria: p.data_cadastro || new Date().toISOString().split('T')[0],
+            });
             novosCount++;
           }
         }
 
-        let fotosCount = 0;
-        if (pendentesFotosSync.length > 0) {
-          if (!Array.isArray(cloudData.fotos)) cloudData.fotos = [];
-          const mapFotos = new Map<string, any>();
-          for (const f of cloudData.fotos) {
-            if (f && f.id) mapFotos.set(f.id, f);
+        if (paraInserir.length > 0 && regionalId) {
+          const { error: insErr } = await supabase.from('audit_products').insert(paraInserir);
+          if (!insErr) {
+            sincronizouComSucesso = true;
           }
-          for (const f of pendentesFotosSync) {
-            if (f && f.id) {
-              if (!mapFotos.has(f.id)) fotosCount++;
-              mapFotos.set(f.id, { ...f, status_sincronizacao: 'ENVIADO' });
-            }
-          }
-          cloudData.fotos = Array.from(mapFotos.values());
-        }
-
-        if (Array.isArray(this.lotesFinalizados) && this.lotesFinalizados.length > 0) {
-          if (!Array.isArray(cloudData.lotes_finalizados)) {
-            cloudData.lotes_finalizados = [];
-          }
-          const mapLotes = new Map<string, any>();
-          for (const l of cloudData.lotes_finalizados) {
-            if (l && l.numero_lote) {
-              mapLotes.set(`${l.regional || ''}:::${l.numero_lote}`, l);
-            }
-          }
-          for (const l of this.lotesFinalizados) {
-            mapLotes.set(`${l.regional || ''}:::${l.numero_lote}`, l);
-          }
-          cloudData.lotes_finalizados = Array.from(mapLotes.values());
-        }
-
-        if (!Array.isArray(cloudData.historico_envios)) {
-          cloudData.historico_envios = [];
-        }
-        cloudData.historico_envios.unshift({
-          id: Date.now(),
-          data_envio: agoraFormatada,
-          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
-          computador_id: compAtual.id || 'PC-001',
-          computador_nome: compAtual.nome || 'Estacao',
-          usuario: this.usuarioAtual?.nome || 'Operador',
-          quantidade_enviada: novosCount,
-          status: 'OK',
-          detalhes: `${novosCount} novos seriais sincronizados na nuvem central (${duplicadosList.length} duplicados evitados).`,
-          timestamp: agora,
-        });
-
-        cloudData.ultimaAtualizacao = agora;
-
-        const bodyStr = JSON.stringify(cloudData);
-        let putRes = await fetch(CLOUD_STORAGE_URL, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: bodyStr,
-        });
-
-        if (!putRes.ok) {
-          putRes = await fetch(CLOUD_STORAGE_BACKUP_URL, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: bodyStr,
-          });
-        }
-
-        if (putRes.ok) {
+        } else if (paraInserir.length === 0 && duplicadosList.length > 0) {
           sincronizouComSucesso = true;
+        }
+
+        if (sincronizouComSucesso) {
           dataResposta = {
             sucesso: true,
             sincronizados: novosCount,
-            fotosSincronizadas: fotosCount,
+            fotosSincronizadas: 0,
             duplicadosEvitados: duplicadosList.length,
             itensDuplicados: duplicadosList,
-            totalNaBaseCentral: cloudData.produtos.length,
-            produtosCentral: cloudData.produtos,
-            fotosCentral: cloudData.fotos,
+            totalNaBaseCentral: novosCount,
+            produtosCentral: [],
+            fotosCentral: [],
+            origem: 'SUPABASE_DIRECT',
             mensagem:
               duplicadosList.length > 0
                 ? `${novosCount} novo(s) IMEI(s) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`
-                : `${novosCount} novo(s) IMEI(s) e ${fotosCount} foto(s) sincronizado(s) online com sucesso!`,
+                : `${novosCount} novo(s) IMEI(s) sincronizado(s) online com sucesso!`,
             timestamp: agora,
           };
         }
-      } catch (errDirect) {
-        console.error('[Storage] Erro no Fallback de sincronização direta:', errDirect);
+      } catch (errSupabaseSync) {
+        console.warn('[Storage] Falha no fallback direto Supabase:', errSupabaseSync);
       }
     }
 
@@ -3774,11 +3723,11 @@ class AuditoriaDatabase {
         statusOk = false;
       }
 
-      // Se falhar o endpoint local, tentar nuvem direta
-      if (!statusOk) {
+      // Se falhar o endpoint local, verificar conectividade com o Supabase
+      if (!statusOk && isSupabaseConfigured && supabase) {
         try {
-          const resCloud = await fetch(`${CLOUD_STORAGE_URL}?_t=${Date.now()}`);
-          if (resCloud.ok) statusOk = true;
+          const { count } = await supabase.from('audit_products').select('*', { count: 'exact', head: true });
+          if (typeof count === 'number') statusOk = true;
         } catch {}
       }
 

@@ -1,8 +1,9 @@
 // Endpoint Central Seguro de Consulta de Produtos (Gate 4)
-// Eliminado JSON-bin de terceiros. Exige autenticação e aplica escopo regional (RLS).
+// Conexão direta ao Supabase PostgreSQL com escopo regional (RLS) e fallback seguro.
 
 import fs from 'fs';
 import path from 'path';
+import { getSupabaseServerAdmin } from './_supabaseServer';
 
 const ALLOWED_ORIGINS = [
   'https://sistema-auditoria-solutions.vercel.app',
@@ -78,6 +79,82 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const supabase = getSupabaseServerAdmin();
+
+    // Se o Supabase estiver configurado, busca diretamente da base central PostgreSQL
+    if (supabase) {
+      try {
+        let query = supabase
+          .from('audit_products')
+          .select('*, regions(codigo, nome)')
+          .order('created_at', { ascending: false });
+
+        if (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL') {
+          if (userRegional && userRegional !== 'TODAS') {
+            // Filtrar pela regional
+            const { data: reg } = await supabase
+              .from('regions')
+              .select('id')
+              .or(`codigo.eq.${userRegional},nome.eq.${userRegional}`)
+              .maybeSingle();
+
+            if (reg?.id) {
+              query = query.eq('regional_id', reg.id);
+            }
+          }
+        } else if (req.query?.regional && req.query.regional !== 'TODAS') {
+          const regFiltro = req.query.regional.trim().toUpperCase();
+          const { data: reg } = await supabase
+            .from('regions')
+            .select('id')
+            .or(`codigo.eq.${regFiltro},nome.eq.${regFiltro}`)
+            .maybeSingle();
+
+          if (reg?.id) {
+            query = query.eq('regional_id', reg.id);
+          }
+        }
+
+        const { data: dbProducts, error: dbError } = await query;
+        if (!dbError && Array.isArray(dbProducts) && dbProducts.length > 0) {
+          const produtosFormatados = dbProducts.map((p: any) => ({
+            id: p.id_local || p.id,
+            id_servidor: p.id,
+            serial: p.serial,
+            imei: p.imei,
+            ean: p.ean,
+            modelo_produto: p.modelo,
+            numero_lote: p.numero_lote,
+            numero_caixa: p.numero_caixa,
+            regional: p.regions?.nome || p.regions?.codigo || userRegional || 'VIA VAREJO RJ',
+            produto_lacrado: p.produto_lacrado,
+            kit_completo: p.kit_completo,
+            aparelho_marcas_uso: p.aparelho_marcas_uso,
+            observacao: p.observacao,
+            usuario_sincronizacao: p.usuario_bipagem,
+            data_auditoria: p.data_auditoria,
+            data_sincronizacao: p.created_at,
+            status_sincronizacao: p.status_sincronizacao,
+          }));
+
+          const localData = obterDadosCentraisLocais();
+          return res.status(200).json({
+            sucesso: true,
+            origem: 'SUPABASE_POSTGRES',
+            produtos: produtosFormatados,
+            fotos: localData.fotos,
+            historico_envios: localData.historico_envios,
+            tentativas_duplicadas: localData.tentativas_duplicadas,
+            totalRegistros: produtosFormatados.length,
+            ultimaAtualizacao: new Date().toISOString(),
+          });
+        }
+      } catch (errSupabase) {
+        console.warn('[Central] Falha ao consultar Supabase, usando cache local:', errSupabase);
+      }
+    }
+
+    // Fallback local em memória/disco
     const dados = obterDadosCentraisLocais();
     let produtosFiltrados = dados.produtos;
 
@@ -99,6 +176,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       sucesso: true,
+      origem: 'LOCAL_STORAGE',
       produtos: produtosFiltrados,
       fotos: dados.fotos,
       historico_envios: dados.historico_envios,

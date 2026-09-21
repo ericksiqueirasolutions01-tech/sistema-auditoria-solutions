@@ -54,11 +54,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // CRÍTICO: NUNCA interceptar nem cachear chamadas de API, sincronização, downloads ou nuvem
+  // CRÍTICO: NUNCA interceptar nem cachear chamadas de API, sincronização, downloads ou nuvem Supabase
   if (
     url.pathname.startsWith('/api') ||
     url.pathname.startsWith('/downloads') ||
-    url.hostname.includes('extendsclass.com')
+    url.hostname.includes('supabase.co')
   ) {
     return;
   }

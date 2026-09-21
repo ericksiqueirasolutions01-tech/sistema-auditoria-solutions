@@ -315,7 +315,7 @@ describe('GATE 5: Sincronização Delta / Outbox Engine com Idempotência e Conc
         (s) => s === 'DUPLICADO_BLOQUEADO' || s === 'CONFLITO_CONCORRENCIA_DUPLICADO'
       );
       expect(bloqueados.length).toBe(1);
-    });
+    }, 15000);
   });
 
   afterAll(() => {

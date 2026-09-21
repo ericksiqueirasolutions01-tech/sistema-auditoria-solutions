@@ -14,7 +14,12 @@ import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import { ModalVisualizarFotoLote } from '../components/ModalVisualizarFotoLote';
-import { AbaGaleriaFotos } from '../features/admin/components';
+import {
+  AbaGaleriaFotos,
+  ModalImportarPlanilhaRegional,
+  ModalHistoricoVersoesPlanilha,
+} from '../features/admin/components';
+import { isAdminOuSuper } from '../domain';
 import {
   Building2,
   Boxes,
@@ -22,6 +27,8 @@ import {
   CheckCircle,
   CheckCircle2,
   AlertCircle,
+  History,
+  Upload,
   ShieldCheck,
   ShieldAlert,
   Search,
@@ -129,6 +136,14 @@ export const PainelAdmin: React.FC = () => {
   // Seletor de visualização: 'CONSOLIDADO' ou nome de uma regional específica
   const [regionalAtiva, setRegionalAtiva] = useState<string>('CONSOLIDADO');
 
+  // Estados para Importação de Planilha Regional de Referência (ADMIN ONLY)
+  const [mostrarModalImportarPlanilha, setMostrarModalImportarPlanilha] = useState(false);
+  const [mostrarModalHistoricoPlanilhas, setMostrarModalHistoricoPlanilhas] = useState(false);
+  const [regionalParaImportar, setRegionalParaImportar] = useState<string>('VIA VAREJO BA');
+
+  const usuarioAtual = db.getUsuarioAtual();
+  const isAdmin = isAdminOuSuper(usuarioAtual?.perfil);
+
   // Listener para fechar modals com a tecla Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -139,11 +154,22 @@ export const PainelAdmin: React.FC = () => {
         else if (mostrarModalExcluirLote) setMostrarModalExcluirLote(false);
         else if (produtoParaEditar) setProdutoParaEditar(null);
         else if (mostrarModalLimpeza) setMostrarModalLimpeza(false);
+        else if (mostrarModalImportarPlanilha) setMostrarModalImportarPlanilha(false);
+        else if (mostrarModalHistoricoPlanilhas) setMostrarModalHistoricoPlanilhas(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fotoVisualizar, fotoAmpliada, mostrarModalReabertura, mostrarModalExcluirLote, produtoParaEditar, mostrarModalLimpeza]);
+  }, [
+    fotoVisualizar,
+    fotoAmpliada,
+    mostrarModalReabertura,
+    mostrarModalExcluirLote,
+    produtoParaEditar,
+    mostrarModalLimpeza,
+    mostrarModalImportarPlanilha,
+    mostrarModalHistoricoPlanilhas,
+  ]);
   
   // Estados de Sincronização em Tempo Real com o Servidor Central
   const [atualizandoServidor, setAtualizandoServidor] = useState(false);
@@ -237,6 +263,22 @@ export const PainelAdmin: React.FC = () => {
   const caixasDisponiveis = useMemo(() => {
     return db.listarCaixas(regionalAtiva === 'CONSOLIDADO' ? undefined : regionalAtiva);
   }, [regionalAtiva]);
+
+  // Lista de Referência Regional & Lotes Dinâmicos (ADMIN ONLY)
+  const batchAtivoRegional = useMemo(() => {
+    if (regionalAtiva === 'CONSOLIDADO') return null;
+    return db.listarHistoricoImportacoes(regionalAtiva).find((b) => b.status === 'ATIVA') || null;
+  }, [regionalAtiva, forcarAtualizacao]);
+
+  const totalImeisAtivosRegional = useMemo(() => {
+    if (regionalAtiva === 'CONSOLIDADO') return 0;
+    return db.obterListaAtivaReferencia(regionalAtiva).length;
+  }, [regionalAtiva, forcarAtualizacao]);
+
+  const lotesDinamicosRegional = useMemo(() => {
+    if (regionalAtiva === 'CONSOLIDADO') return [];
+    return db.listarLotesDinamicos(regionalAtiva);
+  }, [regionalAtiva, forcarAtualizacao]);
 
   const formatarHora = (dataStr?: string | null): string => {
     if (!dataStr) return '-';
@@ -1094,6 +1136,22 @@ export const PainelAdmin: React.FC = () => {
               Limpar Base de Testes
             </button>
 
+            {/* Importar Planilha Regional de Referência (ADMIN ONLY) */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRegionalParaImportar(regionalAtiva !== 'CONSOLIDADO' ? regionalAtiva : 'VIA VAREJO BA');
+                  setMostrarModalImportarPlanilha(true);
+                }}
+                className="bg-blue-900 hover:bg-blue-800 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                title="Importar planilha de referência regional de IMEI e configurar lotes dinâmicos"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Importar Planilha Regional
+              </button>
+            )}
+
             <button
               onClick={() => exportarExcelRegional(regionalAtiva)}
               className="bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
@@ -1551,6 +1609,138 @@ export const PainelAdmin: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* ======================================================================= */}
+          {/* CARD DE INVENTÁRIO DE REFERÊNCIA REGIONAL (IMEI & LOTES DINÂMICOS) */}
+          {/* ======================================================================= */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-black uppercase bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full tracking-wider border border-blue-200">
+                    Inventário de Referência Regional
+                  </span>
+                  {batchAtivoRegional && (
+                    <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      Versão Ativa v{batchAtivoRegional.version}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+                  Lista de Referência de IMEI • {regionalAtiva}
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegionalParaImportar(regionalAtiva);
+                    setMostrarModalHistoricoPlanilhas(true);
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold uppercase px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <History className="w-4 h-4 text-slate-500" />
+                  Histórico de Versões
+                </button>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegionalParaImportar(regionalAtiva);
+                      setMostrarModalImportarPlanilha(true);
+                    }}
+                    className="bg-blue-900 hover:bg-blue-800 text-white text-xs font-black uppercase px-4 py-2 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {batchAtivoRegional ? 'Importar Nova Versão' : 'Importar Planilha'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {batchAtivoRegional ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Total de IMEIs Ativos</span>
+                    <span className="text-xl font-black text-emerald-600 block mt-0.5">
+                      {totalImeisAtivosRegional}
+                    </span>
+                    <span className="text-[10px] text-slate-500">preenchimento automático O(1)</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Arquivo Fonte</span>
+                    <span className="text-sm font-black text-slate-800 truncate block mt-0.5" title={batchAtivoRegional.file_name}>
+                      {batchAtivoRegional.file_name}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{batchAtivoRegional.row_count} linhas na planilha</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Importado Por</span>
+                    <span className="text-sm font-black text-slate-800 truncate block mt-0.5">
+                      {batchAtivoRegional.imported_by}
+                    </span>
+                    <span className="text-[10px] text-slate-500">Administrador Responsável</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Data de Ativação</span>
+                    <span className="text-sm font-black text-slate-800 block mt-0.5">
+                      {new Date(batchAtivoRegional.imported_at).toLocaleDateString('pt-BR')}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{new Date(batchAtivoRegional.imported_at).toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                </div>
+
+                {/* Lotes Dinâmicos Cadastrados */}
+                <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black uppercase text-indigo-950 flex items-center gap-1.5 tracking-wider">
+                      <Layers className="w-4 h-4 text-indigo-600" />
+                      Lotes Automáticos Vinculados à Regional ({lotesDinamicosRegional.length})
+                    </span>
+                    <span className="text-[10px] text-indigo-700 font-semibold">
+                      Determinação automática por Dealer
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {lotesDinamicosRegional.map((lot) => (
+                      <span
+                        key={lot.id}
+                        className="bg-white border border-indigo-200 text-indigo-900 text-xs font-bold uppercase px-2.5 py-1 rounded-xl shadow-2xs"
+                      >
+                        🏷️ {lot.display_name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-50 rounded-2xl border border-dashed border-slate-300 p-6 text-center space-y-2">
+                <p className="text-sm font-bold text-slate-700">
+                  Nenhuma planilha de referência cadastrada para {regionalAtiva}.
+                </p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Aparelhos bipados nesta regional serão direcionados aos lotes FORA DA LISTA até que uma lista de referência seja importada.
+                </p>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegionalParaImportar(regionalAtiva);
+                      setMostrarModalImportarPlanilha(true);
+                    }}
+                    className="inline-flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-black uppercase px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-xs mt-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Importar Planilha Agora
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ======================================================================= */}
@@ -3633,6 +3823,29 @@ export const PainelAdmin: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Importação de Planilha Regional (ADMIN ONLY) */}
+      {mostrarModalImportarPlanilha && (
+        <ModalImportarPlanilhaRegional
+          regionalInicial={regionalParaImportar}
+          onFechar={() => setMostrarModalImportarPlanilha(false)}
+          onSucesso={(_res) => {
+            setForcarAtualizacao((v) => v + 1);
+          }}
+        />
+      )}
+
+      {/* Modal de Histórico de Versões da Planilha Regional */}
+      {mostrarModalHistoricoPlanilhas && (
+        <ModalHistoricoVersoesPlanilha
+          regional={regionalParaImportar}
+          onFechar={() => setMostrarModalHistoricoPlanilhas(false)}
+          onImportarNova={() => {
+            setMostrarModalHistoricoPlanilhas(false);
+            setMostrarModalImportarPlanilha(true);
+          }}
+        />
       )}
     </div>
   );

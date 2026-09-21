@@ -7,6 +7,9 @@ import type {
   LogTentativaDuplicado,
   RegistroLoteFinalizado,
   FotoLifecycleStatus,
+  InventoryImportBatch,
+  RegionalInventoryReference,
+  AuditLot,
 } from '../types';
 import { sha256Sync, gerarUUID } from '../utils/crypto';
 
@@ -87,6 +90,9 @@ export class SolutionsDexieDB extends Dexie {
   configuracoes!: EntityTable<ConfiguracaoLocal, 'chave'>;
   migration_meta!: EntityTable<MigrationMeta, 'id'>;
   sync_outbox!: EntityTable<OutboxEvent, 'event_id'>;
+  inventory_import_batches!: EntityTable<InventoryImportBatch, 'id'>;
+  regional_inventory_reference!: EntityTable<RegionalInventoryReference, 'id'>;
+  audit_lots!: EntityTable<AuditLot, 'id'>;
 
   constructor() {
     super('SolutionsAuditoriaDB_v2');
@@ -101,6 +107,22 @@ export class SolutionsDexieDB extends Dexie {
       configuracoes: 'chave, atualizado_em',
       migration_meta: 'id, status, executada_em',
       sync_outbox: 'event_id, idempotency_key, device_id, entity_type, entity_id, status, created_at',
+    });
+
+    this.version(3).stores({
+      produtos: 'id, serial, imei, numero_lote, numero_caixa, regional, status_sincronizacao, data_auditoria, source_type, dealer',
+      lotes_finalizados: 'id, numero_lote, regional, status, data_fechamento',
+      fotos_evidencias: 'id, entity_type, entity_id, sha256, sync_status, criado_em',
+      usuarios: 'id, login, perfil, regional, ativo',
+      computadores: 'id, device_id, regional, status',
+      audit_log: '++id, usuario, acao, dataHora',
+      tentativas_duplicadas: '++id, serial, imei, lote, dataHora',
+      configuracoes: 'chave, atualizado_em',
+      migration_meta: 'id, status, executada_em',
+      sync_outbox: 'event_id, idempotency_key, device_id, entity_type, entity_id, status, created_at',
+      inventory_import_batches: 'id, regional, status, version, imported_at',
+      regional_inventory_reference: 'id, regional, import_batch_id, [regional+imei_normalized], imei_normalized, sku, is_active',
+      audit_lots: 'id, regional, source_type, display_name, status',
     });
   }
 }

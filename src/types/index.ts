@@ -107,6 +107,15 @@ export interface ProdutoAuditoria {
   erro_sincronizacao?: string | null;
   duplicado_servidor_info?: DetalheImeiDuplicado | null;
   revisao?: number;
+  // Snapshot de Referência da Regional (Novo Fluxo de Inventário e Lotes):
+  reference_id?: string | null;
+  import_batch_id?: string | null;
+  source_type?: 'LISTED' | 'OUT_OF_LIST';
+  dealer?: string | null;
+  origin_invoice?: string | null;
+  sku?: string | null;
+  brand?: string | null;
+  misuse?: boolean | null;
   // Compatibilidade retroativa com campos anteriores:
   sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
   sync_data?: string | null;
@@ -424,6 +433,68 @@ export interface ResultadoRestauracao {
   };
 }
 
+// --- IMPORTAÇÃO DE PLANILHAS POR REGIONAL & REFERÊNCIA DE INVENTÁRIO ---
+export type StatusLoteImportacao = 'ATIVA' | 'HISTORICA' | 'CANCELADA';
 
+export interface InventoryImportBatch {
+  id: string; // UUID
+  regional_id?: string; // UUID no Supabase
+  regional: string; // Ex: 'VIA VAREJO BA' ou 'BA'
+  file_name: string;
+  imported_by: string;
+  imported_at: string; // Data ISO
+  row_count: number;
+  valid_count: number;
+  invalid_count: number;
+  status: StatusLoteImportacao;
+  version: number;
+  created_at?: string;
+  updated_at?: string;
+}
 
+export interface RegionalInventoryReference {
+  id: string; // UUID
+  regional_id?: string;
+  regional: string; // Ex: 'VIA VAREJO BA' ou 'BA'
+  import_batch_id: string; // UUID do batch de importação
+  imei_normalized: string; // String com exatamente 15 dígitos
+  sku: string;
+  model_description: string;
+  brand: string; // Ex: 'SAMSUNG' ou marca detectada
+  origin_invoice?: string | null; // Coluna H: NFOrigem Samsung (preservar valor original)
+  dealer_raw?: string | null; // Coluna J original
+  dealer_normalized?: string | null; // Coluna J normalizada
+  source_file_name: string;
+  source_row: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+}
 
+export interface AuditLot {
+  id: string; // UUID
+  regional_id?: string;
+  regional: string;
+  source_type: 'LISTED' | 'OUT_OF_LIST';
+  dealer_normalized?: string | null;
+  out_of_list_brand_group?: 'SAMSUNG' | 'OUTRA_MARCA' | null;
+  display_sequence: number;
+  display_name: string; // Ex: 'BA - LISTA - SAMSUNG', 'BA - LISTA - SIRI COMERCIO E SERVICOS LTDA'
+  status: 'ABERTO' | 'FINALIZADO';
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface MetricasValidacaoPlanilha {
+  nomeArquivo: string;
+  regional: string;
+  totalLinhas: number;
+  imeisValidos: number;
+  imeisInvalidos: number;
+  duplicadosPlanilha: number;
+  linhasSkuVazio: number;
+  linhasModeloVazio: number;
+  linhasDealerVazio: number;
+  exemplosInvalidos?: { linha: number; imei: string; motivo: string }[];
+  exemplosValidos?: RegionalInventoryReference[];
+}

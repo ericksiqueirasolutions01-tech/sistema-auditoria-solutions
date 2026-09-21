@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, SAMSUNG_MODELOS_PRESET } from '../db/storage';
-import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado } from '../types';
+import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico } from '../db/storage';
+import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado, RegionalInventoryReference } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
@@ -88,10 +88,48 @@ export const BipagemRapida: React.FC = () => {
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
 
+  // Estados de Referência Regional Ativa & Lote Dinâmico (Prompt Mestre Seções 4, 5, 8, 16)
+  const [referenciaDetectada, setReferenciaDetectada] = useState<RegionalInventoryReference | null>(null);
+  const [fabricanteAtivo, setFabricanteAtivo] = useState<string>('SAMSUNG');
+  const [statusReferencia, setStatusReferencia] = useState<'IDLE' | 'LISTED' | 'OUT_OF_LIST'>('IDLE');
+
   // Estado do Número do Lote (Obrigatório e Memorizado no Navegador)
   const [loteAtivo, setLoteAtivo] = useState<string>(() => {
     return db.obterUltimoLote() || '01';
   });
+
+  // Consulta automática de IMEI em tempo real ao bipar ou colar 15 dígitos
+  useEffect(() => {
+    const imeiLimpo = normalizeImei(serialInput);
+    if (imeiLimpo.length === 15) {
+      const ref = db.consultarImeiReferencia(imeiLimpo, regBusca);
+      if (ref) {
+        setReferenciaDetectada(ref);
+        setStatusReferencia('LISTED');
+        setModeloAtivo(ref.model_description);
+        setEanAtivo(ref.sku);
+        setFabricanteAtivo(ref.brand || 'SAMSUNG');
+        const loteCalc = calcularLoteAutomatico({
+          regional: regBusca,
+          sourceType: 'LISTED',
+          dealer: ref.dealer_normalized,
+        });
+        setLoteAtivo(loteCalc);
+      } else {
+        setReferenciaDetectada(null);
+        setStatusReferencia('OUT_OF_LIST');
+        const loteCalc = calcularLoteAutomatico({
+          regional: regBusca,
+          sourceType: 'OUT_OF_LIST',
+          fabricante: fabricanteAtivo || 'SAMSUNG',
+        });
+        setLoteAtivo(loteCalc);
+      }
+    } else {
+      setReferenciaDetectada(null);
+      setStatusReferencia('IDLE');
+    }
+  }, [serialInput, regBusca]);
 
   const isLoteAtualFinalizado = Boolean(loteAtivo.trim()) && db.isLoteFinalizado(loteAtivo.trim(), regBusca);
 
@@ -292,152 +330,177 @@ export const BipagemRapida: React.FC = () => {
     isProcessingScanRef.current = true;
 
     try {
-      const serialLimpo = serialInput.trim().toUpperCase();
-    const eanLimpo = eanAtivo.trim();
-    const modeloLimpo = modeloAtivo.trim();
-    const caixaLimpa = caixaAtiva.trim();
-    const dataLimpa = dataAtiva.trim() || getDataAtualFormatada();
-    const loteLimpo = loteAtivo.trim();
+      const serialLimpo = normalizeImei(serialInput);
+      const eanLimpo = eanAtivo.trim();
+      const modeloLimpo = modeloAtivo.trim();
+      const caixaLimpa = caixaAtiva.trim();
+      const dataLimpa = dataAtiva.trim() || getDataAtualFormatada();
 
-    setErroDuplicado(null);
-    setAlertaValidacao(null);
-    setSucessoNotif(null);
+      setErroDuplicado(null);
+      setAlertaValidacao(null);
+      setSucessoNotif(null);
 
-    // Validação obrigatória do Número do Lote
-    if (!loteLimpo) {
-      setAlertaValidacao('Informe o número do lote antes de continuar.');
-      sounds.playError();
-      return;
-    }
-
-    // Validação de Lote Finalizado (Regras 4, 5 e 6)
-    if (db.isLoteFinalizado(loteLimpo, regBusca) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
-      setAlertaValidacao(`O Lote ${loteLimpo} já foi FINALIZADO e BLOQUEADO! Operadores não podem adicionar produtos a um lote fechado.`);
-      sounds.playError();
-      return;
-    }
-
-    // Validação Modelo
-    if (!modeloLimpo) {
-      setAlertaValidacao('Preencha o modelo do produto.');
-      sounds.playError();
-      return;
-    }
-
-    // Validação EAN
-    if (!eanLimpo) {
-      setAlertaValidacao('Preencha o código EAN do produto.');
-      sounds.playError();
-      return;
-    }
-
-    // Validação IMEI (15 dígitos numéricos)
-    if (!serialLimpo) {
-      setAlertaValidacao('Posicione o cursor na coluna IMEI e bipe o produto.');
-      sounds.playError();
-      focarInputSerial();
-      return;
-    }
-
-    if (!/^\d{15}$/.test(serialLimpo)) {
-      setAlertaValidacao(
-        'IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).'
-      );
-      sounds.playError();
-      selecionarInputSerial();
-      return;
-    }
-
-    // Validação Caixa
-    if (!caixaLimpa) {
-      setAlertaValidacao('Informe a Caixa (ex: Caixa 01).');
-      sounds.playError();
-      return;
-    }
-
-    // 0. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
-    const totalAtualNaCaixa = db.listarProdutos({ caixa: caixaLimpa }).length;
-    if (totalAtualNaCaixa >= 20) {
-      sounds.playError();
-      setAlertaValidacao(
-        'Limite de produtos por caixa atingido. Por favor, lance os próximos produtos em outra caixa.'
-      );
-      return;
-    }
-
-    // 1. VALIDAR DUPLICIDADE EM TEMPO REAL
-    const check = db.validarDuplicidade(serialLimpo);
-    if (check.duplicado && check.produto) {
-      sounds.playError();
-      setErroDuplicado(
-        `IMEI DUPLICADO: O IMEI ${serialLimpo} já foi auditado na ${check.produto.numero_caixa} em ${check.produto.data_auditoria}.`
-      );
-      selecionarInputSerial();
-      return;
-    }
-
-    // 2. REGRA DO PRODUTO LACRADO (SIM / NÃO)
-    if (lacreAtivo === 'NÃO') {
-      if (!kitAtivo) {
+      // Validação IMEI (15 dígitos numéricos)
+      if (!serialLimpo) {
+        setAlertaValidacao('Posicione o cursor na coluna IMEI e bipe o produto.');
         sounds.playError();
-        setAlertaValidacao('Para produto NÃO lacrado, é OBRIGATÓRIO informar Kit Completo (SIM/NÃO).');
-        kitSelectRef.current?.focus();
-        return;
-      }
-      if (!marcasAtivo) {
-        sounds.playError();
-        setAlertaValidacao('Para produto NÃO lacrado, é OBRIGATÓRIO informar Marcas de Uso (SIM/NÃO).');
-        marcasSelectRef.current?.focus();
-        return;
-      }
-    }
-
-    // 3. GRAVAÇÃO INSTANTÂNEA NO BANCO DE DADOS LOCAL (COM DUAL PERSISTENCE EM INDEXEDDB)
-    const res = db.inserirProduto({
-      modelo_produto: modeloLimpo,
-      ean: eanLimpo,
-      serial: serialLimpo,
-      imei: serialLimpo,
-      numero_lote: loteLimpo,
-      data_auditoria: dataLimpa,
-      numero_caixa: caixaLimpa,
-      numero_nf: '',
-      nf_conferida: nfConferidaAtiva,
-      produto_lacrado: lacreAtivo,
-      kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
-      aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
-      observacao: obsAtivo.trim(),
-    });
-
-    if (res.sucesso && res.produto) {
-      sounds.playSuccess();
-      setSucessoNotif(`IMEI ${serialLimpo} registrado na ${caixaLimpa}!`);
-      setTimeout(() => setSucessoNotif(null), 2000);
-
-      // Limpar células para a próxima linha contínua
-      setSerialInput('');
-      setObsAtivo('');
-      if (lacreAtivo === 'NÃO') {
-        setKitAtivo('');
-        setMarcasAtivo('');
-        setLacreAtivo('SIM');
-      }
-
-      if (filtroCaixa !== 'TODAS' && filtroCaixa !== caixaLimpa) {
-        setFiltroCaixa(caixaLimpa);
-      } else {
-        recarregarDados(filtroCaixa);
-      }
-
-      setTimeout(() => {
-        tableBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
         focarInputSerial();
-      }, 50);
-    } else {
-      sounds.playError();
-      setAlertaValidacao(res.erro || 'Erro ao registrar linha de auditoria.');
-      focarInputSerial();
-    }
+        return;
+      }
+
+      if (!/^\d{15}$/.test(serialLimpo)) {
+        setAlertaValidacao(
+          'IMEI INVÁLIDO: O IMEI deve conter exatamente 15 dígitos numéricos (ex: 357847400282342).'
+        );
+        sounds.playError();
+        selecionarInputSerial();
+        return;
+      }
+
+      // Validação Caixa
+      if (!caixaLimpa) {
+        setAlertaValidacao('Informe a Caixa (ex: Caixa 01).');
+        sounds.playError();
+        return;
+      }
+
+      // 0. REGRA DE NEGÓCIO: LIMITE MÁXIMO DE 20 PRODUTOS POR CAIXA
+      const totalAtualNaCaixa = db.listarProdutos({ caixa: caixaLimpa }).length;
+      if (totalAtualNaCaixa >= 20) {
+        sounds.playError();
+        setAlertaValidacao(
+          'Limite de produtos por caixa atingido. Por favor, lance os próximos produtos em outra caixa.'
+        );
+        return;
+      }
+
+      // 1. VALIDAR DUPLICIDADE EM TEMPO REAL
+      const check = db.validarDuplicidade(serialLimpo);
+      if (check.duplicado && check.produto) {
+        sounds.playError();
+        setErroDuplicado(
+          `IMEI DUPLICADO: O IMEI ${serialLimpo} já foi auditado na ${check.produto.numero_caixa} em ${check.produto.data_auditoria}.`
+        );
+        selecionarInputSerial();
+        return;
+      }
+
+      // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & DETERMINAÇÃO DE LOTE DINÂMICO
+      const refLookup = db.consultarImeiReferencia(serialLimpo, regBusca);
+      const sourceType: 'LISTED' | 'OUT_OF_LIST' = refLookup ? 'LISTED' : 'OUT_OF_LIST';
+      const dealerResolvido = refLookup?.dealer_normalized || null;
+      const fabricanteResolvido = refLookup?.brand || fabricanteAtivo || 'SAMSUNG';
+      const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();
+      const skuResolvido = (refLookup?.sku || eanLimpo).trim();
+      const originInvoiceResolvido = refLookup?.origin_invoice || null;
+
+      if (!modeloResolvido) {
+        setAlertaValidacao('Preencha o modelo do produto.');
+        sounds.playError();
+        return;
+      }
+
+      if (!skuResolvido) {
+        setAlertaValidacao('Preencha o código EAN / SKU do produto.');
+        sounds.playError();
+        return;
+      }
+
+      // Determinar lote dinâmico conforme Seções 4, 5, 8
+      const loteResolvido = calcularLoteAutomatico({
+        regional: regBusca,
+        sourceType,
+        dealer: dealerResolvido,
+        fabricante: fabricanteResolvido,
+      });
+
+      // Validação de Lote Finalizado (Regras 4, 5 e 6)
+      if (db.isLoteFinalizado(loteResolvido, regBusca) && usuarioAtual?.perfil !== 'ADMINISTRADOR') {
+        setAlertaValidacao(`O Lote ${loteResolvido} já foi FINALIZADO e BLOQUEADO! Operadores não podem adicionar produtos a um lote fechado.`);
+        sounds.playError();
+        return;
+      }
+
+      // 3. REGRA DO PRODUTO LACRADO (SIM / NÃO)
+      if (!lacreAtivo) {
+        sounds.playError();
+        setAlertaValidacao('Informe se o produto está lacrado (SIM ou NÃO).');
+        return;
+      }
+
+      if (lacreAtivo === 'NÃO') {
+        if (!kitAtivo) {
+          sounds.playError();
+          setAlertaValidacao('Para produto NÃO lacrado, é OBRIGATÓRIO informar Kit Completo (SIM/NÃO).');
+          kitSelectRef.current?.focus();
+          return;
+        }
+        if (!marcasAtivo) {
+          sounds.playError();
+          setAlertaValidacao('Para produto NÃO lacrado, é OBRIGATÓRIO informar Marcas de Uso (SIM/NÃO).');
+          marcasSelectRef.current?.focus();
+          return;
+        }
+      }
+
+      // 4. GRAVAÇÃO INSTANTÂNEA NO BANCO DE DADOS LOCAL (COM DUAL PERSISTENCE EM INDEXEDDB)
+      const res = db.inserirProduto({
+        modelo_produto: modeloResolvido,
+        ean: skuResolvido,
+        sku: skuResolvido,
+        serial: serialLimpo,
+        imei: serialLimpo,
+        numero_lote: loteResolvido,
+        data_auditoria: dataLimpa,
+        numero_caixa: caixaLimpa,
+        numero_nf: originInvoiceResolvido || '',
+        nf_conferida: nfConferidaAtiva,
+        produto_lacrado: lacreAtivo,
+        kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
+        aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
+        observacao: obsAtivo.trim(),
+        regional: regBusca,
+        fabricante: fabricanteResolvido,
+        source_type: sourceType,
+        dealer: dealerResolvido,
+        origin_invoice: originInvoiceResolvido,
+        brand: fabricanteResolvido,
+        misuse: marcasAtivo === 'SIM',
+        reference_id: refLookup?.id || null,
+        import_batch_id: refLookup?.import_batch_id || null,
+      });
+
+      if (res.sucesso && res.produto) {
+        sounds.playSuccess();
+        setSucessoNotif(`IMEI ${serialLimpo} registrado no lote ${res.produto.numero_lote} (${caixaLimpa})!`);
+        setTimeout(() => setSucessoNotif(null), 2500);
+
+        // Limpar células para a próxima linha contínua
+        setSerialInput('');
+        setObsAtivo('');
+        setReferenciaDetectada(null);
+        setStatusReferencia('IDLE');
+        if (lacreAtivo === 'NÃO') {
+          setKitAtivo('');
+          setMarcasAtivo('');
+          setLacreAtivo('SIM');
+        }
+
+        if (filtroCaixa !== 'TODAS' && filtroCaixa !== caixaLimpa) {
+          setFiltroCaixa(caixaLimpa);
+        } else {
+          recarregarDados(filtroCaixa);
+        }
+
+        setTimeout(() => {
+          tableBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+          focarInputSerial();
+        }, 50);
+      } else {
+        sounds.playError();
+        setAlertaValidacao(res.erro || 'Erro ao registrar linha de auditoria.');
+        focarInputSerial();
+      }
     } finally {
       setTimeout(() => {
         isProcessingScanRef.current = false;
@@ -2004,6 +2067,30 @@ export const BipagemRapida: React.FC = () => {
               )}
             </div>
 
+            {/* Indicador de Status da Lista de Referência (Mobile) */}
+            {statusReferencia === 'LISTED' && referenciaDetectada && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-900 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>LISTADO • {referenciaDetectada.dealer_normalized}</span>
+                </div>
+                {referenciaDetectada.origin_invoice && (
+                  <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
+                    NF {referenciaDetectada.origin_invoice}
+                  </span>
+                )}
+              </div>
+            )}
+            {statusReferencia === 'OUT_OF_LIST' && (
+              <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-amber-900 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>FORA DA LISTA • {fabricanteAtivo || 'SAMSUNG'}</span>
+                </div>
+                <span className="text-[10px] text-amber-700 font-semibold">Conferir Modelo/SKU</span>
+              </div>
+            )}
+
             {/* Número do Lote (Mobile) */}
             <div className={`p-3.5 rounded-xl border-2 space-y-1.5 ${
               !loteAtivo.trim()
@@ -2275,8 +2362,18 @@ export const BipagemRapida: React.FC = () => {
                             : 'Aguardando envio para Online'}
                         </span>
                       </div>
-                      <div className="text-[10px] text-slate-500 font-bold truncate">
-                        {item.modelo_produto} • EAN {item.ean} • #{produtos.length - idx}
+                      <div className="text-[10px] text-slate-500 font-bold truncate flex items-center gap-1.5 flex-wrap">
+                        <span>{item.modelo_produto} • EAN {item.ean} • #{produtos.length - idx}</span>
+                        {item.source_type === 'LISTED' && (
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                            ✓ {item.dealer || 'LISTA'} {item.origin_invoice ? `• NF ${item.origin_invoice}` : ''}
+                          </span>
+                        )}
+                        {item.source_type === 'OUT_OF_LIST' && (
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                            ⚠️ FORA DA LISTA
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -3102,7 +3199,26 @@ export const BipagemRapida: React.FC = () => {
                       {item.ean}
                     </td>
                     <td className="py-2 px-4 font-mono font-black text-slate-900 tracking-wider border-r border-slate-200 bg-blue-50/30">
-                      {item.imei || item.serial}
+                      <div>{item.imei || item.serial}</div>
+                      {item.source_type === 'LISTED' && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-0.5">
+                            ✓ {item.dealer || 'LISTA'}
+                          </span>
+                          {item.origin_invoice && (
+                            <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-300" title={`NF Origem: ${item.origin_invoice}`}>
+                              NF {item.origin_invoice}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {item.source_type === 'OUT_OF_LIST' && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-0.5">
+                            ⚠️ FORA DA LISTA
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-center text-slate-600 border-r border-slate-200">
                       {item.data_auditoria}
@@ -3297,6 +3413,27 @@ export const BipagemRapida: React.FC = () => {
                         : 'Posicione o cursor aqui e bipe o IMEI (15 dígitos)'
                     }
                   />
+                  {statusReferencia === 'LISTED' && referenciaDetectada && (
+                    <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-800">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        {referenciaDetectada.dealer_normalized}
+                      </span>
+                      {referenciaDetectada.origin_invoice && (
+                        <span className="px-1 py-0.5 font-mono text-[9px] rounded bg-slate-100 text-slate-600 border border-slate-300">
+                          NF {referenciaDetectada.origin_invoice}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {statusReferencia === 'OUT_OF_LIST' && (
+                    <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-amber-800">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300">
+                        <AlertTriangle className="w-3 h-3 text-amber-600" />
+                        FORA DA LISTA
+                      </span>
+                    </div>
+                  )}
                 </td>
 
                 {/* DATA AUDITORIA */}

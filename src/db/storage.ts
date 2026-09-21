@@ -35,6 +35,10 @@ import {
   RegistroLoteFinalizado,
   FiltroLoteFinalizado,
   BackupManifest,
+  InventoryImportBatch,
+  RegionalInventoryReference,
+  AuditLot,
+  MetricasValidacaoPlanilha,
 } from '../types';
 import { VERSAO_LOCAL } from '../version';
 import {
@@ -64,6 +68,67 @@ const STORAGE_KEY_LOGS_ACESSO = 'solutions_logs_acesso_usuarios_v1';
 const STORAGE_KEY_ULTIMO_LOTE = 'solutions_ultimo_lote';
 const STORAGE_KEY_LOTES_FINALIZADOS = 'solutions_auditoria_lotes_finalizados_v1';
 const STORAGE_KEY_COLABORADOR_ATIVO = 'solutions_auditoria_colaborador_ativo_v1';
+const STORAGE_KEY_IMPORT_BATCHES = 'solutions_inventory_import_batches_v1';
+const STORAGE_KEY_REGIONAL_REFS = 'solutions_regional_inventory_refs_v1';
+const STORAGE_KEY_AUDIT_LOTS = 'solutions_audit_lots_v1';
+
+/**
+ * Normaliza o valor de Dealer conforme regra central (Seção 6 do Prompt Mestre):
+ * - trim
+ * - uppercase
+ * - reduzir espaços duplicados
+ */
+export function normalizeDealer(value?: string | null): string {
+  if (!value) return 'SEM DEALER';
+  const clean = String(value).trim().toUpperCase().replace(/\s+/g, ' ');
+  return clean || 'SEM DEALER';
+}
+
+/**
+ * Normaliza o IMEI como STRING de 15 dígitos (Seção 16 do Prompt Mestre):
+ * - preserva zeros à esquerda
+ * - remove espaços e hífens
+ */
+export function normalizeImei(value?: string | number | null): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().replace(/\D/g, '');
+}
+
+/**
+ * Extrai o código simples da regional (ex: 'VIA VAREJO BA' -> 'BA', 'BA' -> 'BA')
+ */
+export function extrairCodigoRegional(regional?: string | null): string {
+  const r = (regional || '').trim().toUpperCase();
+  if (r.startsWith('VIA VAREJO ')) {
+    return r.replace('VIA VAREJO ', '').trim();
+  }
+  return r || 'GERAL';
+}
+
+/**
+ * Determina o Lote Automático conforme Seções 4, 5, 8 do Prompt Mestre:
+ * - LISTADO: `${codigoRegional} - LISTA - ${dealerNormalizado}`
+ * - FORA DA LISTA:
+ *   - se Samsung: `${codigoRegional} - FORA DA LISTA - SAMSUNG`
+ *   - se != Samsung: `${codigoRegional} - FORA DA LISTA - OUTRA MARCA`
+ */
+export function calcularLoteAutomatico(params: {
+  regional?: string | null;
+  sourceType: 'LISTED' | 'OUT_OF_LIST';
+  dealer?: string | null;
+  fabricante?: string | null;
+}): string {
+  const cod = extrairCodigoRegional(params.regional);
+  if (params.sourceType === 'LISTED') {
+    const dNorm = normalizeDealer(params.dealer);
+    return `${cod} - LISTA - ${dNorm}`;
+  } else {
+    const fab = (params.fabricante || '').trim().toUpperCase();
+    const isSamsung = fab === 'SAMSUNG' || fab.includes('SAMSUNG');
+    const grupo = isSamsung ? 'SAMSUNG' : 'OUTRA MARCA';
+    return `${cod} - FORA DA LISTA - ${grupo}`;
+  }
+}
 
 // Regionais Oficiais Solicitadas
 export const REGIONAIS_PADRAO = [
@@ -359,6 +424,10 @@ class AuditoriaDatabase {
   private tentativasDuplicadas: LogTentativaDuplicado[] = [];
   private limpezaEmAndamento: boolean = false;
   private sincronizando: boolean = false;
+  private importBatches: InventoryImportBatch[] = [];
+  private regionalReferences: RegionalInventoryReference[] = [];
+  private auditLots: AuditLot[] = [];
+  private referenceMap: Map<string, RegionalInventoryReference> = new Map();
 
   constructor() {
     this.carregarDados();
@@ -384,6 +453,14 @@ class AuditoriaDatabase {
     this.fotosGrupos = [];
     this.registros10Fotos = [];
     this.tentativasDuplicadas = [];
+    this.importBatches = [];
+    this.regionalReferences = [];
+    this.referenceMap.clear();
+    this.auditLots = [];
+  }
+
+  carregarTudoMemoria() {
+    this.carregarDados();
   }
 
   private carregarDados() {
@@ -497,6 +574,32 @@ class AuditoriaDatabase {
       const lotesRaw = localStorage.getItem(STORAGE_KEY_LOTES_FINALIZADOS);
       this.lotesFinalizados = lotesRaw ? JSON.parse(lotesRaw) : [];
 
+      // Carregar batches de importação de planilhas regionais
+      try {
+        const batchesRaw = localStorage.getItem(STORAGE_KEY_IMPORT_BATCHES);
+        this.importBatches = batchesRaw ? JSON.parse(batchesRaw) : [];
+      } catch {
+        this.importBatches = [];
+      }
+
+      // Carregar referências de inventário regional
+      try {
+        const refsRaw = localStorage.getItem(STORAGE_KEY_REGIONAL_REFS);
+        this.regionalReferences = refsRaw ? JSON.parse(refsRaw) : [];
+      } catch {
+        this.regionalReferences = [];
+      }
+
+      // Carregar lotes dinâmicos de auditoria
+      try {
+        const lotsRaw = localStorage.getItem(STORAGE_KEY_AUDIT_LOTS);
+        this.auditLots = lotsRaw ? JSON.parse(lotsRaw) : [];
+      } catch {
+        this.auditLots = [];
+      }
+
+      this.reconstruirMapaReferencia();
+
       // Carregar colaborador ativo da sessão
       const colabRaw = sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
       this.colaboradorAtivo = colabRaw || null;
@@ -538,16 +641,30 @@ class AuditoriaDatabase {
     }
   }
 
+  private reconstruirMapaReferencia() {
+    this.referenceMap.clear();
+    for (const ref of this.regionalReferences) {
+      if (ref.is_active) {
+        const imeiNorm = normalizeImei(ref.imei_normalized);
+        const regFull = (ref.regional || '').trim().toUpperCase();
+        const regCod = extrairCodigoRegional(ref.regional);
+        this.referenceMap.set(`${regFull}#${imeiNorm}`, ref);
+        this.referenceMap.set(`${regCod}#${imeiNorm}`, ref);
+      }
+    }
+  }
+
   // Auto-recuperação caso localStorage tenha sido limpo pelo usuário
   private async verificarRecuperacaoIndexedDB() {
     if (this.limpezaEmAndamento) return;
-    if (this.produtos.length === 0) {
-      try {
-        const resetTimestamp = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
-        if (resetTimestamp) {
-          // A base foi oficialmente zerada pelo Administrador. Não restaurar resíduos antigos!
-          return;
-        }
+    try {
+      const resetTimestamp = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
+      if (resetTimestamp) {
+        // A base foi oficialmente zerada pelo Administrador. Não restaurar resíduos antigos!
+        return;
+      }
+
+      if (this.produtos.length === 0) {
         const idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
         if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
           this.produtos = idbProds;
@@ -565,9 +682,37 @@ class AuditoriaDatabase {
           this.lotesFinalizados = idbLotes;
           localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
         }
-      } catch (err) {
-        console.warn('Falha na checagem de recuperação do IndexedDB:', err);
       }
+
+      // Auto-recuperação de batches e referências do IndexedDB
+      if (typeof window !== 'undefined' && !this.limpezaEmAndamento) {
+        if (this.importBatches.length === 0) {
+          const batches = await idb.inventory_import_batches.toArray().catch(() => []);
+          if (batches && batches.length > 0) {
+            this.importBatches = batches;
+            localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+          }
+        }
+        if (this.regionalReferences.length === 0) {
+          const refs = await idb.regional_inventory_reference.toArray().catch(() => []);
+          if (refs && refs.length > 0) {
+            this.regionalReferences = refs;
+            this.reconstruirMapaReferencia();
+            try {
+              localStorage.setItem(STORAGE_KEY_REGIONAL_REFS, JSON.stringify(this.regionalReferences));
+            } catch {}
+          }
+        }
+        if (this.auditLots.length === 0) {
+          const lots = await idb.audit_lots.toArray().catch(() => []);
+          if (lots && lots.length > 0) {
+            this.auditLots = lots;
+            localStorage.setItem(STORAGE_KEY_AUDIT_LOTS, JSON.stringify(this.auditLots));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Falha na checagem de recuperação do IndexedDB:', err);
     }
   }
 
@@ -599,6 +744,15 @@ class AuditoriaDatabase {
         localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
         localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
         localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify(this.tentativasDuplicadas));
+        localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+        localStorage.setItem(STORAGE_KEY_AUDIT_LOTS, JSON.stringify(this.auditLots));
+
+        // Referências regionais protegidas contra QuotaExceededError no LocalStorage
+        try {
+          localStorage.setItem(STORAGE_KEY_REGIONAL_REFS, JSON.stringify(this.regionalReferences));
+        } catch (refQuotaErr) {
+          console.warn('LocalStorage com cota excedida para referências regionais. O IndexedDB estruturado mantém persistência completa.', refQuotaErr);
+        }
 
         // Fotos brutas no localStorage são protegidas contra QuotaExceededError
         try {
@@ -613,11 +767,22 @@ class AuditoriaDatabase {
       if (typeof window !== 'undefined') {
         idb.transaction(
           'rw',
-          [idb.produtos, idb.usuarios, idb.lotes_finalizados, idb.computadores],
+          [
+            idb.produtos,
+            idb.usuarios,
+            idb.lotes_finalizados,
+            idb.computadores,
+            idb.inventory_import_batches,
+            idb.regional_inventory_reference,
+            idb.audit_lots,
+          ],
           async () => {
             if (this.produtos.length > 0) await idb.produtos.bulkPut(this.produtos);
             if (this.usuarios.length > 0) await idb.usuarios.bulkPut(this.usuarios);
             if (this.lotesFinalizados.length > 0) await idb.lotes_finalizados.bulkPut(this.lotesFinalizados);
+            if (this.importBatches.length > 0) await idb.inventory_import_batches.bulkPut(this.importBatches);
+            if (this.regionalReferences.length > 0) await idb.regional_inventory_reference.bulkPut(this.regionalReferences);
+            if (this.auditLots.length > 0) await idb.audit_lots.bulkPut(this.auditLots);
           }
         ).catch((err) => {
           console.error('Falha na gravação transacional do IndexedDB:', err);
@@ -636,6 +801,8 @@ class AuditoriaDatabase {
       salvarIndexedDB(STORAGE_KEY_USUARIOS, this.usuarios).catch(() => {});
       salvarIndexedDB(STORAGE_KEY_HISTORICO, this.historico).catch(() => {});
       salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados).catch(() => {});
+      salvarIndexedDB(STORAGE_KEY_IMPORT_BATCHES, this.importBatches).catch(() => {});
+      salvarIndexedDB(STORAGE_KEY_AUDIT_LOTS, this.auditLots).catch(() => {});
     } catch (e) {
       console.error('Erro crítico ao salvar no storage:', e);
       if (typeof window !== 'undefined') {
@@ -1082,7 +1249,8 @@ class AuditoriaDatabase {
 
   inserirProduto(item: {
     modelo_produto: string;
-    ean: string;
+    ean?: string;
+    sku?: string | null;
     serial: string;
     imei?: string;
     numero_lote?: string;
@@ -1095,6 +1263,14 @@ class AuditoriaDatabase {
     kit_completo?: SimNao | null;
     aparelho_marcas_uso?: SimNao | null;
     observacao?: string;
+    fabricante?: string;
+    source_type?: 'LISTED' | 'OUT_OF_LIST' | null;
+    dealer?: string | null;
+    origin_invoice?: string | null;
+    brand?: string | null;
+    misuse?: boolean | null;
+    reference_id?: string | null;
+    import_batch_id?: string | null;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
     // 0.0. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
     if (this.isDispositivoRevogado()) {
@@ -1120,18 +1296,40 @@ class AuditoriaDatabase {
       };
     }
 
-    const serialNorm = (item.serial || '').trim().toUpperCase();
-    const loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || '').trim().toUpperCase();
-
-    // 0. Validação obrigatória do Número do Lote
-    if (!loteNorm) {
-      return { sucesso: false, erro: 'Informe o número do lote antes de continuar.' };
-    }
-
+    const serialNorm = (item.serial || item.imei || '').trim().toUpperCase();
     const regionalFinal =
       this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
         ? this.usuarioAtual.regional
         : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
+
+    // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8)
+    const refLookup = this.consultarImeiReferencia(serialNorm, regionalFinal);
+    const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
+    const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
+    const resolvedFabricante = item.fabricante || (refLookup ? refLookup.brand : 'SAMSUNG');
+
+    let loteNorm = (item.numero_lote?.trim() || '').trim().toUpperCase();
+    if (!loteNorm) {
+      loteNorm = calcularLoteAutomatico({
+        regional: regionalFinal,
+        sourceType: resolvedSourceType,
+        dealer: resolvedDealer,
+        fabricante: resolvedFabricante,
+      });
+    }
+
+    // Fallback de Lote
+    if (!loteNorm) {
+      loteNorm = (this.obterUltimoLote() || `${extrairCodigoRegional(regionalFinal)} - LOTE 01`).toUpperCase();
+    }
+
+    // Assegurar existência do AuditLot correspondente no catálogo
+    this.obterOuCriarLoteAutomatico({
+      regional: regionalFinal,
+      sourceType: resolvedSourceType,
+      dealer: resolvedDealer,
+      fabricante: resolvedFabricante,
+    });
 
     // 0.1. Bloqueio de Lote Finalizado: Colaborador não pode inserir produtos em lote já finalizado
     if (!isAdminOuSuper(this.usuarioAtual.perfil) && this.isLoteFinalizado(loteNorm, regionalFinal)) {
@@ -1145,8 +1343,9 @@ class AuditoriaDatabase {
     if (!item.modelo_produto.trim()) {
       return { sucesso: false, erro: 'O modelo do produto é obrigatório.' };
     }
-    if (!item.ean.trim()) {
-      return { sucesso: false, erro: 'O código EAN é obrigatório.' };
+    const eanFinal = (item.ean || item.sku || refLookup?.sku || '').trim();
+    if (!eanFinal) {
+      return { sucesso: false, erro: 'O código EAN ou SKU do produto é obrigatório.' };
     }
     if (!serialNorm) {
       return { sucesso: false, erro: 'O IMEI do produto é obrigatório.' };
@@ -1220,15 +1419,15 @@ class AuditoriaDatabase {
       id_servidor: null,
       uuid: crypto.randomUUID ? crypto.randomUUID() : `sec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       regional: regionalFinal,
-      fabricante: 'SAMSUNG', // Fixado
+      fabricante: resolvedFabricante,
       modelo_produto: item.modelo_produto.trim(),
-      ean: item.ean.trim(),
+      ean: eanFinal,
       serial: serialNorm,
       imei: serialNorm,
       data_auditoria: item.data_auditoria.trim(),
       numero_caixa: caixaAlvo,
       numero_lote: loteNorm,
-      numero_nf: (item.numero_nf || '').trim(),
+      numero_nf: (item.numero_nf || (refLookup?.origin_invoice || '')).trim(),
       nf_conferida: nfConferidaValor,
       status_conformidade: statusConformidade,
       divergencia_nf: divergenciaNf,
@@ -1245,6 +1444,15 @@ class AuditoriaDatabase {
       data_sincronizacao: null,
       sync_status: 'PENDENTE',
       sync_data: null,
+      // Snapshots da referência regional (Prompt Mestre Seções 4, 5, 16):
+      reference_id: item.reference_id !== undefined ? item.reference_id : (refLookup?.id || null),
+      import_batch_id: item.import_batch_id !== undefined ? item.import_batch_id : (refLookup?.import_batch_id || null),
+      source_type: resolvedSourceType,
+      dealer: resolvedDealer,
+      origin_invoice: item.origin_invoice !== undefined ? item.origin_invoice : (refLookup?.origin_invoice || null),
+      sku: item.sku !== undefined ? item.sku : (refLookup?.sku || eanFinal),
+      brand: item.brand !== undefined ? item.brand : resolvedFabricante,
+      misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
     };
 
     this.produtos.unshift(novoProduto);
@@ -4300,6 +4508,355 @@ class AuditoriaDatabase {
     }
     this.salvarTudo();
     return { sucesso: true };
+  }
+
+  // =========================================================================
+  // REFERÊNCIAS REGIONAIS E LOTES DINÂMICOS (PROMPT MESTRE ADMIN & AUDITORIA)
+  // =========================================================================
+
+  consultarImeiReferencia(imei: string, regional?: string | null): RegionalInventoryReference | null {
+    if (!imei) return null;
+    const imeiNorm = normalizeImei(imei);
+    const regFull = (regional || '').trim().toUpperCase();
+    const regCod = extrairCodigoRegional(regional);
+    return this.referenceMap.get(`${regFull}#${imeiNorm}`) || this.referenceMap.get(`${regCod}#${imeiNorm}`) || null;
+  }
+
+  obterListaAtivaReferencia(regional?: string | null): RegionalInventoryReference[] {
+    const regFull = (regional || '').trim().toUpperCase();
+    const regCod = extrairCodigoRegional(regional);
+    return this.regionalReferences.filter(
+      (r) => r.is_active && (!regional || r.regional.toUpperCase() === regFull || extrairCodigoRegional(r.regional) === regCod)
+    );
+  }
+
+  listarHistoricoImportacoes(regional?: string): InventoryImportBatch[] {
+    if (!regional) {
+      return [...this.importBatches].sort((a, b) => (b.version || 0) - (a.version || 0));
+    }
+    const regFull = regional.trim().toUpperCase();
+    const regCod = extrairCodigoRegional(regional);
+    return this.importBatches
+      .filter((b) => b.regional.toUpperCase() === regFull || extrairCodigoRegional(b.regional) === regCod)
+      .sort((a, b) => (b.version || 0) - (a.version || 0));
+  }
+
+  listarLotesDinamicos(regional?: string): AuditLot[] {
+    if (!regional) return [...this.auditLots];
+    const regFull = regional.trim().toUpperCase();
+    const regCod = extrairCodigoRegional(regional);
+    return this.auditLots.filter(
+      (l) => l.regional.toUpperCase() === regFull || extrairCodigoRegional(l.regional) === regCod
+    );
+  }
+
+  obterOuCriarLoteAutomatico(params: {
+    regional?: string | null;
+    sourceType: 'LISTED' | 'OUT_OF_LIST';
+    dealer?: string | null;
+    fabricante?: string | null;
+  }): AuditLot {
+    const displayName = calcularLoteAutomatico(params);
+    const regCod = extrairCodigoRegional(params.regional);
+    const regFull = (params.regional || '').trim().toUpperCase();
+
+    let existente = this.auditLots.find(
+      (l) =>
+        l.display_name.toUpperCase() === displayName.toUpperCase() &&
+        (extrairCodigoRegional(l.regional) === regCod || l.regional.toUpperCase() === regFull)
+    );
+
+    if (existente) return existente;
+
+    const outOfListGroup =
+      params.sourceType === 'OUT_OF_LIST'
+        ? ((params.fabricante || '').toUpperCase().includes('SAMSUNG') ? 'SAMSUNG' : 'OUTRA_MARCA')
+        : null;
+
+    const seq = this.auditLots.filter((l) => extrairCodigoRegional(l.regional) === regCod).length + 1;
+
+    const novoLote: AuditLot = {
+      id: gerarUUID(),
+      regional: regFull,
+      source_type: params.sourceType,
+      dealer_normalized: params.sourceType === 'LISTED' ? normalizeDealer(params.dealer) : null,
+      out_of_list_brand_group: outOfListGroup,
+      display_sequence: seq,
+      display_name: displayName,
+      status: 'ABERTO',
+      created_at: new Date().toISOString(),
+    };
+
+    this.auditLots.push(novoLote);
+    this.salvarTudo();
+    return novoLote;
+  }
+
+  async importarListaReferenciaRegional(params: {
+    regional: string;
+    fileName: string;
+    importedBy?: string;
+    itens: Array<{
+      imei?: string | number;
+      imei_normalized?: string | number;
+      sku: string;
+      model_description: string;
+      brand?: string;
+      origin_invoice?: string | number | null;
+      dealer?: string | null;
+      dealer_raw?: string | null;
+      source_file_name?: string;
+      source_row?: number;
+    }>;
+  }): Promise<{
+    batch: InventoryImportBatch;
+    totalImportados: number;
+    metricas: MetricasValidacaoPlanilha;
+  }> {
+    // 1. RBAC estrito (Gate 2 / Seção 2 do Prompt Mestre: ADMIN ONLY)
+    if (!isAdminOuSuper(this.usuarioAtual?.perfil)) {
+      throw new Error('Acesso negado (403): Apenas Administradores do Sistema têm permissão para importar planilhas e ativar versões de referência regional.');
+    }
+
+    const regional = params.regional.trim().toUpperCase();
+    const regCod = extrairCodigoRegional(regional);
+    const fileName = params.fileName.trim();
+    const usuarioNome = params.importedBy || this.usuarioAtual?.nome || 'ADMINISTRADOR';
+
+    // 2. Determinar próxima versão para a regional
+    const historicoRegional = this.importBatches.filter(
+      (b) => b.regional.toUpperCase() === regional || extrairCodigoRegional(b.regional) === regCod
+    );
+    const versaoAtualMax = historicoRegional.reduce((max, b) => Math.max(max, b.version || 1), 0);
+    const proximaVersao = versaoAtualMax + 1;
+
+    // 3. Validação e Triagem dos Registros da Planilha
+    const totalLinhas = params.itens.length;
+    let imeisValidos = 0;
+    let imeisInvalidos = 0;
+    let duplicadosPlanilha = 0;
+    let linhasSkuVazio = 0;
+    let linhasModeloVazio = 0;
+    let linhasDealerVazio = 0;
+    const seenImeis = new Set<string>();
+    const validRefs: RegionalInventoryReference[] = [];
+    const exemplosInvalidos: { linha: number; imei: string; motivo: string }[] = [];
+    const batchId = gerarUUID();
+
+    params.itens.forEach((item, index) => {
+      const rowNum = item.source_row || index + 2;
+      const rawImei = item.imei !== undefined && item.imei !== null ? item.imei : item.imei_normalized;
+      const imeiNorm = normalizeImei(rawImei);
+
+      if (!imeiNorm || !/^\d{15}$/.test(imeiNorm)) {
+        imeisInvalidos++;
+        if (exemplosInvalidos.length < 10) {
+          exemplosInvalidos.push({
+            linha: rowNum,
+            imei: String(rawImei || ''),
+            motivo: 'IMEI não contém exatamente 15 dígitos numéricos.',
+          });
+        }
+        return;
+      }
+
+      if (seenImeis.has(imeiNorm)) {
+        duplicadosPlanilha++;
+        if (exemplosInvalidos.length < 10) {
+          exemplosInvalidos.push({
+            linha: rowNum,
+            imei: imeiNorm,
+            motivo: 'IMEI duplicado dentro do próprio arquivo da planilha.',
+          });
+        }
+        return;
+      }
+      seenImeis.add(imeiNorm);
+
+      const sku = (item.sku ? String(item.sku) : '').trim();
+      if (!sku) linhasSkuVazio++;
+
+      const modelDesc = (item.model_description ? String(item.model_description) : '').trim();
+      if (!modelDesc) linhasModeloVazio++;
+
+      const dealerRaw = item.dealer !== undefined && item.dealer !== null
+        ? String(item.dealer).trim()
+        : item.dealer_raw !== undefined && item.dealer_raw !== null
+        ? String(item.dealer_raw).trim()
+        : '';
+      if (!dealerRaw) linhasDealerVazio++;
+      const dealerNorm = normalizeDealer(dealerRaw);
+
+      // Coluna H preservada; Coluna I estritamente omitida e jamais armazenada
+      const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
+      const brand = (item.brand ? String(item.brand) : '').trim().toUpperCase() || 'SAMSUNG';
+
+      imeisValidos++;
+      validRefs.push({
+        id: gerarUUID(),
+        regional,
+        import_batch_id: batchId,
+        imei_normalized: imeiNorm,
+        sku: sku || 'SEM SKU',
+        model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
+        brand,
+        origin_invoice: originInvoice,
+        dealer_raw: dealerRaw || null,
+        dealer_normalized: dealerNorm,
+        source_file_name: fileName,
+        source_row: rowNum,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      });
+    });
+
+    if (validRefs.length === 0) {
+      throw new Error('Nenhum registro com IMEI válido (15 dígitos) foi encontrado no arquivo fornecido.');
+    }
+
+    // 4. Arquivar versão anterior da regional (preservando o histórico e lotes anteriores)
+    for (const b of this.importBatches) {
+      if (b.regional.toUpperCase() === regional || extrairCodigoRegional(b.regional) === regCod) {
+        if (b.status === 'ATIVA') {
+          b.status = 'HISTORICA';
+          b.updated_at = new Date().toISOString();
+        }
+      }
+    }
+    for (const r of this.regionalReferences) {
+      if (r.regional.toUpperCase() === regional || extrairCodigoRegional(r.regional) === regCod) {
+        if (r.is_active) {
+          r.is_active = false;
+          r.updated_at = new Date().toISOString();
+        }
+      }
+    }
+
+    // 5. Criar o novo Batch de Importação com status 'ATIVA'
+    const newBatch: InventoryImportBatch = {
+      id: batchId,
+      regional,
+      file_name: fileName,
+      imported_by: usuarioNome,
+      imported_at: new Date().toISOString(),
+      row_count: totalLinhas,
+      valid_count: validRefs.length,
+      invalid_count: totalLinhas - validRefs.length,
+      status: 'ATIVA',
+      version: proximaVersao,
+      created_at: new Date().toISOString(),
+    };
+
+    // 6. Cadastrar os Lotes Dinâmicos automaticamente para os dealers desta regional
+    const dealersUnicos = new Set<string>();
+    validRefs.forEach((r) => {
+      if (r.dealer_normalized) dealersUnicos.add(r.dealer_normalized);
+    });
+
+    dealersUnicos.forEach((dealer) => {
+      this.obterOuCriarLoteAutomatico({
+        regional,
+        sourceType: 'LISTED',
+        dealer,
+      });
+    });
+
+    // Assegurar também lotes para itens fora da lista
+    this.obterOuCriarLoteAutomatico({
+      regional,
+      sourceType: 'OUT_OF_LIST',
+      fabricante: 'SAMSUNG',
+    });
+    this.obterOuCriarLoteAutomatico({
+      regional,
+      sourceType: 'OUT_OF_LIST',
+      fabricante: 'OUTRA MARCA',
+    });
+
+    // 7. Atualizar o estado em memória e persistir com zero perda de dados
+    this.importBatches.unshift(newBatch);
+    this.regionalReferences.push(...validRefs);
+    this.reconstruirMapaReferencia();
+    this.salvarTudo();
+
+    // 8. Registro de Auditoria Imutável
+    this.registrarHistorico(
+      usuarioNome,
+      'IMPORTAR_PLANILHA_REGIONAL',
+      `Importada versão v${proximaVersao} da lista regional ${regional} (${validRefs.length} itens válidos de ${totalLinhas} linhas do arquivo ${fileName})`,
+      regional
+    );
+
+    // 9. Se Supabase configurado, persistir de forma idempotente em background
+    if (isSupabaseConfigured && supabase) {
+      const supa = supabase;
+      (async () => {
+        try {
+          await supa.from('inventory_import_batches').insert({
+            id: newBatch.id,
+            regional: newBatch.regional,
+            file_name: newBatch.file_name,
+            imported_by: newBatch.imported_by,
+            imported_at: newBatch.imported_at,
+            row_count: newBatch.row_count,
+            valid_count: newBatch.valid_count,
+            invalid_count: newBatch.invalid_count,
+            status: newBatch.status,
+            version: newBatch.version,
+          });
+
+          // Arquivar anteriores no Supabase
+          await supa
+            .from('regional_inventory_reference')
+            .update({ is_active: false })
+            .eq('regional', regional)
+            .eq('is_active', true);
+
+          // Inserir itens em lotes de 100
+          for (let i = 0; i < validRefs.length; i += 100) {
+            const chunk = validRefs.slice(i, i + 100).map((r) => ({
+              id: r.id,
+              regional: r.regional,
+              import_batch_id: r.import_batch_id,
+              imei_normalized: r.imei_normalized,
+              sku: r.sku,
+              model_description: r.model_description,
+              brand: r.brand,
+              origin_invoice: r.origin_invoice,
+              dealer_raw: r.dealer_raw,
+              dealer_normalized: r.dealer_normalized,
+              source_file_name: r.source_file_name,
+              source_row: r.source_row,
+              is_active: r.is_active,
+              created_at: r.created_at,
+            }));
+            await supa.from('regional_inventory_reference').insert(chunk);
+          }
+        } catch (supaErr) {
+          console.warn('Sincronização em segundo plano do batch para o Supabase agendada para outbox:', supaErr);
+        }
+      })().catch(() => {});
+    }
+
+    const metricas: MetricasValidacaoPlanilha = {
+      nomeArquivo: fileName,
+      regional,
+      totalLinhas,
+      imeisValidos,
+      imeisInvalidos,
+      duplicadosPlanilha,
+      linhasSkuVazio,
+      linhasModeloVazio,
+      linhasDealerVazio,
+      exemplosInvalidos,
+      exemplosValidos: validRefs.slice(0, 5),
+    };
+
+    return {
+      batch: newBatch,
+      totalImportados: validRefs.length,
+      metricas,
+    };
   }
 }
 

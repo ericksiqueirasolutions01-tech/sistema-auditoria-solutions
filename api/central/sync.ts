@@ -345,6 +345,15 @@ export default async function handler(req: any, res: any) {
             usuario_bipagem: usuario.nome || usuario.login || 'Operador',
             status_sincronizacao: 'ENVIADO',
             data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
+            // Snapshot fields da referência e lote (Seções 4, 5, 16):
+            reference_id: item.reference_id || null,
+            import_batch_id: item.import_batch_id || null,
+            source_type: item.source_type || 'OUT_OF_LIST',
+            dealer: item.dealer || null,
+            origin_invoice: item.origin_invoice || null,
+            sku: item.sku || null,
+            brand: item.brand || item.fabricante || 'SAMSUNG',
+            misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
           }));
 
           await supabase.from('audit_products').insert(rowsToInsert);

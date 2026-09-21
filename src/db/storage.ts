@@ -39,6 +39,8 @@ import {
   RegionalInventoryReference,
   AuditLot,
   MetricasValidacaoPlanilha,
+  ConfiguracaoCaixa,
+  BoxSealedStatus,
 } from '../types';
 import { VERSAO_LOCAL } from '../version';
 import {
@@ -106,26 +108,125 @@ export function extrairCodigoRegional(regional?: string | null): string {
 }
 
 /**
- * Infere o fabricante do aparelho a partir da descrição do modelo ou marca de apoio
- * Prioridade:
- * 1. Marca explícita informada/mapeada (se não for nula/vazia)
- * 2. Análise do modelo por palavras-chave (MOTOROLA, MOTO, OPPO, JOVI, APPLE, IPHONE, XIAOMI, REDMI, POCO, SAMSUNG, GALAXY)
- * 3. Fallback: OUTRA MARCA (nunca assume SAMSUNG indiscriminadamente)
+ * Catálogo Mestre de SKUs Conhecidos do Sistema
+ * Mapeia SKU -> Marca Oficial
  */
-export function inferirFabricante(modelo?: string | null, fallbackMarca?: string | null): string {
-  if (fallbackMarca && fallbackMarca.trim()) {
-    const fb = fallbackMarca.trim().toUpperCase();
-    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA') return fb;
-  }
+export const CADASTRO_MESTRE_SKU: Record<string, string> = {
+  // Motorola
+  '5370760': 'MOTOROLA',
+  'XT2601': 'MOTOROLA',
+  'XT2601-3': 'MOTOROLA',
+  'XT2347-1': 'MOTOROLA',
+  'XT2347': 'MOTOROLA',
+  'XT2335': 'MOTOROLA',
+  'XT2335-1': 'MOTOROLA',
+  'XT2331': 'MOTOROLA',
+  'XT2321': 'MOTOROLA',
+  'XT2403': 'MOTOROLA',
+  'XT2409': 'MOTOROLA',
+  'XT2413': 'MOTOROLA',
+  'XT2417': 'MOTOROLA',
+  'XT2423': 'MOTOROLA',
+  'XT2427': 'MOTOROLA',
+  // Samsung
+  'SM-S928BZKQZTO': 'SAMSUNG',
+  'SM-S928B': 'SAMSUNG',
+  'SM-A546EZGLZTO': 'SAMSUNG',
+  'SM-A546E': 'SAMSUNG',
+  'SM-G990E': 'SAMSUNG',
+  'SM-G990EZVRZTO': 'SAMSUNG',
+  'SM-A155M': 'SAMSUNG',
+  'SM-A256E': 'SAMSUNG',
+  'SM-A356E': 'SAMSUNG',
+  'SM-A556E': 'SAMSUNG',
+  'SM-S921B': 'SAMSUNG',
+  'SM-S926B': 'SAMSUNG',
+  'SM-F731B': 'SAMSUNG',
+  'SM-F946B': 'SAMSUNG',
+  'SM-F741B': 'SAMSUNG',
+  'SM-F956B': 'SAMSUNG',
+  // Oppo
+  'CPH2579': 'OPPO',
+  'CPH2599': 'OPPO',
+  'CPH2607': 'OPPO',
+  'CPH2625': 'OPPO',
+  // Jovi
+  'JOVI-01': 'JOVI',
+  'JOVI-02': 'JOVI',
+};
+
+/**
+ * Consulta a marca oficial por código SKU
+ */
+export function consultarMarcaPorSku(sku?: string | null): string | null {
+  if (!sku) return null;
+  const clean = String(sku).trim().toUpperCase();
+  if (!clean) return null;
+  if (CADASTRO_MESTRE_SKU[clean]) return CADASTRO_MESTRE_SKU[clean];
+  const semZeros = clean.replace(/^0+/, '');
+  if (semZeros && CADASTRO_MESTRE_SKU[semZeros]) return CADASTRO_MESTRE_SKU[semZeros];
+  return null;
+}
+
+/**
+ * Resolve o FABRICANTE real do produto conforme Seção 2 do Prompt de Correção:
+ * Ordem de prioridade estrita:
+ * 1. Campo estruturado de marca/fabricante da referência importada (se não for nula/vazia/OUTRA MARCA/SEM MARCA)
+ * 2. Associação SKU -> MARCA do catálogo mestre ou tabela de apoio
+ * 3. Análise de palavras-chave no modelo/descrição (MOTOROLA, MOTO, OPPO, JOVI, APPLE, IPHONE, XIAOMI, REDMI, POCO, SAMSUNG, GALAXY, SM-)
+ * 4. Fallback confiável informado (se explicitado como OUTRA MARCA)
+ * 5. Se não houver fonte confiável: "FABRICANTE NÃO IDENTIFICADO" (NUNCA assumir Samsung por padrão)
+ */
+export function inferirFabricante(
+  modelo?: string | null,
+  fallbackMarca?: string | null,
+  sku?: string | null
+): string {
+  // 1. SKU -> MARCA do cadastro mestre / base estruturada (prioridade 1 absoluta)
+  const marcaSku = consultarMarcaPorSku(sku);
+  if (marcaSku) return marcaSku;
+
   const m = (modelo || '').trim().toUpperCase();
-  if (m.includes('MOTOROLA') || m.includes('MOTO ') || m.startsWith('MOTO')) return 'MOTOROLA';
-  if (m.includes('OPPO')) return 'OPPO';
+
+  // 2. Análise do Modelo / Descrição por palavras-chave de fabricante
+  if (
+    m.includes('MOTOROLA') ||
+    m.includes('MOTO ') ||
+    m.startsWith('MOTO') ||
+    m.includes('MOTO-') ||
+    m.includes('XT2') ||
+    m.includes('XT3')
+  ) {
+    return 'MOTOROLA';
+  }
+  if (m.includes('OPPO') || m.startsWith('CPH')) return 'OPPO';
   if (m.includes('JOVI')) return 'JOVI';
   if (m.includes('APPLE') || m.includes('IPHONE')) return 'APPLE';
   if (m.includes('XIAOMI') || m.includes('REDMI') || m.includes('POCO')) return 'XIAOMI';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'SAMSUNG';
-  if (fallbackMarca && fallbackMarca.trim()) return fallbackMarca.trim().toUpperCase();
-  return 'OUTRA MARCA';
+  if (
+    m.includes('SAMSUNG') ||
+    m.includes('GALAXY') ||
+    m.startsWith('SM-') ||
+    m.includes('SM-')
+  ) {
+    return 'SAMSUNG';
+  }
+
+  // 3. Campo estruturado de marca da referência importada (somente se confiável)
+  if (fallbackMarca && fallbackMarca.trim()) {
+    const fb = fallbackMarca.trim().toUpperCase();
+    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA' && fb !== 'FABRICANTE NÃO IDENTIFICADO') {
+      return fb;
+    }
+  }
+
+  // 4. Se fallback for 'OUTRA MARCA', respeitar
+  if (fallbackMarca && fallbackMarca.trim().toUpperCase() === 'OUTRA MARCA') {
+    return 'OUTRA MARCA';
+  }
+
+  // 5. Se não houver fonte confiável: FABRICANTE NÃO IDENTIFICADO (NUNCA assumir Samsung)
+  return 'FABRICANTE NÃO IDENTIFICADO';
 }
 
 /**
@@ -1310,7 +1411,7 @@ class AuditoriaDatabase {
     serial: string;
     imei?: string;
     numero_lote?: string;
-    data_auditoria: string;
+    data_auditoria?: string;
     numero_caixa: string;
     numero_nf?: string;
     nf_conferida?: SimNao | null;
@@ -1330,6 +1431,8 @@ class AuditoriaDatabase {
     classificacao_produto?: string | null;
     product_classification?: string | null;
     nf_origem?: string | null;
+    box_id?: string | null;
+    box_name?: string | null;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
     // 0.0. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
     if (this.isDispositivoRevogado()) {
@@ -1365,12 +1468,11 @@ class AuditoriaDatabase {
     const refLookup = this.consultarImeiReferencia(serialNorm, regionalFinal);
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
-    const resolvedFabricante =
-      item.fabricante ||
-      item.brand ||
-      (refLookup
-        ? (refLookup.brand || inferirFabricante(refLookup.model_description, null))
-        : inferirFabricante(item.modelo_produto, null));
+    const resolvedFabricante = inferirFabricante(
+      refLookup ? refLookup.model_description : item.modelo_produto,
+      refLookup?.brand || item.fabricante || item.brand || null,
+      item.sku || refLookup?.sku || null
+    );
 
     // Nova Regra de Lote: informado pelo colaborador (ex: LOTE 1). Não gera "BA - LISTA - SAMSUNG"
     let loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || 'LOTE 1').toUpperCase();
@@ -1414,7 +1516,14 @@ class AuditoriaDatabase {
       return { sucesso: false, erro: 'O modelo do produto é obrigatório.' };
     }
     const eanFinal = (item.ean || item.sku || refLookup?.sku || '').trim();
-    if (!eanFinal) {
+    const finalSku = (item.sku || (resolvedSourceType === 'LISTED' ? (refLookup?.sku || eanFinal) : eanFinal)).trim();
+    if (resolvedSourceType === 'OUT_OF_LIST' && !finalSku) {
+      return {
+        sucesso: false,
+        erro: 'O preenchimento do código SKU é obrigatório para produtos fora da lista.',
+      };
+    }
+    if (!finalSku && !eanFinal) {
       return { sucesso: false, erro: 'O código EAN ou SKU do produto é obrigatório.' };
     }
     if (!serialNorm) {
@@ -1465,6 +1574,20 @@ class AuditoriaDatabase {
       };
     }
 
+    // 4.1. REGRA DE CAIXA HOMOGÊNEA (Chave Dupla: Classificação + Condição de Lacre)
+    const validacaoCaixa = this.validarCompatibilidadeCaixa({
+      caixa: caixaAlvo,
+      classificacao: classificacaoCalculada,
+      produto_lacrado: item.produto_lacrado,
+      regional: regionalFinal,
+    });
+    if (!validacaoCaixa.compativel) {
+      return {
+        sucesso: false,
+        erro: validacaoCaixa.erro || 'Produto incompatível com a caixa.',
+      };
+    }
+
     // 5. REGRA DE CONFERÊNCIA DE NF (Gate 6: sem default implícito para SIM; PENDENTE/null por padrão)
     const nfConferidaValor: SimNao | null = item.nf_conferida !== undefined ? item.nf_conferida : null;
     const divergenciaNf = nfConferidaValor === 'NÃO';
@@ -1475,6 +1598,13 @@ class AuditoriaDatabase {
 
     const compAtual = this.obterComputadorAtual(regionalFinal);
     const idLocal = Date.now();
+    const boxClassification = validacaoCaixa.configCaixa?.vazia
+      ? classificacaoCalculada
+      : (validacaoCaixa.configCaixa?.classificacao || classificacaoCalculada);
+    const boxSealedStatus: 'SEALED' | 'OPEN' = validacaoCaixa.configCaixa?.vazia
+      ? (item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN')
+      : (validacaoCaixa.configCaixa?.condicaoLacre === 'LACRADO' ? 'SEALED' : 'OPEN');
+
     const novoProduto: ProdutoAuditoria = {
       id: idLocal,
       id_local: idLocal,
@@ -1486,7 +1616,7 @@ class AuditoriaDatabase {
       ean: eanFinal,
       serial: serialNorm,
       imei: serialNorm,
-      data_auditoria: item.data_auditoria.trim(),
+      data_auditoria: (item.data_auditoria || new Date().toISOString().split('T')[0]).trim(),
       numero_caixa: caixaAlvo,
       numero_lote: loteNorm,
       numero_nf: resolvedOriginInvoice || '',
@@ -1513,11 +1643,15 @@ class AuditoriaDatabase {
       dealer: resolvedDealer,
       origin_invoice: resolvedOriginInvoice,
       nf_origem: resolvedOriginInvoice,
-      sku: item.sku !== undefined ? item.sku : (refLookup?.sku || eanFinal),
+      sku: item.sku !== undefined ? item.sku : (refLookup?.sku || finalSku || eanFinal),
       brand: item.brand !== undefined ? item.brand : resolvedFabricante,
       misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
       classificacao_produto: classificacaoCalculada,
       product_classification: classificacaoCalculada,
+      box_classification: boxClassification,
+      box_sealed_status: boxSealedStatus,
+      box_id: item.box_id || caixaAlvo.toLowerCase().replace(/\s+/g, '-'),
+      box_name: item.box_name || caixaAlvo,
     };
 
     this.produtos.unshift(novoProduto);
@@ -1654,6 +1788,31 @@ class AuditoriaDatabase {
         fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand,
       });
 
+    // Validação de Caixa Homogênea ao atualizar
+    const caixaFinal = (dados.numero_caixa || anterior.numero_caixa).trim().toUpperCase();
+    const regionalFinal = dados.regional || anterior.regional;
+    const lacradoFinal = (dados.produto_lacrado !== undefined ? dados.produto_lacrado : anterior.produto_lacrado) as SimNao;
+    const validacaoCaixa = this.validarCompatibilidadeCaixa({
+      caixa: caixaFinal,
+      classificacao: classificacaoAtualizada,
+      produto_lacrado: lacradoFinal,
+      regional: regionalFinal,
+      produtoIdIgnorar: id,
+    });
+    if (!validacaoCaixa.compativel) {
+      return {
+        sucesso: false,
+        erro: validacaoCaixa.erro || 'Produto incompatível com a caixa.',
+      };
+    }
+
+    const boxClassification = validacaoCaixa.configCaixa?.vazia
+      ? classificacaoAtualizada
+      : (validacaoCaixa.configCaixa?.classificacao || classificacaoAtualizada);
+    const boxSealedStatus: 'SEALED' | 'OPEN' = validacaoCaixa.configCaixa?.vazia
+      ? (lacradoFinal === 'SIM' ? 'SEALED' : 'OPEN')
+      : (validacaoCaixa.configCaixa?.condicaoLacre === 'LACRADO' ? 'SEALED' : 'OPEN');
+
     const atualizado: ProdutoAuditoria = {
       ...anterior,
       ...dados,
@@ -1661,13 +1820,17 @@ class AuditoriaDatabase {
       imei: serialNovo,
       fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand || 'OUTRA MARCA',
       brand: dados.brand || dados.fabricante || anterior.brand || anterior.fabricante || 'OUTRA MARCA',
-      numero_caixa: dados.numero_caixa ? dados.numero_caixa.trim().toUpperCase() : anterior.numero_caixa,
+      numero_caixa: caixaFinal,
       numero_lote: dados.numero_lote !== undefined ? (dados.numero_lote || '').trim().toUpperCase() : anterior.numero_lote,
       numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : (originInvoiceAtualizado || ''),
       origin_invoice: originInvoiceAtualizado,
       nf_origem: originInvoiceAtualizado,
       classificacao_produto: classificacaoAtualizada,
       product_classification: classificacaoAtualizada,
+      box_classification: boxClassification,
+      box_sealed_status: boxSealedStatus,
+      box_id: dados.box_id || caixaFinal.toLowerCase().replace(/\s+/g, '-'),
+      box_name: dados.box_name || caixaFinal,
       nf_conferida: nfConferidaAtualizada,
       status_conformidade: statusConformidadeAtualizada,
       divergencia_nf: divergenciaNfAtualizada,
@@ -2503,6 +2666,153 @@ class AuditoriaDatabase {
       avariasFaltantes,
       pendencias,
     };
+  }
+
+  obterConfiguracaoCaixa(numeroCaixa: string, regional?: string): ConfiguracaoCaixa {
+    const caixaNorm = numeroCaixa.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    let primeiroProduto: ProdutoAuditoria | null = null;
+    let total = 0;
+
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+
+      total++;
+      if (!primeiroProduto) {
+        primeiroProduto = p;
+      }
+    }
+
+    if (!primeiroProduto || total === 0) {
+      return {
+        caixa: numeroCaixa,
+        regional: regAlvo || 'TODAS',
+        totalProdutos: 0,
+        vazia: true,
+        classificacao: null,
+        condicaoLacre: null,
+        produto_lacrado: null,
+      };
+    }
+
+    const classificacao =
+      primeiroProduto.box_classification ||
+      primeiroProduto.classificacao_produto ||
+      primeiroProduto.product_classification ||
+      calcularClassificacaoProduto({
+        sourceType: primeiroProduto.source_type || 'LISTED',
+        dealer: primeiroProduto.dealer,
+        fabricante: primeiroProduto.fabricante || primeiroProduto.brand,
+      });
+
+    const condicaoLacre: BoxSealedStatus =
+      primeiroProduto.box_sealed_status === 'SEALED' || primeiroProduto.produto_lacrado === 'SIM'
+        ? 'LACRADO'
+        : 'ABERTO';
+
+    return {
+      caixa: numeroCaixa,
+      regional: regAlvo || primeiroProduto.regional,
+      totalProdutos: total,
+      vazia: false,
+      classificacao,
+      condicaoLacre,
+      produto_lacrado: primeiroProduto.produto_lacrado,
+    };
+  }
+
+  validarCompatibilidadeCaixa(params: {
+    caixa: string;
+    classificacao: string;
+    produto_lacrado: SimNao;
+    regional?: string;
+    produtoIdIgnorar?: number;
+  }): { compativel: boolean; erro?: string; configCaixa?: ConfiguracaoCaixa } {
+    const { caixa, classificacao, produto_lacrado, regional, produtoIdIgnorar } = params;
+    const caixaNorm = caixa.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    let primeiroProduto: ProdutoAuditoria | null = null;
+    let total = 0;
+
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (produtoIdIgnorar && p.id === produtoIdIgnorar) continue;
+      if (p.numero_caixa.toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+
+      total++;
+      if (!primeiroProduto) {
+        primeiroProduto = p;
+      }
+    }
+
+    if (!primeiroProduto || total === 0) {
+      return {
+        compativel: true,
+        configCaixa: {
+          caixa,
+          regional: regAlvo || 'TODAS',
+          totalProdutos: 0,
+          vazia: true,
+          classificacao: null,
+          condicaoLacre: null,
+          produto_lacrado: null,
+        },
+      };
+    }
+
+    const classifCaixa =
+      primeiroProduto.box_classification ||
+      primeiroProduto.classificacao_produto ||
+      primeiroProduto.product_classification ||
+      calcularClassificacaoProduto({
+        sourceType: primeiroProduto.source_type || 'LISTED',
+        dealer: primeiroProduto.dealer,
+        fabricante: primeiroProduto.fabricante || primeiroProduto.brand,
+      });
+
+    const condicaoCaixa: BoxSealedStatus =
+      primeiroProduto.box_sealed_status === 'SEALED' || primeiroProduto.produto_lacrado === 'SIM'
+        ? 'LACRADO'
+        : 'ABERTO';
+
+    const condicaoItem: BoxSealedStatus = produto_lacrado === 'SIM' ? 'LACRADO' : 'ABERTO';
+
+    const configCaixa: ConfiguracaoCaixa = {
+      caixa,
+      regional: regAlvo || primeiroProduto.regional,
+      totalProdutos: total,
+      vazia: false,
+      classificacao: classifCaixa,
+      condicaoLacre: condicaoCaixa,
+      produto_lacrado: primeiroProduto.produto_lacrado,
+    };
+
+    // 1. Chave 1: Classificação Homogênea
+    if (classifCaixa && classificacao && classifCaixa.trim().toUpperCase() !== classificacao.trim().toUpperCase()) {
+      return {
+        compativel: false,
+        erro: `BOX_CLASSIFICATION_MISMATCH: A ${caixa} está travada na classificação "${classifCaixa}". O produto possui classificação "${classificacao}". Uma caixa não pode misturar classificações de produto.`,
+        configCaixa,
+      };
+    }
+
+    // 2. Chave 2: Condição de Lacre Homogênea
+    if (condicaoCaixa !== condicaoItem) {
+      return {
+        compativel: false,
+        erro: `BOX_SEALED_MISMATCH: A ${caixa} aceita apenas produtos na condição "${condicaoCaixa}". O produto está "${condicaoItem}". Uma caixa não pode misturar produtos lacrados e abertos.`,
+        configCaixa,
+      };
+    }
+
+    return { compativel: true, configCaixa };
   }
 
   obterStatusEnvioCaixa(numeroCaixa: string, regional?: string): 'Aguardando envio Online' | 'Enviado Online' | 'Vazia' {
@@ -4762,7 +5072,7 @@ class AuditoriaDatabase {
 
       // Coluna H preservada; Coluna I estritamente omitida e jamais armazenada
       const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
-      const brand = inferirFabricante(modelDesc, item.brand);
+      const brand = inferirFabricante(modelDesc, item.brand, sku);
 
       imeisValidos++;
       validRefs.push({

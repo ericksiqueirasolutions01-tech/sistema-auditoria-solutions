@@ -81,7 +81,7 @@ export interface ProdutoAuditoria {
   id_servidor: string | null; // ID atribuído no servidor após sincronização
   uuid: string;
   regional: string; // Ex: 'VIA VAREJO RJ', 'VIA VAREJO SP', 'VIA VAREJO MG', 'VIA VAREJO BA'
-  fabricante: string; // 'SAMSUNG' fixo
+  fabricante: string; // Marca real do produto (ex: SAMSUNG, MOTOROLA, OPPO, JOVI, etc.)
   modelo_produto: string;
   ean: string;
   serial: string; // Mantido para compatibilidade de sincronização e banco legado
@@ -119,9 +119,25 @@ export interface ProdutoAuditoria {
   misuse?: boolean | null;
   classificacao_produto?: string | null;
   product_classification?: string | null;
+  box_classification?: string | null;
+  box_sealed_status?: 'SEALED' | 'OPEN' | null;
+  box_id?: string | null;
+  box_name?: string | null;
   // Compatibilidade retroativa com campos anteriores:
   sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
   sync_data?: string | null;
+}
+
+export type BoxSealedStatus = 'LACRADO' | 'ABERTO';
+
+export interface ConfiguracaoCaixa {
+  caixa: string;
+  regional: string;
+  totalProdutos: number;
+  vazia: boolean;
+  classificacao: string | null;
+  condicaoLacre: BoxSealedStatus | null;
+  produto_lacrado?: SimNao | null;
 }
 
 export type PerfilUsuario = 'SUPER_ADMIN' | 'ADMINISTRADOR' | 'SUPERVISOR_REGIONAL' | 'OPERADOR';

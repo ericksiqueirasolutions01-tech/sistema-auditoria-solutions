@@ -76,20 +76,110 @@ function extrairCodigoRegional(regional: string): string {
   return r || 'GERAL';
 }
 
-function inferirFabricante(modelo?: string | null, fallbackMarca?: string | null): string {
-  if (fallbackMarca && fallbackMarca.trim()) {
-    const fb = fallbackMarca.trim().toUpperCase();
-    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA') return fb;
-  }
+const CADASTRO_MESTRE_SKU: Record<string, string> = {
+  // Motorola
+  '5370760': 'MOTOROLA',
+  'XT2601': 'MOTOROLA',
+  'XT2601-3': 'MOTOROLA',
+  'XT2347-1': 'MOTOROLA',
+  'XT2347': 'MOTOROLA',
+  'XT2335': 'MOTOROLA',
+  'XT2335-1': 'MOTOROLA',
+  'XT2331': 'MOTOROLA',
+  'XT2321': 'MOTOROLA',
+  'XT2403': 'MOTOROLA',
+  'XT2409': 'MOTOROLA',
+  'XT2413': 'MOTOROLA',
+  'XT2417': 'MOTOROLA',
+  'XT2423': 'MOTOROLA',
+  'XT2427': 'MOTOROLA',
+  // Samsung
+  'SM-S928BZKQZTO': 'SAMSUNG',
+  'SM-S928B': 'SAMSUNG',
+  'SM-A546EZGLZTO': 'SAMSUNG',
+  'SM-A546E': 'SAMSUNG',
+  'SM-G990E': 'SAMSUNG',
+  'SM-G990EZVRZTO': 'SAMSUNG',
+  'SM-A155M': 'SAMSUNG',
+  'SM-A256E': 'SAMSUNG',
+  'SM-A356E': 'SAMSUNG',
+  'SM-A556E': 'SAMSUNG',
+  'SM-S921B': 'SAMSUNG',
+  'SM-S926B': 'SAMSUNG',
+  'SM-F731B': 'SAMSUNG',
+  'SM-F946B': 'SAMSUNG',
+  'SM-F741B': 'SAMSUNG',
+  'SM-F956B': 'SAMSUNG',
+  // Oppo
+  'CPH2579': 'OPPO',
+  'CPH2599': 'OPPO',
+  'CPH2607': 'OPPO',
+  'CPH2625': 'OPPO',
+  // Jovi
+  'JOVI-01': 'JOVI',
+  'JOVI-02': 'JOVI',
+};
+
+function consultarMarcaPorSku(sku?: string | null): string | null {
+  if (!sku) return null;
+  const clean = String(sku).trim().toUpperCase();
+  if (!clean) return null;
+  if (CADASTRO_MESTRE_SKU[clean]) return CADASTRO_MESTRE_SKU[clean];
+  const semZeros = clean.replace(/^0+/, '');
+  if (semZeros && CADASTRO_MESTRE_SKU[semZeros]) return CADASTRO_MESTRE_SKU[semZeros];
+  return null;
+}
+
+function inferirFabricante(
+  modelo?: string | null,
+  fallbackMarca?: string | null,
+  sku?: string | null
+): string {
+  // 1. SKU -> MARCA do cadastro mestre / base estruturada (prioridade 1 absoluta)
+  const marcaSku = consultarMarcaPorSku(sku);
+  if (marcaSku) return marcaSku;
+
   const m = (modelo || '').trim().toUpperCase();
-  if (m.includes('MOTOROLA') || m.includes('MOTO ') || m.startsWith('MOTO')) return 'MOTOROLA';
-  if (m.includes('OPPO')) return 'OPPO';
+
+  // 2. Análise do Modelo / Descrição por palavras-chave de fabricante
+  if (
+    m.includes('MOTOROLA') ||
+    m.includes('MOTO ') ||
+    m.startsWith('MOTO') ||
+    m.includes('MOTO-') ||
+    m.includes('XT2') ||
+    m.includes('XT3')
+  ) {
+    return 'MOTOROLA';
+  }
+  if (m.includes('OPPO') || m.startsWith('CPH')) return 'OPPO';
   if (m.includes('JOVI')) return 'JOVI';
   if (m.includes('APPLE') || m.includes('IPHONE')) return 'APPLE';
   if (m.includes('XIAOMI') || m.includes('REDMI') || m.includes('POCO')) return 'XIAOMI';
-  if (m.includes('SAMSUNG') || m.includes('GALAXY')) return 'SAMSUNG';
-  if (fallbackMarca && fallbackMarca.trim()) return fallbackMarca.trim().toUpperCase();
-  return 'OUTRA MARCA';
+  if (
+    m.includes('SAMSUNG') ||
+    m.includes('GALAXY') ||
+    m.startsWith('SM-') ||
+    m.includes('SM-')
+  ) {
+    return 'SAMSUNG';
+  }
+
+  // 3. Campo estruturado de marca da referência importada (somente se confiável)
+  if (fallbackMarca && fallbackMarca.trim()) {
+    const fb = fallbackMarca.trim().toUpperCase();
+    if (fb && fb !== 'SEM MARCA' && fb !== 'OUTRA MARCA' && fb !== 'FABRICANTE NÃO IDENTIFICADO') {
+      return fb;
+    }
+  }
+
+  // 4. Se fallback for 'OUTRA MARCA', respeitar
+  if (fallbackMarca && fallbackMarca.trim().toUpperCase() === 'OUTRA MARCA') {
+    return 'OUTRA MARCA';
+  }
+
+  // 5. Se não houver fonte confiável: FABRICANTE NÃO IDENTIFICADO (NUNCA assumir Samsung)
+  return 'FABRICANTE NÃO IDENTIFICADO';
 }
 
 export default async function handler(req: any, res: any) {
@@ -223,7 +313,7 @@ export default async function handler(req: any, res: any) {
 
     // Coluna H preservada; Coluna I (Data da NF) estritamente omitida e jamais persistida
     const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
-    const brand = inferirFabricante(modelDesc, item.brand);
+    const brand = inferirFabricante(modelDesc, item.brand, sku);
 
     imeisValidos++;
     validRefs.push({

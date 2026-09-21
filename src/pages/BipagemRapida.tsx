@@ -78,6 +78,8 @@ export const BipagemRapida: React.FC = () => {
     caixasExistentes.length > 0 ? caixasExistentes[0] : 'Caixa 01'
   );
 
+  const configCaixaAtiva = db.obterConfiguracaoCaixa(caixaAtiva, regBusca);
+
   const [modeloAtivo, setModeloAtivo] = useState(SAMSUNG_MODELOS_PRESET[2].modelo); // Galaxy S24
   const [eanAtivo, setEanAtivo] = useState(SAMSUNG_MODELOS_PRESET[2].ean);
   const [serialInput, setSerialInput] = useState('');
@@ -90,8 +92,21 @@ export const BipagemRapida: React.FC = () => {
 
   // Estados de Referência Regional Ativa & Fabricante Dinâmico
   const [referenciaDetectada, setReferenciaDetectada] = useState<RegionalInventoryReference | null>(null);
-  const [fabricanteAtivo, setFabricanteAtivo] = useState<string>('SAMSUNG');
+  const [fabricanteAtivo, setFabricanteAtivo] = useState<string>(() =>
+    inferirFabricante(SAMSUNG_MODELOS_PRESET[2].modelo, null, SAMSUNG_MODELOS_PRESET[2].ean)
+  );
   const [statusReferencia, setStatusReferencia] = useState<'IDLE' | 'LISTED' | 'OUT_OF_LIST'>('IDLE');
+
+  // Estado para Bloqueio de Caixa Homogênea (Incompatibilidade)
+  const [incompatibilidadeCaixa, setIncompatibilidadeCaixa] = useState<{
+    caixa: string;
+    classificacaoCaixa: string;
+    condicaoCaixa: string;
+    classificacaoProduto: string;
+    condicaoProduto: string;
+    motivo: 'CLASSIFICACAO' | 'CONDICAO' | 'AMBOS';
+    detalhes: string;
+  } | null>(null);
 
   // Estado do Número do Lote (Informado e Mantido pelo Colaborador, ex: LOTE 1)
   const [loteAtivo, setLoteAtivo] = useState<string>(() => {
@@ -108,7 +123,7 @@ export const BipagemRapida: React.FC = () => {
         setStatusReferencia('LISTED');
         setModeloAtivo(ref.model_description);
         setEanAtivo(ref.sku);
-        const fabResolvido = ref.brand || inferirFabricante(ref.model_description, null);
+        const fabResolvido = inferirFabricante(ref.model_description, ref.brand, ref.sku);
         setFabricanteAtivo(fabResolvido);
         const classif = calcularClassificacaoProduto({
           sourceType: 'LISTED',
@@ -119,7 +134,8 @@ export const BipagemRapida: React.FC = () => {
       } else {
         setReferenciaDetectada(null);
         setStatusReferencia('OUT_OF_LIST');
-        const fabResolvido = inferirFabricante(modeloAtivo, fabricanteAtivo);
+        const fabResolvido = inferirFabricante(modeloAtivo, null, eanAtivo);
+        setFabricanteAtivo(fabResolvido);
         const classif = calcularClassificacaoProduto({
           sourceType: 'OUT_OF_LIST',
           fabricante: fabResolvido,
@@ -319,9 +335,12 @@ export const BipagemRapida: React.FC = () => {
     const encontrado = SAMSUNG_MODELOS_PRESET.find(
       (m) => m.modelo.toLowerCase() === novoModelo.toLowerCase().trim()
     );
+    const skuPreenchido = encontrado ? encontrado.ean : eanAtivo;
     if (encontrado) {
       setEanAtivo(encontrado.ean);
     }
+    const fabResolvido = inferirFabricante(novoModelo, null, skuPreenchido);
+    setFabricanteAtivo(fabResolvido);
   };
 
   // Main Bipagem Process (Excel Row Enter)
@@ -392,7 +411,11 @@ export const BipagemRapida: React.FC = () => {
       const dealerResolvido = refLookup?.dealer_normalized || null;
       const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();
       const skuResolvido = (refLookup?.sku || eanLimpo).trim();
-      const fabricanteResolvido = refLookup?.brand || inferirFabricante(modeloResolvido, fabricanteAtivo);
+      const fabricanteResolvido = inferirFabricante(
+        modeloResolvido,
+        refLookup?.brand || null,
+        skuResolvido
+      );
       const originInvoiceResolvido = refLookup
         ? (refLookup.origin_invoice || null)
         : 'NÃO LOCALIZADA NA BASE';
@@ -409,6 +432,12 @@ export const BipagemRapida: React.FC = () => {
 
       if (!modeloResolvido) {
         setAlertaValidacao('Preencha o modelo do produto.');
+        sounds.playError();
+        return;
+      }
+
+      if (sourceType === 'OUT_OF_LIST' && !skuResolvido) {
+        setAlertaValidacao('O preenchimento do código SKU é obrigatório para produtos fora da lista.');
         sounds.playError();
         return;
       }
@@ -448,6 +477,37 @@ export const BipagemRapida: React.FC = () => {
         }
       }
 
+      // 3.1. VALIDAÇÃO DE CAIXA HOMOGÊNEA (Chave Dupla: Classificação + Condição de Lacre)
+      const validacaoCaixa = db.validarCompatibilidadeCaixa({
+        caixa: caixaLimpa,
+        classificacao: classificacaoResolvida,
+        produto_lacrado: lacreAtivo,
+        regional: regBusca,
+      });
+
+      if (!validacaoCaixa.compativel) {
+        sounds.playError();
+        const cfg = validacaoCaixa.configCaixa;
+        const motivo =
+          cfg?.classificacao && cfg.classificacao.toUpperCase() !== classificacaoResolvida.toUpperCase() &&
+          cfg?.condicaoLacre && cfg.condicaoLacre !== (lacreAtivo === 'SIM' ? 'LACRADO' : 'ABERTO')
+            ? 'AMBOS'
+            : cfg?.classificacao && cfg.classificacao.toUpperCase() !== classificacaoResolvida.toUpperCase()
+            ? 'CLASSIFICACAO'
+            : 'CONDICAO';
+
+        setIncompatibilidadeCaixa({
+          caixa: caixaLimpa,
+          classificacaoCaixa: cfg?.classificacao || '-',
+          condicaoCaixa: cfg?.condicaoLacre || '-',
+          classificacaoProduto: classificacaoResolvida,
+          condicaoProduto: lacreAtivo === 'SIM' ? 'LACRADO' : 'ABERTO',
+          motivo,
+          detalhes: validacaoCaixa.erro || 'A caixa ativa não é compatível com este produto.',
+        });
+        return;
+      }
+
       // 4. GRAVAÇÃO INSTANTÂNEA NO BANCO DE DADOS LOCAL (COM DUAL PERSISTENCE EM INDEXEDDB)
       const res = db.inserirProduto({
         modelo_produto: modeloResolvido,
@@ -460,6 +520,8 @@ export const BipagemRapida: React.FC = () => {
         product_classification: classificacaoResolvida,
         data_auditoria: dataLimpa,
         numero_caixa: caixaLimpa,
+        box_id: caixaLimpa.toLowerCase().replace(/\s+/g, '-'),
+        box_name: caixaLimpa,
         numero_nf: originInvoiceResolvido || '',
         nf_origem: originInvoiceResolvido,
         origin_invoice: originInvoiceResolvido,
@@ -590,12 +652,18 @@ export const BipagemRapida: React.FC = () => {
     }
 
     const refLookup = db.consultarImeiReferencia(editSerial.trim(), regItem);
-    const fabResolvido = refLookup?.brand || inferirFabricante(editModelo.trim(), null);
+    const fabResolvido = inferirFabricante(
+      editModelo.trim(),
+      refLookup?.brand || null,
+      editEan.trim()
+    );
     const classifResolvida = calcularClassificacaoProduto({
       sourceType: refLookup ? 'LISTED' : 'OUT_OF_LIST',
       dealer: refLookup?.dealer_normalized || null,
       fabricante: fabResolvido,
     });
+
+    const cxFinal = editCaixa.trim() || caixaAtiva;
 
     // Gravar no storage
     const res = db.atualizarProduto(id, {
@@ -611,7 +679,9 @@ export const BipagemRapida: React.FC = () => {
       serial: editSerial.trim(),
       imei: editSerial.trim(),
       data_auditoria: editData.trim() || getDataAtualFormatada(),
-      numero_caixa: editCaixa.trim() || caixaAtiva,
+      numero_caixa: cxFinal,
+      box_id: cxFinal.toLowerCase().replace(/\s+/g, '-'),
+      box_name: cxFinal,
       numero_lote: editLote.trim() || 'LOTE 1',
       produto_lacrado: editLacre,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
@@ -1021,13 +1091,16 @@ export const BipagemRapida: React.FC = () => {
     doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
 
     const loteCaixa = itens.length > 0 && itens[0].numero_lote ? itens[0].numero_lote : loteAtivo;
+    const fabCaixa = itens.length > 0
+      ? (itens[0].fabricante || itens[0].brand || 'NÃO IDENTIFICADO')
+      : (fabricanteAtivo || 'NÃO IDENTIFICADO');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
     doc.text(`CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 70);
     doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 18, 77);
-    doc.text(`FABRICANTE: SAMSUNG`, 18, 84);
+    doc.text(`FABRICANTE: ${fabCaixa.toUpperCase()}`, 18, 84);
 
     doc.text(`REGIONAL: ${regionalAtiva}`, 105, 70);
     doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 77);
@@ -1289,13 +1362,13 @@ export const BipagemRapida: React.FC = () => {
       Regional: p.regional || regionalAtiva,
       'Computador ID': p.computador_id || 'PC-01',
       'Nome Estação': p.computador_nome || 'Estação 01',
-      Fabricante: p.fabricante || p.brand || 'OUTRA MARCA',
+      Fabricante: p.fabricante || p.brand || 'FABRICANTE NÃO IDENTIFICADO',
       'Modelo Produto': p.modelo_produto,
       SKU: p.sku || p.ean,
       IMEI: p.imei || p.serial,
       'NF Origem': p.origin_invoice || p.nf_origem || p.numero_nf || 'NÃO LOCALIZADA NA BASE',
       'Data Auditoria': p.data_auditoria,
-      Caixa: p.numero_caixa,
+      Caixa: p.box_name || p.numero_caixa,
       Lote: p.numero_lote || 'LOTE 1',
       Classificação: p.classificacao_produto || p.product_classification || '-',
       'Produto Lacrado': p.produto_lacrado,
@@ -1368,7 +1441,7 @@ export const BipagemRapida: React.FC = () => {
     const tableData = lista.map((p, idx) => [
       (idx + 1).toString(),
       p.regional || regionalAtiva,
-      p.numero_caixa,
+      p.box_name || p.numero_caixa,
       p.modelo_produto,
       p.sku || p.ean,
       p.imei || p.serial,
@@ -1834,8 +1907,43 @@ export const BipagemRapida: React.FC = () => {
               </span>
               <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-black text-[11px] flex items-center gap-1 border border-emerald-300">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                SAMSUNG
+                AUDITORIA
               </span>
+            </div>
+
+            {/* Header da Caixa Homogênea (Seção 19) */}
+            <div className="bg-slate-50 rounded-xl p-3 border-2 border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="border-r border-slate-200 pr-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">CAIXA</span>
+                <span className="font-black text-slate-900 truncate block">{caixaAtiva}</span>
+              </div>
+              <div className="border-r border-slate-200 pr-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">CLASSIFICAÇÃO</span>
+                <span
+                  className="font-black text-blue-900 truncate block"
+                  title={configCaixaAtiva.vazia ? 'AGUARDANDO PRIMEIRO PRODUTO' : (configCaixaAtiva.classificacao || '-')}
+                >
+                  {configCaixaAtiva.vazia ? 'AGUARDANDO PRIMEIRO PRODUTO' : (configCaixaAtiva.classificacao || '-')}
+                </span>
+              </div>
+              <div className="border-r border-slate-200 pr-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">CONDIÇÃO</span>
+                <span
+                  className={`font-black truncate block ${
+                    configCaixaAtiva.vazia
+                      ? 'text-slate-500'
+                      : configCaixaAtiva.condicaoLacre === 'LACRADO'
+                      ? 'text-emerald-700'
+                      : 'text-amber-700'
+                  }`}
+                >
+                  {configCaixaAtiva.vazia ? '-' : configCaixaAtiva.condicaoLacre}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">LOTE</span>
+                <span className="font-black text-amber-900 truncate block">{loteAtivo || 'LOTE 1'}</span>
+              </div>
             </div>
 
             {/* Seletor Rápido de Caixas Existentes */}
@@ -2002,15 +2110,25 @@ export const BipagemRapida: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 2: Seleção de Modelo Samsung & EAN */}
+          {/* Card 2: Seleção de Modelo & Código SKU */}
           <div className="bg-white rounded-2xl p-4 border-2 border-slate-300 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-blue-600" />
-                Modelo Samsung & Código EAN
+                Modelo & Código SKU
               </label>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                FABRICANTE: SAMSUNG
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                fabricanteAtivo === 'SAMSUNG'
+                  ? 'bg-blue-100 text-blue-800'
+                  : fabricanteAtivo === 'MOTOROLA'
+                  ? 'bg-purple-100 text-purple-800'
+                  : fabricanteAtivo === 'OPPO'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : fabricanteAtivo === 'APPLE'
+                  ? 'bg-slate-200 text-slate-900'
+                  : 'bg-amber-100 text-amber-800'
+              }`}>
+                FABRICANTE: {fabricanteAtivo || 'NÃO IDENTIFICADO'}
               </span>
             </div>
 
@@ -2023,6 +2141,8 @@ export const BipagemRapida: React.FC = () => {
                   onClick={() => {
                     setModeloAtivo(m.modelo);
                     setEanAtivo(m.ean);
+                    const fabResolvido = inferirFabricante(m.modelo, null, m.ean);
+                    setFabricanteAtivo(fabResolvido);
                     focarInputSerial();
                   }}
                   className={`px-2.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${
@@ -2049,13 +2169,21 @@ export const BipagemRapida: React.FC = () => {
                 />
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Código EAN:</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Código SKU {statusReferencia === 'LISTED' ? '(Bloqueado)' : '(Obrigatório)'}:
+                </span>
                 <input
                   type="text"
                   value={eanAtivo}
                   onChange={(e) => setEanAtivo(e.target.value)}
-                  placeholder="Código EAN 789..."
-                  className="w-full font-mono text-sm font-bold text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-xl px-3 py-2 focus:border-blue-600 focus:bg-white focus:outline-none"
+                  readOnly={statusReferencia === 'LISTED'}
+                  placeholder={statusReferencia === 'LISTED' ? 'SKU...' : 'SKU obrigatório...'}
+                  className={`w-full font-mono text-sm font-bold rounded-xl px-3 py-2 border-2 focus:outline-none ${
+                    statusReferencia === 'LISTED'
+                      ? 'bg-slate-100 text-slate-600 border-slate-300 cursor-not-allowed select-none'
+                      : 'bg-white text-slate-900 border-emerald-500 focus:border-emerald-600'
+                  }`}
+                  title={statusReferencia === 'LISTED' ? 'SKU da base regional (somente leitura)' : 'Código SKU obrigatório para produto fora da lista'}
                 />
               </div>
             </div>
@@ -2138,7 +2266,7 @@ export const BipagemRapida: React.FC = () => {
               <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-amber-900 shadow-xs">
                 <div className="flex items-center gap-1.5 font-bold">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>FORA DA LISTA • {fabricanteAtivo || 'SAMSUNG'}</span>
+                  <span>FORA DA LISTA • {fabricanteAtivo || 'FABRICANTE NÃO IDENTIFICADO'}</span>
                 </div>
                 <span className="text-[10px] text-amber-700 font-semibold">Conferir Modelo/SKU</span>
               </div>
@@ -2574,6 +2702,19 @@ export const BipagemRapida: React.FC = () => {
                 className="w-20 bg-white font-black text-xs text-amber-900 border border-amber-400 rounded px-2 py-0.5 focus:outline-none uppercase"
                 title="Número do Lote ativo (Obrigatório para bipagem e espelho)"
               />
+            </div>
+
+            {/* Status da Caixa Homogênea (Seção 19 Desktop) */}
+            <div className="hidden lg:flex items-center gap-2 bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-xl text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Classificação:</span>
+              <span className="font-black text-blue-950 text-[11px] max-w-[180px] truncate" title={configCaixaAtiva.vazia ? 'AGUARDANDO PRIMEIRO PRODUTO' : (configCaixaAtiva.classificacao || '-')}>
+                {configCaixaAtiva.vazia ? 'AGUARDANDO PRIMEIRO PRODUTO' : (configCaixaAtiva.classificacao || '-')}
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Condição:</span>
+              <span className={`font-black text-[11px] ${configCaixaAtiva.vazia ? 'text-slate-500' : configCaixaAtiva.condicaoLacre === 'LACRADO' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {configCaixaAtiva.vazia ? '-' : configCaixaAtiva.condicaoLacre}
+              </span>
             </div>
 
 
@@ -3159,7 +3300,7 @@ export const BipagemRapida: React.FC = () => {
                       💻 {item.computador_id || 'PC-01'}
                     </td>
                     <td className="py-2 px-3 font-bold text-slate-700 border-r border-slate-200 whitespace-nowrap">
-                      {item.brand || item.fabricante || 'OUTRA MARCA'}
+                      {item.brand || item.fabricante || 'FABRICANTE NÃO IDENTIFICADO'}
                     </td>
                     <td className="py-2 px-3 font-medium text-slate-800 border-r border-slate-200 min-w-[220px] max-w-[340px] whitespace-normal break-words" title={item.modelo_produto}>
                       {item.modelo_produto}
@@ -3191,7 +3332,7 @@ export const BipagemRapida: React.FC = () => {
                       {item.data_auditoria}
                     </td>
                     <td className="py-2 px-3 text-center font-black text-blue-700 border-r border-slate-200 bg-blue-50/20">
-                      {item.numero_caixa}
+                      {item.box_name || item.numero_caixa}
                     </td>
                     <td className="py-2 px-2 text-center border-r border-slate-200 bg-amber-50/20">
                       <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-amber-100 text-amber-800 border-amber-300 whitespace-nowrap">
@@ -3336,9 +3477,14 @@ export const BipagemRapida: React.FC = () => {
                     type="text"
                     value={eanAtivo}
                     onChange={(e) => setEanAtivo(e.target.value)}
-                    placeholder="SKU..."
-                    className="w-full font-mono text-xs font-black text-slate-900 bg-white border-2 border-emerald-500 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                    title="Código SKU editável"
+                    readOnly={statusReferencia === 'LISTED'}
+                    placeholder={statusReferencia === 'LISTED' ? 'SKU...' : 'SKU obrigatório...'}
+                    className={`w-full font-mono text-xs rounded px-2 py-1.5 focus:outline-none ${
+                      statusReferencia === 'LISTED'
+                        ? 'bg-slate-100 font-bold text-slate-600 border border-slate-300 cursor-not-allowed select-none'
+                        : 'bg-white font-black text-slate-900 border-2 border-emerald-500 focus:ring-1 focus:ring-emerald-600'
+                    }`}
+                    title={statusReferencia === 'LISTED' ? 'SKU preenchido automaticamente pela lista (somente leitura)' : 'Código SKU obrigatório para produto fora da lista'}
                   />
                 </td>
 
@@ -3702,6 +3848,113 @@ export const BipagemRapida: React.FC = () => {
         onClose={() => setMostrarModalFechamentoLote(false)}
         onLoteFinalizado={handleLoteFinalizadoComSucesso}
       />
+
+      {/* MODAL DE BLOQUEIO: CAIXA HOMOGÊNEA (INCOMPATIBILIDADE DETECTADA) */}
+      {incompatibilidadeCaixa && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-rose-500">
+            {/* Header */}
+            <div className="bg-rose-600 text-white px-6 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-base font-black uppercase tracking-wide">
+                  Produto Não Compatível com esta Caixa
+                </h3>
+                <p className="text-xs text-rose-100 font-medium">
+                  Regra de Caixa Homogênea estrita ativa
+                </p>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-sm">
+              <p className="text-slate-700 leading-relaxed">
+                A <strong>{incompatibilidadeCaixa.caixa}</strong> já possui produtos com características definidas e não permite a inclusão deste item divergente:
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="space-y-2 border-r border-slate-200 pr-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                    Definido na Caixa
+                  </span>
+                  <div>
+                    <span className="text-xs text-slate-500 block">Classificação:</span>
+                    <span className="text-xs font-black text-slate-900 block truncate" title={incompatibilidadeCaixa.classificacaoCaixa}>
+                      {incompatibilidadeCaixa.classificacaoCaixa}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500 block">Condição de Lacre:</span>
+                    <span className={`text-xs font-black ${incompatibilidadeCaixa.condicaoCaixa === 'LACRADO' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {incompatibilidadeCaixa.condicaoCaixa}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pl-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 block">
+                    Produto Bipado
+                  </span>
+                  <div>
+                    <span className="text-xs text-slate-500 block">Classificação:</span>
+                    <span className={`text-xs font-black truncate block ${incompatibilidadeCaixa.classificacaoCaixa !== incompatibilidadeCaixa.classificacaoProduto ? 'text-rose-600' : 'text-slate-900'}`} title={incompatibilidadeCaixa.classificacaoProduto}>
+                      {incompatibilidadeCaixa.classificacaoProduto}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500 block">Condição de Lacre:</span>
+                    <span className={`text-xs font-black ${incompatibilidadeCaixa.condicaoCaixa !== incompatibilidadeCaixa.condicaoProduto ? 'text-rose-600' : 'text-slate-900'}`}>
+                      {incompatibilidadeCaixa.condicaoProduto}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex items-start gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Para manter a integridade dos lotes da auditoria, crie uma nova caixa ou selecione uma caixa existente com a mesma classificação e condição.
+                </span>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="bg-slate-100 px-6 py-4 flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setIncompatibilidadeCaixa(null)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIncompatibilidadeCaixa(null);
+                  setCaixaParaMudarInput(caixasExistentes.find(c => c !== caixaAtiva) || '');
+                  setMostrarAlterarCaixaModal(true);
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
+              >
+                Selecionar Outra Caixa
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIncompatibilidadeCaixa(null);
+                  setNovaCaixaNome('');
+                  setMostrarNovaCaixaModal(true);
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer shadow-sm"
+              >
+                Criar Nova Caixa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

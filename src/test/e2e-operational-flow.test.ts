@@ -530,7 +530,7 @@ describe('GATE 13: Testes Automatizados e Fluxo Operacional E2E (13 Passos)', ()
           modelo: 'Galaxy S24',
           ean: '7892509123456',
           serial: '357847499999002',
-          caixa: 'Caixa 01',
+          caixa: 'Caixa 02',
           lacrado: 'NÃO',
         },
         {

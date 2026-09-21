@@ -244,7 +244,7 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
         const rawNfOrigem = row[idxNfOrigem] !== undefined && row[idxNfOrigem] !== null ? String(row[idxNfOrigem]).trim() : null;
 
         const rawBrand = skuToBrandMap.get(sku) || skuToBrandMap.get(sku.replace(/^0+/, '')) || null;
-        const brandResolvida = inferirFabricante(modelDesc, rawBrand);
+        const brandResolvida = inferirFabricante(modelDesc, rawBrand, sku);
 
         imeisValidos++;
         itensTriados.push({

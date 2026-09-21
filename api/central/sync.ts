@@ -204,6 +204,79 @@ export default async function handler(req: any, res: any) {
     let novosCount = 0;
     const duplicadosList: any[] = [];
 
+    // 3.1. Validação de Caixa Homogênea no Sync Central (Gate 4)
+    if (Array.isArray(produtos) && produtos.length > 0) {
+      const caixasVistas = new Map<string, { classif: string; sealed: string; imei: string }>();
+
+      for (const p of produtos) {
+        const cx = (p.numero_caixa || '').trim().toUpperCase();
+        if (!cx) continue;
+        const reg = (p.regional || regional || regionalNome).trim().toUpperCase();
+        const chave = `${reg}:::${cx}`;
+        const pClassif = (p.box_classification || p.classificacao_produto || p.product_classification || '').trim().toUpperCase();
+        const pSealed = (p.box_sealed_status === 'SEALED' || p.produto_lacrado === 'SIM') ? 'LACRADO' : 'ABERTO';
+
+        // 1. Checar contra produtos já existentes no banco central
+        const primeiroCentral = centralData.produtos.find((cp: any) => {
+          const cpCx = (cp.numero_caixa || '').trim().toUpperCase();
+          const cpReg = (cp.regional || 'VIA VAREJO RJ').trim().toUpperCase();
+          return cpCx === cx && cpReg === reg;
+        });
+
+        if (primeiroCentral) {
+          let caixaClassif = (primeiroCentral.box_classification || primeiroCentral.classificacao_produto || primeiroCentral.product_classification || '').trim().toUpperCase();
+          if (!caixaClassif) {
+            const isSamsung = (primeiroCentral.fabricante || primeiroCentral.brand || '').toUpperCase().includes('SAMSUNG');
+            const dNorm = (primeiroCentral.dealer || '').toUpperCase();
+            if (primeiroCentral.source_type === 'OUT_OF_LIST') {
+              caixaClassif = isSamsung ? 'FORA DA LISTA - SAMSUNG' : 'FORA DA LISTA - OUTRA MARCA';
+            } else {
+              if (dNorm.includes('SIRI')) caixaClassif = 'PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA';
+              else if (!isSamsung || dNorm.includes('OUTRA MARCA')) caixaClassif = 'PRODUTO NA LISTA - OUTRA MARCA';
+              else caixaClassif = 'PRODUTO NA LISTA - SAMSUNG';
+            }
+          }
+          const caixaSealed = (primeiroCentral.box_sealed_status === 'SEALED' || primeiroCentral.produto_lacrado === 'SIM') ? 'LACRADO' : 'ABERTO';
+
+          if (caixaClassif && pClassif && caixaClassif !== pClassif) {
+            return res.status(409).json({
+              sucesso: false,
+              codigo: 'BOX_CLASSIFICATION_MISMATCH',
+              erro: `BOX_CLASSIFICATION_MISMATCH: A ${cx} já possui produtos com classificação "${caixaClassif}". O produto ${p.imei || p.serial} possui classificação "${pClassif}". Uma caixa não pode misturar classificações de produto.`,
+            });
+          }
+          if (caixaSealed !== pSealed) {
+            return res.status(409).json({
+              sucesso: false,
+              codigo: 'BOX_SEALED_MISMATCH',
+              erro: `BOX_SEALED_MISMATCH: A ${cx} já possui produtos na condição "${caixaSealed}". O produto ${p.imei || p.serial} está "${pSealed}". Uma caixa não pode misturar produtos lacrados e abertos.`,
+            });
+          }
+        }
+
+        // 2. Checar contra produtos do mesmo lote sincronizado
+        if (caixasVistas.has(chave)) {
+          const refItem = caixasVistas.get(chave)!;
+          if (refItem.classif && pClassif && refItem.classif !== pClassif) {
+            return res.status(409).json({
+              sucesso: false,
+              codigo: 'BOX_CLASSIFICATION_MISMATCH',
+              erro: `BOX_CLASSIFICATION_MISMATCH: Conflito no lote enviado. A ${cx} contém produto com classificação "${refItem.classif}" e outro com "${pClassif}".`,
+            });
+          }
+          if (refItem.sealed !== pSealed) {
+            return res.status(409).json({
+              sucesso: false,
+              codigo: 'BOX_SEALED_MISMATCH',
+              erro: `BOX_SEALED_MISMATCH: Conflito no lote enviado. A ${cx} contém produto "${refItem.sealed}" e outro "${pSealed}".`,
+            });
+          }
+        } else {
+          caixasVistas.set(chave, { classif: pClassif, sealed: pSealed, imei: p.imei || p.serial });
+        }
+      }
+    }
+
     // Mapeamento local em memória de seriais e IMEIs existentes
     const mapExistentes = new Map<string, any>();
     for (const p of centralData.produtos) {
@@ -289,10 +362,14 @@ export default async function handler(req: any, res: any) {
             id_local: p.id,
           });
         } else {
+          const cxNorm = String(p.numero_caixa || p.caixa || 'Caixa 01').trim();
           const itemNormalizado = {
             ...p,
             serial: sn || im,
             imei: im || sn,
+            numero_caixa: cxNorm,
+            box_id: p.box_id || cxNorm.toLowerCase().replace(/\s+/g, '-'),
+            box_name: p.box_name || cxNorm,
             id_servidor: `SRV-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
             data_sincronizacao: agora,
             status_sincronizacao: 'ENVIADO',
@@ -328,34 +405,41 @@ export default async function handler(req: any, res: any) {
         }
 
         if (regionalId) {
-          const rowsToInsert = novosParaDb.map((item) => ({
-            id_local: item.id || `LOC-${Date.now()}`,
-            serial: item.serial,
-            imei: item.imei || item.serial,
-            ean: item.ean || '',
-            modelo: item.modelo_produto || item.modelo || 'Modelo Desconhecido',
-            fabricante: item.fabricante || item.brand || 'OUTRA MARCA',
-            numero_lote: item.numero_lote || item.lote || '01',
-            numero_caixa: item.numero_caixa || item.caixa || '01',
-            regional_id: regionalId,
-            produto_lacrado: item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
-            kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
-            aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
-            observacao: item.observacao || null,
-            usuario_bipagem: usuario.nome || usuario.login || 'Operador',
-            status_sincronizacao: 'ENVIADO',
-            data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
-            // Snapshot fields da referência e lote (Seções 4, 5, 16):
-            reference_id: item.reference_id || null,
-            import_batch_id: item.import_batch_id || null,
-            source_type: item.source_type || 'OUT_OF_LIST',
-            dealer: item.dealer || null,
-            origin_invoice: item.origin_invoice || item.nf_origem || item.numero_nf || null,
-            sku: item.sku || null,
-            brand: item.brand || item.fabricante || 'OUTRA MARCA',
-            product_classification: item.product_classification || item.classificacao_produto || null,
-            misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
-          }));
+          const rowsToInsert = novosParaDb.map((item) => {
+            const cx = item.numero_caixa || item.caixa || 'Caixa 01';
+            return {
+              id_local: item.id || `LOC-${Date.now()}`,
+              serial: item.serial,
+              imei: item.imei || item.serial,
+              ean: item.ean || '',
+              modelo: item.modelo_produto || item.modelo || 'Modelo Desconhecido',
+              fabricante: item.fabricante || item.brand || 'OUTRA MARCA',
+              numero_lote: item.numero_lote || item.lote || '01',
+              numero_caixa: cx,
+              box_id: item.box_id || cx.toLowerCase().replace(/\s+/g, '-'),
+              box_name: item.box_name || cx,
+              regional_id: regionalId,
+              produto_lacrado: item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
+              kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
+              aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+              observacao: item.observacao || null,
+              usuario_bipagem: usuario.nome || usuario.login || 'Operador',
+              status_sincronizacao: 'ENVIADO',
+              data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
+              // Snapshot fields da referência e lote (Seções 4, 5, 16):
+              reference_id: item.reference_id || null,
+              import_batch_id: item.import_batch_id || null,
+              source_type: item.source_type || 'OUT_OF_LIST',
+              dealer: item.dealer || null,
+              origin_invoice: item.origin_invoice || item.nf_origem || item.numero_nf || null,
+              sku: item.sku || null,
+              brand: item.brand || item.fabricante || 'OUTRA MARCA',
+              product_classification: item.product_classification || item.classificacao_produto || null,
+              box_classification: item.box_classification || item.product_classification || item.classificacao_produto || null,
+              box_sealed_status: item.box_sealed_status || (item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN'),
+              misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
+            };
+          });
 
           await supabase.from('audit_products').insert(rowsToInsert);
         }

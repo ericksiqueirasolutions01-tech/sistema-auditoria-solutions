@@ -143,9 +143,13 @@ export const GeradorEspelhos: React.FC = () => {
     // 3. Informações da Caixa
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 62, 182, 34, 2, 2, 'FD');
 
     const loteCaixa = produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01');
+    const lacreCaixa =
+      db.obterLacreCaixa(caixaSelecionada, regionalAtiva) ||
+      produtosCaixa.find((p) => p.lacre_seguranca)?.lacre_seguranca ||
+      'NÃO INFORMADO';
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
@@ -153,6 +157,7 @@ export const GeradorEspelhos: React.FC = () => {
     doc.text(`CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 70);
     doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 18, 77);
     doc.text(`FABRICANTE: SAMSUNG`, 18, 84);
+    doc.text(`LACRE DE SEGURANÇA: ${lacreCaixa.toUpperCase()}`, 18, 91);
 
     doc.text(`REGIONAL: ${regionalAtiva}`, 105, 70);
     doc.text(`QUANTIDADE TOTAL NA CAIXA: ${produtosCaixa.length} ${produtosCaixa.length === 1 ? 'produto' : 'produtos'}`, 105, 77);
@@ -170,7 +175,7 @@ export const GeradorEspelhos: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 94,
+      startY: 100,
       head: [['Item', 'Modelo Produto', 'Código EAN', 'Quantidade']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-', '-']],
       foot: [
@@ -298,20 +303,25 @@ export const GeradorEspelhos: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Quadro de informações gerais (Região, Lote e Caixa)
+    // Quadro de informações gerais (Região, Lote, Caixa e Lacre)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
+    doc.roundedRect(14, 49, 182, 26, 2, 2, 'FD');
 
     const loteCaixa2 = produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01');
+    const lacreCaixa2 =
+      db.obterLacreCaixa(caixaSelecionada, regionalAtiva) ||
+      produtosCaixa.find((p) => p.lacre_seguranca)?.lacre_seguranca ||
+      'NÃO INFORMADO';
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
-    doc.text(`VOLUME / CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 64);
-    doc.text(`LOTE: ${loteCaixa2.toUpperCase()}`, 105, 58);
-    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 64);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 57);
+    doc.text(`VOLUME / CAIXA: ${caixaSelecionada.toUpperCase()}`, 18, 63);
+    doc.text(`LACRE DE SEGURANÇA: ${lacreCaixa2.toUpperCase()}`, 18, 69);
+    doc.text(`LOTE: ${loteCaixa2.toUpperCase()}`, 105, 57);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 63);
 
     const tableData = listaEans.map((e) => [
       e.item.toString().padStart(2, '0'),
@@ -320,7 +330,7 @@ export const GeradorEspelhos: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 75,
+      startY: 81,
       head: [['Item', 'Código EAN', 'Quantidade por EAN']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-']],
       foot: [['', 'TOTAL GERAL NO VOLUME', `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`]],
@@ -388,6 +398,7 @@ export const GeradorEspelhos: React.FC = () => {
       EAN: p.ean,
       IMEI: p.imei || p.serial,
       Caixa: p.numero_caixa,
+      'Lacre de Segurança': p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, regionalAtiva) || '-',
       Lote: p.numero_lote || '01',
       'Data Auditoria': p.data_auditoria,
       'Produto Lacrado': p.produto_lacrado,
@@ -722,9 +733,9 @@ export const GeradorEspelhos: React.FC = () => {
               </div>
             </div>
 
-            {/* Informações do Volume (Região, Lote, Volume e Quantidade) */}
+            {/* Informações do Volume (Região, Lote, Volume, Lacre e Quantidade) */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 items-center">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Regional / Cliente:</span>
                   <span className="text-xl font-black text-purple-700 uppercase">{regionalAtiva}</span>
@@ -738,6 +749,12 @@ export const GeradorEspelhos: React.FC = () => {
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Volume / Caixa:</span>
                   <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Lacre de Segurança:</span>
+                  <span className="text-xl font-black text-indigo-700 uppercase font-mono">
+                    {db.obterLacreCaixa(caixaSelecionada, regionalAtiva) || produtosCaixa.find((p) => p.lacre_seguranca)?.lacre_seguranca || 'NÃO INFORMADO'}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Quantidade no Volume:</span>
@@ -848,7 +865,7 @@ export const GeradorEspelhos: React.FC = () => {
 
             {/* Informações da Caixa */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-6">
-              <div className="grid grid-cols-2 sm:grid-cols-7 gap-4 items-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4 items-center">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Caixa:</span>
                   <span className="text-xl font-black text-blue-700 uppercase">{caixaSelecionada}</span>
@@ -857,6 +874,12 @@ export const GeradorEspelhos: React.FC = () => {
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Lote:</span>
                   <span className="text-xl font-black text-amber-600 uppercase">
                     LOTE {produtosCaixa.length > 0 && produtosCaixa[0].numero_lote ? produtosCaixa[0].numero_lote : (db.obterUltimoLote() || '01')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Lacre de Segurança:</span>
+                  <span className="text-xl font-black text-indigo-700 uppercase font-mono">
+                    {db.obterLacreCaixa(caixaSelecionada, regionalAtiva) || produtosCaixa.find((p) => p.lacre_seguranca)?.lacre_seguranca || 'NÃO INFORMADO'}
                   </span>
                 </div>
                 <div>

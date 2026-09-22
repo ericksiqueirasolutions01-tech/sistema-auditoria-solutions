@@ -89,6 +89,9 @@ export const BipagemRapida: React.FC = () => {
   const [kitAtivo, setKitAtivo] = useState<SimNao | ''>('');
   const [marcasAtivo, setMarcasAtivo] = useState<SimNao | ''>('');
   const [obsAtivo, setObsAtivo] = useState('');
+  const [lacreSegurancaAtivo, setLacreSegurancaAtivo] = useState<string>(() =>
+    db.obterLacreCaixa(caixaAtiva, regBusca)
+  );
 
   // Estados de Referência Regional Ativa & Fabricante Dinâmico
   const [referenciaDetectada, setReferenciaDetectada] = useState<RegionalInventoryReference | null>(null);
@@ -179,6 +182,7 @@ export const BipagemRapida: React.FC = () => {
   const [editCaixa, setEditCaixa] = useState('');
   const [editLote, setEditLote] = useState('');
   const [editLacre, setEditLacre] = useState<SimNao>('SIM');
+  const [editLacreSeguranca, setEditLacreSeguranca] = useState('');
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
   const [editObs, setEditObs] = useState('');
@@ -328,6 +332,18 @@ export const BipagemRapida: React.FC = () => {
       recarregarDados(filtroCaixa);
     });
   }, [filtroCaixa, caixaAtiva]);
+
+  // Sincronizar número do lacre de segurança ao alternar caixa ativa ou regional
+  useEffect(() => {
+    const lacreAtual = db.obterLacreCaixa(caixaAtiva, regBusca);
+    setLacreSegurancaAtivo(lacreAtual || '');
+  }, [caixaAtiva, regBusca]);
+
+  const handleMudarLacreSeguranca = (novoLacre: string) => {
+    setLacreSegurancaAtivo(novoLacre);
+    db.definirLacreCaixa(caixaAtiva, novoLacre, regBusca);
+    recarregarDados(filtroCaixa);
+  };
 
   // When user changes the model input, try to auto-fill EAN if it matches a Samsung preset, but keep it editable!
   const handleModeloChange = (novoModelo: string) => {
@@ -526,6 +542,7 @@ export const BipagemRapida: React.FC = () => {
         nf_origem: originInvoiceResolvido,
         origin_invoice: originInvoiceResolvido,
         produto_lacrado: lacreAtivo,
+        lacre_seguranca: lacreSegurancaAtivo.trim() || undefined,
         kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
         aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
         observacao: obsAtivo.trim(),
@@ -606,6 +623,7 @@ export const BipagemRapida: React.FC = () => {
     setEditCaixa(item.numero_caixa);
     setEditLote(item.numero_lote || db.obterUltimoLote() || '01');
     setEditLacre(item.produto_lacrado);
+    setEditLacreSeguranca(item.lacre_seguranca || '');
     setEditKit(item.kit_completo || '');
     setEditMarcas(item.aparelho_marcas_uso || '');
     setEditObs(item.observacao || '');
@@ -684,10 +702,15 @@ export const BipagemRapida: React.FC = () => {
       box_name: cxFinal,
       numero_lote: editLote.trim() || 'LOTE 1',
       produto_lacrado: editLacre,
+      lacre_seguranca: editLacreSeguranca.trim() || undefined,
       kit_completo: editLacre === 'SIM' ? null : (editKit as SimNao),
       aparelho_marcas_uso: editLacre === 'SIM' ? null : (editMarcas as SimNao),
       observacao: editObs.trim(),
     });
+
+    if (editLacreSeguranca.trim()) {
+      db.definirLacreCaixa(cxFinal, editLacreSeguranca.trim(), regItem);
+    }
 
     if (!res.sucesso) {
       sounds.playError();
@@ -1025,12 +1048,18 @@ export const BipagemRapida: React.FC = () => {
       item: idx + 1,
     }));
 
+    const lacreSeguranca =
+      db.obterLacreCaixa(caixaNome, regionalAtiva) ||
+      itens.find((p) => p.lacre_seguranca)?.lacre_seguranca ||
+      undefined;
+
     return {
       caixaNome,
       itens,
       totalGeral: itens.length,
       resumoModelos,
       resumoEans,
+      lacreSeguranca,
     };
   };
 
@@ -1088,12 +1117,16 @@ export const BipagemRapida: React.FC = () => {
     // 3. Quadro de Informações da Caixa
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 62, 182, 28, 2, 2, 'FD');
+    doc.roundedRect(14, 62, 182, 34, 2, 2, 'FD');
 
     const loteCaixa = itens.length > 0 && itens[0].numero_lote ? itens[0].numero_lote : loteAtivo;
     const fabCaixa = itens.length > 0
       ? (itens[0].fabricante || itens[0].brand || 'NÃO IDENTIFICADO')
       : (fabricanteAtivo || 'NÃO IDENTIFICADO');
+    const lacreCaixa =
+      db.obterLacreCaixa(caixaNomeAlvo, regionalAtiva) ||
+      itens.find((p) => p.lacre_seguranca)?.lacre_seguranca ||
+      'NÃO INFORMADO';
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
@@ -1101,6 +1134,7 @@ export const BipagemRapida: React.FC = () => {
     doc.text(`CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 70);
     doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 18, 77);
     doc.text(`FABRICANTE: ${fabCaixa.toUpperCase()}`, 18, 84);
+    doc.text(`LACRE DE SEGURANÇA: ${lacreCaixa.toUpperCase()}`, 18, 91);
 
     doc.text(`REGIONAL: ${regionalAtiva}`, 105, 70);
     doc.text(`QUANTIDADE TOTAL NA CAIXA: ${totalGeral} ${totalGeral === 1 ? 'produto' : 'produtos'}`, 105, 77);
@@ -1118,7 +1152,7 @@ export const BipagemRapida: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 94,
+      startY: 100,
       head: [['Item', 'Modelo Produto', 'Código EAN', 'Quantidade']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-', '-']],
       foot: [
@@ -1254,18 +1288,24 @@ export const BipagemRapida: React.FC = () => {
     doc.text(`Data de Emissão: ${new Date().toLocaleString('pt-BR')}`, 14, 40);
     doc.text(`Responsável pelo Embarque: ${usuarioAtual?.nome || 'Operador'}`, 14, 45);
 
-    // Quadro de informações gerais (Região, Lote e Caixa)
+    // Quadro de informações gerais (Região, Lote, Caixa e Lacre)
     doc.setDrawColor(203, 213, 225);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, 49, 182, 20, 2, 2, 'FD');
+    doc.roundedRect(14, 49, 182, 26, 2, 2, 'FD');
+
+    const lacreCaixa =
+      db.obterLacreCaixa(caixaNomeAlvo, regionalAtiva) ||
+      itens.find((p) => p.lacre_seguranca)?.lacre_seguranca ||
+      'NÃO INFORMADO';
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 58);
-    doc.text(`VOLUME / CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 64);
-    doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 105, 58);
-    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 64);
+    doc.text(`REGIONAL: ${regionalAtiva}`, 18, 57);
+    doc.text(`VOLUME / CAIXA: ${caixaNomeAlvo.toUpperCase()}`, 18, 63);
+    doc.text(`LACRE DE SEGURANÇA: ${lacreCaixa.toUpperCase()}`, 18, 69);
+    doc.text(`LOTE: ${loteCaixa.toUpperCase()}`, 105, 57);
+    doc.text(`QUANTIDADE TOTAL NO VOLUME: ${totalGeral} peças`, 105, 63);
 
     // Agrupamento exclusivo por EAN (Requisito Espelho 2: Região, EAN, Quantidade por EAN)
     const eanMap = new Map<string, number>();
@@ -1286,7 +1326,7 @@ export const BipagemRapida: React.FC = () => {
     ]);
 
     autoTable(doc, {
-      startY: 75,
+      startY: 81,
       head: [['Item', 'Código EAN', 'Quantidade por EAN']],
       body: tableData.length > 0 ? tableData : [['-', 'Nenhum produto registrado nesta caixa', '-']],
       foot: [['', 'TOTAL GERAL NO VOLUME', `${totalGeral} ${totalGeral === 1 ? 'unidade' : 'unidades'}`]],
@@ -1369,6 +1409,10 @@ export const BipagemRapida: React.FC = () => {
       'NF Origem': p.origin_invoice || p.nf_origem || p.numero_nf || 'NÃO LOCALIZADA NA BASE',
       'Data Auditoria': p.data_auditoria,
       Caixa: p.box_name || p.numero_caixa,
+      'Lacre de Segurança':
+        p.lacre_seguranca ||
+        db.obterLacreCaixa(p.box_name || p.numero_caixa, regionalAtiva) ||
+        '-',
       Lote: p.numero_lote || 'LOTE 1',
       Classificação: p.classificacao_produto || p.product_classification || '-',
       'Produto Lacrado': p.produto_lacrado,
@@ -1388,17 +1432,10 @@ export const BipagemRapida: React.FC = () => {
 
     const ws = XLSX.utils.json_to_sheet(dados);
     const wb = XLSX.utils.book_new();
-    const sheetName = geralTodasCaixas
-      ? 'Auditoria_Geral_Samsung'
-      : (filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa).substring(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, 'Auditoria');
 
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(
-      wb,
-      geralTodasCaixas
-        ? `Relatorio_Geral_Todas_Caixas_Samsung_${regionalAtiva.replace(/\s+/g, '_')}_${getDataAtualFormatada().replace(/\//g, '-')}.xlsx`
-        : `Relatorio_Auditoria_${sheetName.replace(/\s+/g, '_')}.xlsx`
-    );
+    const sufixo = geralTodasCaixas ? 'GERAL_TODAS_CAIXAS' : (filtroCaixa === 'TODAS' ? caixaAtiva : filtroCaixa).replace(/\s+/g, '_');
+    XLSX.writeFile(wb, `Relatorio_Auditoria_${sufixo}.xlsx`);
   };
 
   // Exportar Relatório em PDF com informações completas de Lacre e Marcas
@@ -1449,6 +1486,7 @@ export const BipagemRapida: React.FC = () => {
       p.numero_lote || 'LOTE 1',
       p.classificacao_produto || p.product_classification || '-',
       p.produto_lacrado,
+      p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, regionalAtiva) || '-',
       p.kit_completo || '-',
       p.aparelho_marcas_uso || '-',
       p.observacao || '-',
@@ -1457,7 +1495,7 @@ export const BipagemRapida: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'SKU', 'IMEI', 'NF Origem', 'Lote', 'Classificação', 'Lacrado', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'SKU', 'IMEI', 'NF Origem', 'Lote', 'Classificação', 'Lacrado', 'Lacre Seg.', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -2345,6 +2383,26 @@ export const BipagemRapida: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* 1.1 Lacre de Segurança da Caixa */}
+                <div className="space-y-1.5 bg-white p-3 rounded-xl border border-indigo-200 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-slate-800 uppercase flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                      Lacre de Segurança:
+                    </span>
+                    <span className="text-[10px] text-indigo-600 font-bold">
+                      {caixaAtiva}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={lacreSegurancaAtivo}
+                    onChange={(e) => handleMudarLacreSeguranca(e.target.value.toUpperCase())}
+                    placeholder="Ex: LACRE-00123"
+                    className="w-full font-mono font-black text-sm uppercase bg-indigo-50/50 border border-indigo-300 rounded-xl px-3 py-2 text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 placeholder:font-normal placeholder:text-slate-400"
+                  />
+                </div>
               </div>
 
               {/* Campos extras obrigatórios se produto NÃO for lacrado */}
@@ -2757,6 +2815,22 @@ export const BipagemRapida: React.FC = () => {
                 NÃO (Aberto)
               </button>
             </div>
+
+            {/* 2.1 Campo: Número do Lacre de Segurança da Caixa */}
+            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 px-2.5 py-1.5 rounded-xl text-xs">
+              <span className="text-[11px] font-black text-slate-700 uppercase whitespace-nowrap mr-1 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                Lacre de Segurança:
+              </span>
+              <input
+                type="text"
+                value={lacreSegurancaAtivo}
+                onChange={(e) => handleMudarLacreSeguranca(e.target.value.toUpperCase())}
+                placeholder="Nº DO LACRE"
+                className="w-28 sm:w-32 bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-xs font-mono font-black text-indigo-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase tracking-wider"
+                title={`Número do lacre de segurança para a caixa ${caixaAtiva}`}
+              />
+            </div>
           </div>
 
           {/* ========================================================================= */}
@@ -3096,6 +3170,9 @@ export const BipagemRapida: React.FC = () => {
                   Classificação
                 </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Produto Lacrado</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[110px] bg-indigo-50 text-indigo-950">
+                  Lacre Segurança 🔒
+                </th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[120px]">Observação</th>
@@ -3208,6 +3285,18 @@ export const BipagemRapida: React.FC = () => {
                           <option value="SIM">SIM</option>
                           <option value="NÃO">NÃO</option>
                         </select>
+                      </td>
+
+                      {/* Lacre de Segurança */}
+                      <td className="py-2 px-2 text-center border-r border-amber-200 bg-indigo-50/30">
+                        <input
+                          type="text"
+                          value={editLacreSeguranca}
+                          onChange={(e) => setEditLacreSeguranca(e.target.value.toUpperCase())}
+                          placeholder="Nº Lacre"
+                          className="w-24 text-[11px] font-mono font-bold px-2 py-1 rounded border border-indigo-300 bg-white text-indigo-950 uppercase text-center"
+                          title="Número do Lacre de Segurança"
+                        />
                       </td>
 
                       {/* Kit Completo */}
@@ -3354,6 +3443,15 @@ export const BipagemRapida: React.FC = () => {
                       >
                         {item.produto_lacrado}
                       </span>
+                    </td>
+                    <td className="py-2 px-2 text-center border-r border-slate-200 bg-indigo-50/20">
+                      {item.lacre_seguranca ? (
+                        <span className="font-mono font-black px-2 py-0.5 rounded text-[10px] border bg-indigo-100 text-indigo-900 border-indigo-300 whitespace-nowrap">
+                          {item.lacre_seguranca}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 font-mono text-[10px]">-</span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-center font-bold border-r border-slate-200">
                       {item.produto_lacrado === 'SIM' ? (
@@ -3621,6 +3719,18 @@ export const BipagemRapida: React.FC = () => {
                     <option value="SIM">SIM</option>
                     <option value="NÃO">NÃO</option>
                   </select>
+                </td>
+
+                {/* LACRE DE SEGURANÇA */}
+                <td className="py-2 px-2 text-center border-r border-emerald-300 min-w-[110px] bg-indigo-50/30">
+                  <input
+                    type="text"
+                    value={lacreSegurancaAtivo}
+                    onChange={(e) => handleMudarLacreSeguranca(e.target.value.toUpperCase())}
+                    placeholder="Nº LACRE"
+                    className="w-full text-center text-xs font-mono font-black text-indigo-900 bg-white border-2 border-indigo-400 rounded px-1.5 py-1.5 focus:outline-none uppercase placeholder:text-slate-400"
+                    title={`Lacre de Segurança da Caixa ${caixaAtiva}`}
+                  />
                 </td>
 
                 {/* KIT COMPLETO */}

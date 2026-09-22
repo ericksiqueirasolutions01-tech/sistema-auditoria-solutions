@@ -18,33 +18,33 @@ describe('GATE 9: Hardening do App Desktop e Segurança Localhost', () => {
       // 1. package.json
       const pkgPath = path.join(rootDir, 'package.json');
       const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-      expect(pkgJson.version).toBe('1.2.0');
+      expect(pkgJson.version).toBe('1.3.0');
 
       // 2. public/version.json
       const publicVerPath = path.join(rootDir, 'public', 'version.json');
       const publicVerJson = JSON.parse(fs.readFileSync(publicVerPath, 'utf8'));
-      expect(publicVerJson.versao).toBe('1.2.0');
-      expect(publicVerJson.versaoCodigo).toBe(120);
+      expect(publicVerJson.versao).toBe('1.3.0');
+      expect(publicVerJson.versaoCodigo).toBe(130);
 
       // 3. src/version.ts
-      expect(VERSAO_LOCAL.versao).toBe('1.2.0');
-      expect(VERSAO_LOCAL.versaoCodigo).toBe(120);
+      expect(VERSAO_LOCAL.versao).toBe('1.3.0');
+      expect(VERSAO_LOCAL.versaoCodigo).toBe(130);
 
       // Todas as versões devem ser rigorosamente idênticas
       expect(pkgJson.version).toBe(VERSAO_LOCAL.versao);
       expect(publicVerJson.versao).toBe(VERSAO_LOCAL.versao);
     });
 
-    it('deve conter a versão 1.2.0 no instalador Windows (InstallerWizard.cs) e no app host (SistemaAuditoriaApp.cs)', () => {
+    it('deve conter a versão 1.3.0 no instalador Windows (InstallerWizard.cs) e no app host (SistemaAuditoriaApp.cs)', () => {
       const installerPath = path.join(rootDir, 'src-desktop', 'InstallerWizard.cs');
       const installerCode = fs.readFileSync(installerPath, 'utf8');
-      expect(installerCode).toContain('Versão 1.2.0');
-      expect(installerCode).toContain('DisplayVersion", "1.2.0"');
+      expect(installerCode).toContain('Versão 1.3.0');
+      expect(installerCode).toContain('DisplayVersion", "1.3.0"');
 
       const appPath = path.join(rootDir, 'src-desktop', 'SistemaAuditoriaApp.cs');
       const appCode = fs.readFileSync(appPath, 'utf8');
-      expect(appCode).toContain('1.2.0');
-      expect(appCode).toContain('120');
+      expect(appCode).toContain('1.3.0');
+      expect(appCode).toContain('130');
     });
   });
 

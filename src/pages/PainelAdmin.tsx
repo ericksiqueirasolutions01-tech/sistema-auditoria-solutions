@@ -800,6 +800,8 @@ export const PainelAdmin: React.FC = () => {
     const numeroLoteFormatado = rel.lote.startsWith('LOTE') ? rel.lote : `LOTE ${rel.lote}`;
 
     // Aba 1 (Principal): Produtos do Lote Completo (Abre diretamente ao carregar o arquivo no Excel)
+    const pendentesDoLote = loteFinalizadoAtual?.produtos_pendentes || [];
+
     const produtosData = rel.produtos.map((p, idx) => {
       let dataHoraLancamento = p.data_auditoria;
       if (p.data_cadastro) {
@@ -815,6 +817,7 @@ export const PainelAdmin: React.FC = () => {
         'Nº': idx + 1,
         'Número do Lote': p.numero_lote || numeroLoteFormatado,
         'Caixa': p.numero_caixa,
+        'Número do Lacre': p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, p.regional || rel.cliente) || '-',
         'Cliente': clienteNome,
         'Regional': p.regional || regionalNome,
         'Fabricante': p.fabricante || 'SAMSUNG',
@@ -840,22 +843,54 @@ export const PainelAdmin: React.FC = () => {
             : 'Aguardando envio para Online',
       };
     });
-    const wsProdutos = XLSX.utils.json_to_sheet(produtosData);
+
+    // Requisito: Produtos pendentes devem aparecer no relatório identificados como 'Não lançado' ou 'Não entregue pelo cliente' com Caixa = 0
+    const produtosPendentesData = pendentesDoLote.map((item, pIdx) => {
+      const motivoIdentificacao = item.motivo || loteFinalizadoAtual?.motivo_pendencias || 'Não lançado';
+      return {
+        'Nº': rel.produtos.length + pIdx + 1,
+        'Número do Lote': numeroLoteFormatado,
+        'Caixa': '0',
+        'Número do Lacre': '-',
+        'Cliente': clienteNome,
+        'Regional': rel.cliente || regionalNome,
+        'Fabricante': item.fabricante || 'SAMSUNG',
+        'Modelo Produto': item.modelo || 'Modelo não especificado',
+        'EAN': item.sku || '-',
+        'IMEI / Serial': item.imei,
+        'Produto Lacrado': motivoIdentificacao,
+        'NF Conferida': 'NÃO',
+        'Kit Completo': '-',
+        'Marcas de Uso': '-',
+        'Observações': loteFinalizadoAtual?.motivo_pendencias || item.motivo || 'Não entregue pelo cliente',
+        'Data/Hora Lançamento': '-',
+        'Colaborador Lançamento': '-',
+        'Data Fechamento': dataFechamento,
+        'Hora Fechamento': horaFechamento,
+        'Colaborador Fechamento': colaboradorFechamento,
+        'Status do Lote': statusLoteTexto,
+        'Status Sincronização': motivoIdentificacao,
+      };
+    });
+
+    const todosProdutosData = [...produtosData, ...produtosPendentesData];
+    const wsProdutos = XLSX.utils.json_to_sheet(todosProdutosData);
     wsProdutos['!cols'] = [
       { wch: 6 },  // Nº
       { wch: 16 }, // Número do Lote
       { wch: 12 }, // Caixa
+      { wch: 18 }, // Número do Lacre
       { wch: 16 }, // Cliente
       { wch: 18 }, // Regional
       { wch: 14 }, // Fabricante
       { wch: 26 }, // Modelo Produto
       { wch: 16 }, // EAN
       { wch: 18 }, // IMEI / Serial
-      { wch: 16 }, // Produto Lacrado
+      { wch: 18 }, // Produto Lacrado
       { wch: 16 }, // NF Conferida
       { wch: 14 }, // Kit Completo
       { wch: 14 }, // Marcas de Uso
-      { wch: 20 }, // Observações
+      { wch: 22 }, // Observações
       { wch: 22 }, // Data/Hora Lançamento
       { wch: 24 }, // Colaborador Lançamento
       { wch: 16 }, // Data Fechamento
@@ -877,7 +912,10 @@ export const PainelAdmin: React.FC = () => {
         'Hora do Fechamento': horaFechamento,
         'Colaborador Responsável': colaboradorFechamento,
         'Quantidade de Caixas': rel.totalCaixas,
-        'Quantidade Total de Produtos': rel.totalProdutos,
+        'Quantidade Total de Produtos': rel.totalProdutos + pendentesDoLote.length,
+        'Produtos Auditados': rel.totalProdutos,
+        'Produtos Pendentes': pendentesDoLote.length,
+        'Motivo Pendências': loteFinalizadoAtual?.motivo_pendencias || '-',
       },
     ];
     const wsResumo = XLSX.utils.json_to_sheet(resumoData);
@@ -891,24 +929,43 @@ export const PainelAdmin: React.FC = () => {
       { wch: 25 },
       { wch: 22 },
       { wch: 26 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 26 },
     ];
     XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo do Lote');
 
     // Aba 3: Caixas que Compõem o Lote
-    const caixasData = rel.caixas.map((c, idx) => ({
+    const caixasData: Record<string, string | number>[] = rel.caixas.map((c, idx) => ({
       'Nº': idx + 1,
       'Número do Lote': numeroLoteFormatado,
       'Volume / Caixa': c.caixa,
+      'Número do Lacre': db.obterLacreCaixa(c.caixa, rel.cliente) || '-',
       'Total de Produtos': c.totalProdutos,
       'Produtos Lacrados': c.lacrados,
       'Produtos Abertos': c.naoLacrados,
       'Status de Envio': c.statusEnvio,
     }));
+
+    if (pendentesDoLote.length > 0) {
+      caixasData.push({
+        'Nº': caixasData.length + 1,
+        'Número do Lote': numeroLoteFormatado,
+        'Volume / Caixa': '0 (Pendentes / Não Lançados)',
+        'Número do Lacre': '-',
+        'Total de Produtos': pendentesDoLote.length,
+        'Produtos Lacrados': 0,
+        'Produtos Abertos': 0,
+        'Status de Envio': loteFinalizadoAtual?.motivo_pendencias || 'Não lançado',
+      });
+    }
+
     const wsCaixas = XLSX.utils.json_to_sheet(caixasData);
     wsCaixas['!cols'] = [
       { wch: 6 },
       { wch: 16 },
-      { wch: 16 },
+      { wch: 26 },
+      { wch: 18 }, // Número do Lacre
       { wch: 18 },
       { wch: 18 },
       { wch: 18 },
@@ -962,20 +1019,35 @@ export const PainelAdmin: React.FC = () => {
     doc.text(`DATA CRIAÇÃO: ${rel.dataCriacao}`, 190, 48);
     doc.text(`STATUS: ${loteFinalizadoAtual?.status === 'FINALIZADO' ? 'LOTE FINALIZADO' : rel.status.toUpperCase()}`, 190, 54);
 
+    const pendentesDoLote = loteFinalizadoAtual?.produtos_pendentes || [];
+
     // Table of Boxes
-    const tableCaixas = rel.caixas.map((c, idx) => [
+    const tableCaixas: string[][] = rel.caixas.map((c, idx) => [
       (idx + 1).toString(),
       c.caixa,
+      db.obterLacreCaixa(c.caixa, rel.cliente) || '-',
       `${c.totalProdutos} produtos`,
       `${c.lacrados} lacrados`,
       `${c.naoLacrados} abertos`,
       c.statusEnvio,
     ]);
 
+    if (pendentesDoLote.length > 0) {
+      tableCaixas.push([
+        (tableCaixas.length + 1).toString(),
+        '0 (Pendentes / Não Lançados)',
+        '-',
+        `${pendentesDoLote.length} produtos`,
+        '0 lacrados',
+        '0 abertos',
+        loteFinalizadoAtual?.motivo_pendencias || 'Não lançado',
+      ]);
+    }
+
     autoTable(doc, {
       startY: 64,
-      head: [['#', 'Volume / Caixa', 'Qtd Produtos', 'Lacrados', 'Não Lacrados', 'Status Envio']],
-      body: tableCaixas.length > 0 ? tableCaixas : [['-', 'Nenhuma caixa vinculada', '-', '-', '-', '-']],
+      head: [['#', 'Volume / Caixa', 'Número do Lacre', 'Qtd Produtos', 'Lacrados', 'Não Lacrados', 'Status Envio']],
+      body: tableCaixas.length > 0 ? tableCaixas : [['-', 'Nenhuma caixa vinculada', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: {
         fillColor: [217, 119, 6],
@@ -988,19 +1060,20 @@ export const PainelAdmin: React.FC = () => {
         cellPadding: 2.5,
       },
       columnStyles: {
-        0: { halign: 'center', cellWidth: 12 },
+        0: { halign: 'center', cellWidth: 10 },
         1: { fontStyle: 'bold' },
         2: { halign: 'center', fontStyle: 'bold' },
-        3: { halign: 'center' },
+        3: { halign: 'center', fontStyle: 'bold' },
         4: { halign: 'center' },
-        5: { halign: 'center', fontStyle: 'bold' },
+        5: { halign: 'center' },
+        6: { halign: 'center', fontStyle: 'bold' },
       },
     });
 
     let currentY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
-    // Table of Products com Lote | Caixa | Produto Lacrado | NF Conferida (Requisito 9)
-    const tableProds = rel.produtos.map((p, idx) => {
+    // Table of Products com Lote | Caixa | Número do Lacre | Modelo | IMEI | Status / Lacrado | NF Conferida
+    const tableProds: string[][] = rel.produtos.map((p, idx) => {
       let dataHoraLancamento = p.data_auditoria;
       if (p.data_cadastro) {
         try {
@@ -1015,6 +1088,7 @@ export const PainelAdmin: React.FC = () => {
         (idx + 1).toString(),
         p.numero_lote || rel.lote,
         p.numero_caixa,
+        p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, p.regional || rel.cliente) || '-',
         p.modelo_produto,
         p.imei || p.serial,
         p.produto_lacrado,
@@ -1024,6 +1098,26 @@ export const PainelAdmin: React.FC = () => {
       ];
     });
 
+    // Inserir produtos pendentes com numeração de Caixa = 0 e motivo
+    if (pendentesDoLote.length > 0) {
+      for (let i = 0; i < pendentesDoLote.length; i++) {
+        const item = pendentesDoLote[i];
+        const motivoIdentificacao = item.motivo || loteFinalizadoAtual?.motivo_pendencias || 'Não lançado';
+        tableProds.push([
+          (rel.produtos.length + i + 1).toString(),
+          rel.lote,
+          '0',
+          '-',
+          item.modelo || 'Modelo não especificado',
+          item.imei,
+          motivoIdentificacao,
+          'NÃO',
+          '-',
+          '-',
+        ]);
+      }
+    }
+
     if (currentY > 170) {
       doc.addPage();
       currentY = 25;
@@ -1032,12 +1126,17 @@ export const PainelAdmin: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(`RELAÇÃO DE PRODUTOS DO LOTE ${rel.lote} (${rel.produtos.length} APARELHOS)`, 14, currentY);
+    const totalAparelhosGeral = rel.produtos.length + pendentesDoLote.length;
+    doc.text(
+      `RELAÇÃO DE PRODUTOS DO LOTE ${rel.lote} (${totalAparelhosGeral} APARELHOS${pendentesDoLote.length > 0 ? ` • ${pendentesDoLote.length} PENDENTES` : ''})`,
+      14,
+      currentY
+    );
 
     autoTable(doc, {
       startY: currentY + 4,
-      head: [['#', 'Lote', 'Caixa', 'Modelo Produto', 'IMEI', 'Produto Lacrado', 'NF Conferida', 'Data/Hora', 'Colaborador']],
-      body: tableProds.length > 0 ? tableProds : [['-', '-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
+      head: [['#', 'Lote', 'Caixa', 'Número do Lacre', 'Modelo Produto', 'IMEI', 'Status / Lacrado', 'NF Conferida', 'Data/Hora', 'Colaborador']],
+      body: tableProds.length > 0 ? tableProds : [['-', '-', '-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: {
         fillColor: [30, 41, 59],
@@ -3009,6 +3108,7 @@ export const PainelAdmin: React.FC = () => {
                           <tr className="bg-slate-100 text-slate-700 uppercase font-black tracking-wider border-b border-slate-200">
                             <th className="py-3 px-4">#</th>
                             <th className="py-3 px-4">Volume / Caixa</th>
+                            <th className="py-3 px-4 text-center">Número do Lacre</th>
                             <th className="py-3 px-4 text-center">Total Produtos</th>
                             <th className="py-3 px-4 text-center">Lacrados</th>
                             <th className="py-3 px-4 text-center">Não Lacrados</th>
@@ -3022,6 +3122,9 @@ export const PainelAdmin: React.FC = () => {
                               <td className="py-3 px-4 font-black text-slate-900 text-sm flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-amber-500" />
                                 {c.caixa}
+                              </td>
+                              <td className="py-3 px-4 text-center font-mono font-bold text-slate-700">
+                                {db.obterLacreCaixa(c.caixa, relatorioLote.cliente) || '-'}
                               </td>
                               <td className="py-3 px-4 text-center font-black text-slate-800 text-sm">
                                 {c.totalProdutos}
@@ -3045,6 +3148,28 @@ export const PainelAdmin: React.FC = () => {
                               </td>
                             </tr>
                           ))}
+
+                          {/* Linha de Produtos Pendentes com Caixa 0 */}
+                          {loteFinalizadoAtual?.produtos_pendentes && loteFinalizadoAtual.produtos_pendentes.length > 0 && (
+                            <tr className="bg-rose-50/50 hover:bg-rose-50 transition-colors border-t-2 border-rose-200">
+                              <td className="py-3 px-4 text-rose-500 font-bold">{relatorioLote.caixas.length + 1}</td>
+                              <td className="py-3 px-4 font-black text-rose-900 text-sm flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                                Caixa 0 (Produtos Pendentes)
+                              </td>
+                              <td className="py-3 px-4 text-center font-mono text-slate-400">-</td>
+                              <td className="py-3 px-4 text-center font-black text-rose-700 text-sm">
+                                {loteFinalizadoAtual.produtos_pendentes.length}
+                              </td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-400">0</td>
+                              <td className="py-3 px-4 text-center font-bold text-slate-400">0</td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">
+                                  {loteFinalizadoAtual.motivo_pendencias || 'Não lançado'}
+                                </span>
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -3068,6 +3193,7 @@ export const PainelAdmin: React.FC = () => {
                             <th className="py-3 px-3">#</th>
                             <th className="py-3 px-3">Lote</th>
                             <th className="py-3 px-3">Caixa</th>
+                            <th className="py-3 px-3">Número do Lacre</th>
                             <th className="py-3 px-3">Modelo</th>
                             <th className="py-3 px-3">IMEI</th>
                             <th className="py-3 px-3 text-center">Produto Lacrado</th>
@@ -3099,6 +3225,9 @@ export const PainelAdmin: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-3 font-bold text-slate-800">{p.numero_caixa}</td>
+                                <td className="py-2.5 px-3 font-mono text-slate-700 text-[11px]">
+                                  {p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, p.regional) || '-'}
+                                </td>
                                 <td className="py-2.5 px-3 font-black text-slate-900">{p.modelo_produto}</td>
                                 <td className="py-2.5 px-3 font-mono font-bold text-blue-700 text-[11px]">
                                   {p.imei || p.serial}
@@ -3159,6 +3288,47 @@ export const PainelAdmin: React.FC = () => {
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {/* Produtos Pendentes com Caixa 0 e Identificação de Motivo */}
+                          {loteFinalizadoAtual?.produtos_pendentes?.map((item, pIdx) => {
+                            const motivoIdentificacao = item.motivo || loteFinalizadoAtual?.motivo_pendencias || 'Não lançado';
+                            return (
+                              <tr key={item.imei || pIdx} className="bg-rose-50/40 hover:bg-rose-50 transition-colors">
+                                <td className="py-2.5 px-3 text-rose-500 font-bold">{relatorioLote.produtos.length + pIdx + 1}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className="font-mono font-black bg-rose-100 text-rose-900 px-2 py-0.5 rounded text-[10px] border border-rose-300">
+                                    LOTE {relatorioLote.lote}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-rose-800">0</td>
+                                <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">-</td>
+                                <td className="py-2.5 px-3 font-black text-slate-800">{item.modelo || '-'}</td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-rose-700 text-[11px]">
+                                  {item.imei}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black border bg-rose-100 text-rose-800 border-rose-300">
+                                    {motivoIdentificacao}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center bg-rose-50/20">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black border bg-rose-100 text-rose-800 border-rose-300">
+                                    ❌ NÃO
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-400 font-medium text-[11px]">-</td>
+                                <td className="py-2.5 px-3 text-slate-400 font-medium">-</td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">
+                                    Pendente
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center text-slate-500 text-[10px]">
+                                  {loteFinalizadoAtual.motivo_pendencias || item.motivo || 'Não lançado'}
                                 </td>
                               </tr>
                             );
@@ -3844,6 +4014,9 @@ export const PainelAdmin: React.FC = () => {
           onImportarNova={() => {
             setMostrarModalHistoricoPlanilhas(false);
             setMostrarModalImportarPlanilha(true);
+          }}
+          onBaseExcluida={() => {
+            setForcarAtualizacao((v) => v + 1);
           }}
         />
       )}

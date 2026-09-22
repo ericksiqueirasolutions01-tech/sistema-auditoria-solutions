@@ -2,14 +2,15 @@ import React from 'react';
 import { Download, Monitor, CheckCircle2, ShieldCheck, X, HardDrive, Cpu, Calendar, Tag, FileText } from 'lucide-react';
 import { SolutionsLogo } from './SolutionsLogo';
 import { SamsungLogo } from './SamsungLogo';
+import { VERSAO_LOCAL } from '../version';
 
 interface ModalDownloadAppProps {
   onClose: () => void;
 }
 
 export const ModalDownloadApp: React.FC<ModalDownloadAppProps> = ({ onClose }) => {
-  const versaoApp = '1.2.0';
-  const dataAtualizacao = '15/09/2026';
+  const versaoApp = VERSAO_LOCAL.versao;
+  const dataAtualizacao = new Date(VERSAO_LOCAL.dataPublicacao).toLocaleDateString('pt-BR');
   const nomeApp = 'Sistema de Auditoria Grupo Solutions - Samsung';
   const downloadUrl = '/downloads/Sistema-Auditoria-Solutions-Setup.exe';
   const manualPdfUrl = '/downloads/Manual_Colaborador_Auditoria_Solutions.pdf';

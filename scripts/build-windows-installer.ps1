@@ -143,7 +143,7 @@ $hashInstaller = (Get-FileHash -Algorithm SHA256 -Path $installerExe).Hash.ToLow
 
 $manifestJson = @{
     generated_at = (Get-Date).ToString("o")
-    version = "1.2.0"
+    version = "1.3.0"
     app_executable = @{
         name = "SistemaAuditoriaSolutions.exe"
         sha256 = $hashApp

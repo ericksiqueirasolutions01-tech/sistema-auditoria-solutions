@@ -41,6 +41,7 @@ import {
   MetricasValidacaoPlanilha,
   ConfiguracaoCaixa,
   BoxSealedStatus,
+  ItemPendenteLote,
 } from '../types';
 import { VERSAO_LOCAL } from '../version';
 import {
@@ -73,6 +74,7 @@ const STORAGE_KEY_COLABORADOR_ATIVO = 'solutions_auditoria_colaborador_ativo_v1'
 const STORAGE_KEY_IMPORT_BATCHES = 'solutions_inventory_import_batches_v1';
 const STORAGE_KEY_REGIONAL_REFS = 'solutions_regional_inventory_refs_v1';
 const STORAGE_KEY_AUDIT_LOTS = 'solutions_audit_lots_v1';
+const STORAGE_KEY_LACRES_CAIXAS = 'solutions_auditoria_lacres_caixas_v1';
 
 /**
  * Normaliza o valor de Dealer conforme regra central (Seção 6 do Prompt Mestre):
@@ -1416,6 +1418,7 @@ class AuditoriaDatabase {
     numero_nf?: string;
     nf_conferida?: SimNao | null;
     produto_lacrado: SimNao;
+    lacre_seguranca?: string | null;
     regional?: string;
     kit_completo?: SimNao | null;
     aparelho_marcas_uso?: SimNao | null;
@@ -1605,6 +1608,15 @@ class AuditoriaDatabase {
       ? (item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN')
       : (validacaoCaixa.configCaixa?.condicaoLacre === 'LACRADO' ? 'SEALED' : 'OPEN');
 
+    const lacreSegurancaValor =
+      item.lacre_seguranca !== undefined && item.lacre_seguranca !== null && String(item.lacre_seguranca).trim() !== ''
+        ? String(item.lacre_seguranca).trim().toUpperCase()
+        : this.obterLacreCaixa(caixaAlvo, regionalFinal) || null;
+
+    if (lacreSegurancaValor) {
+      this.definirLacreCaixa(caixaAlvo, lacreSegurancaValor, regionalFinal);
+    }
+
     const novoProduto: ProdutoAuditoria = {
       id: idLocal,
       id_local: idLocal,
@@ -1624,6 +1636,7 @@ class AuditoriaDatabase {
       status_conformidade: statusConformidade,
       divergencia_nf: divergenciaNf,
       produto_lacrado: item.produto_lacrado,
+      lacre_seguranca: lacreSegurancaValor,
       kit_completo: item.produto_lacrado === 'SIM' ? null : item.kit_completo || null,
       aparelho_marcas_uso: item.produto_lacrado === 'SIM' ? null : item.aparelho_marcas_uso || null,
       observacao: (item.observacao || '').trim(),
@@ -2138,12 +2151,49 @@ class AuditoriaDatabase {
     return res.sort((a, b) => new Date(b.data_fechamento).getTime() - new Date(a.data_fechamento).getTime());
   }
 
+  obterProdutosPendentesLote(lote: string, regional?: string): ItemPendenteLote[] {
+    const loteNorm = (lote || '').trim().toUpperCase();
+    const regAlvo = regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+    const itensReferencia = this.obterListaAtivaReferencia(regAlvo);
+    if (!itensReferencia || itensReferencia.length === 0) {
+      return [];
+    }
+
+    const regNorm = regAlvo.trim().toUpperCase();
+    const produtosDaRegional = this.produtos.filter((p) => {
+      if (!regNorm || regNorm === 'TODAS') return true;
+      return (p.regional || '').trim().toUpperCase() === regNorm;
+    });
+
+    const imeisLancados = new Set(
+      produtosDaRegional.map((p) => normalizeImei(p.imei || p.serial || '')).filter(Boolean)
+    );
+
+    const pendentes: ItemPendenteLote[] = [];
+    for (const ref of itensReferencia) {
+      const imeiNorm = normalizeImei(ref.imei_normalized);
+      if (!imeisLancados.has(imeiNorm)) {
+        pendentes.push({
+          imei: ref.imei_normalized,
+          sku: ref.sku,
+          modelo: ref.model_description,
+          fabricante: ref.brand,
+          origin_invoice: ref.origin_invoice,
+        });
+      }
+    }
+
+    return pendentes;
+  }
+
   finalizarLote(dados: {
     numeroLote: string;
     regional?: string;
     colaborador?: string;
     fotos: FotosFechamentoLote;
     observacao?: string;
+    motivoPendencias?: string;
+    produtosPendentes?: ItemPendenteLote[];
   }): { sucesso: boolean; erro?: string; lote?: RegistroLoteFinalizado } {
     const loteNorm = (dados.numeroLote || '').trim().toUpperCase();
     if (!loteNorm) {
@@ -2180,6 +2230,18 @@ class AuditoriaDatabase {
     const totalCaixas = caixasSet.size;
     const totalProdutos = produtosDoLote.length;
 
+    // Verificar produtos pendentes em relação à base de referência regional ativa
+    const pendentesCalculados = dados.produtosPendentes ?? this.obterProdutosPendentesLote(loteNorm, regAlvo);
+    const temPendencias = pendentesCalculados.length > 0;
+    const motivoRegistrado = dados.motivoPendencias?.trim() || (temPendencias ? 'Não lançado' : null);
+
+    const produtosPendentesFinais: ItemPendenteLote[] | undefined = temPendencias
+      ? pendentesCalculados.map((item) => ({
+          ...item,
+          motivo: motivoRegistrado || 'Não lançado',
+        }))
+      : undefined;
+
     const agora = new Date().toISOString();
     const idLote = `lote-fin-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
@@ -2190,7 +2252,7 @@ class AuditoriaDatabase {
       usuario: colaboradorFinal,
       perfil: this.usuarioAtual?.perfil || 'OPERADOR',
       acao: 'FECHAMENTO',
-      detalhes: `Lote ${loteNorm} finalizado oficialmente pelo colaborador ${colaboradorFinal} com 3 fotos anexadas (${totalCaixas} caixas, ${totalProdutos} aparelhos).`,
+      detalhes: `Lote ${loteNorm} finalizado oficialmente pelo colaborador ${colaboradorFinal} com 3 fotos anexadas (${totalCaixas} caixas, ${totalProdutos} aparelhos)${temPendencias ? ` com ${pendentesCalculados.length} produto(s) pendente(s) - Motivo: ${motivoRegistrado}` : ''}.`,
     };
 
     // Cálculo criptográfico de Checksum do Lote (Gate 6 / Domain)
@@ -2220,6 +2282,8 @@ class AuditoriaDatabase {
       reaberto_por: null,
       data_reabertura: null,
       motivo_reabertura: null,
+      motivo_pendencias: motivoRegistrado,
+      produtos_pendentes: produtosPendentesFinais,
       historico_alteracoes: [historicoInicial],
     };
 
@@ -2668,6 +2732,77 @@ class AuditoriaDatabase {
     };
   }
 
+  obterLacreCaixa(numeroCaixa: string, regional?: string): string {
+    const caixaNorm = numeroCaixa.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    // 1. Procurar primeiro nos produtos já existentes na caixa
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.trim().toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || '').trim().toUpperCase() !== regAlvo.trim().toUpperCase()) continue;
+      if (p.lacre_seguranca && p.lacre_seguranca.trim()) {
+        return p.lacre_seguranca.trim();
+      }
+    }
+
+    // 2. Procurar no mapa persistido do LocalStorage
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = localStorage.getItem(STORAGE_KEY_LACRES_CAIXAS);
+        if (raw) {
+          const map = JSON.parse(raw);
+          if (regAlvo && regAlvo !== 'TODAS') {
+            const keyReg = `${regAlvo.trim().toUpperCase()}:::${caixaNorm}`;
+            if (map[keyReg]) return String(map[keyReg]).trim();
+          }
+          if (map[caixaNorm]) return String(map[caixaNorm]).trim();
+        }
+      }
+    } catch {}
+
+    return '';
+  }
+
+  definirLacreCaixa(numeroCaixa: string, lacre: string, regional?: string): void {
+    const caixaNorm = numeroCaixa.trim().toUpperCase();
+    const lacreNorm = lacre.trim().toUpperCase();
+    const regAlvo =
+      regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
+
+    // 1. Salvar no mapa do LocalStorage
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = localStorage.getItem(STORAGE_KEY_LACRES_CAIXAS);
+        const map = raw ? JSON.parse(raw) : {};
+        if (regAlvo && regAlvo !== 'TODAS') {
+          map[`${regAlvo.trim().toUpperCase()}:::${caixaNorm}`] = lacreNorm;
+        }
+        map[caixaNorm] = lacreNorm;
+        localStorage.setItem(STORAGE_KEY_LACRES_CAIXAS, JSON.stringify(map));
+      }
+    } catch {}
+
+    // 2. Atualizar todos os produtos já cadastrados nessa caixa
+    let alterados = false;
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.trim().toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || '').trim().toUpperCase() !== regAlvo.trim().toUpperCase()) continue;
+
+      if (p.lacre_seguranca !== lacreNorm) {
+        p.lacre_seguranca = lacreNorm;
+        alterados = true;
+      }
+    }
+
+    if (alterados) {
+      this.salvarTudo();
+      this.notificarMudanca('produtos');
+    }
+  }
+
   obterConfiguracaoCaixa(numeroCaixa: string, regional?: string): ConfiguracaoCaixa {
     const caixaNorm = numeroCaixa.trim().toUpperCase();
     const regAlvo =
@@ -2696,6 +2831,7 @@ class AuditoriaDatabase {
         classificacao: null,
         condicaoLacre: null,
         produto_lacrado: null,
+        lacre_seguranca: this.obterLacreCaixa(numeroCaixa, regAlvo || undefined) || null,
       };
     }
 
@@ -2714,6 +2850,11 @@ class AuditoriaDatabase {
         ? 'LACRADO'
         : 'ABERTO';
 
+    const lacreSeguranca =
+      primeiroProduto.lacre_seguranca ||
+      this.obterLacreCaixa(numeroCaixa, regAlvo || undefined) ||
+      null;
+
     return {
       caixa: numeroCaixa,
       regional: regAlvo || primeiroProduto.regional,
@@ -2722,6 +2863,7 @@ class AuditoriaDatabase {
       classificacao,
       condicaoLacre,
       produto_lacrado: primeiroProduto.produto_lacrado,
+      lacre_seguranca: lacreSeguranca,
     };
   }
 
@@ -3466,6 +3608,7 @@ class AuditoriaDatabase {
       localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
       localStorage.removeItem('solutions_ultima_sincronizacao');
       localStorage.removeItem(STORAGE_KEY_ULTIMO_LOTE);
+      localStorage.removeItem(STORAGE_KEY_LACRES_CAIXAS);
     }
 
     // 5. Limpar completamente o IndexedDB de forma síncrona/aguardada
@@ -4923,6 +5066,87 @@ class AuditoriaDatabase {
       .filter((b) => b.regional.toUpperCase() === regFull || extrairCodigoRegional(b.regional) === regCod)
       .sort((a, b) => (b.version || 0) - (a.version || 0));
   }
+
+  async excluirBaseReferenciaRegional(batchId: string): Promise<{ sucesso: boolean; erro?: string }> {
+    if (!batchId) {
+      return { sucesso: false, erro: 'ID da base de referência não informado.' };
+    }
+
+    const batchIndex = this.importBatches.findIndex((b) => b.id === batchId);
+    if (batchIndex === -1) {
+      return { sucesso: false, erro: 'Base de referência não encontrada.' };
+    }
+
+    const batchRemovido = this.importBatches[batchIndex];
+
+    // Remover batch da lista em memória
+    this.importBatches.splice(batchIndex, 1);
+
+    // Remover itens vinculados
+    this.regionalReferences = this.regionalReferences.filter((r) => r.import_batch_id !== batchId);
+
+    // Se o batch excluído era o ATIVO, ativar a versão remanescente mais recente da regional
+    if (batchRemovido.status === 'ATIVA') {
+      const regCod = extrairCodigoRegional(batchRemovido.regional);
+      const regFull = batchRemovido.regional.toUpperCase();
+
+      const restantes = this.importBatches
+        .filter((b) => b.regional.toUpperCase() === regFull || extrairCodigoRegional(b.regional) === regCod)
+        .sort((a, b) => (b.version || 0) - (a.version || 0));
+
+      if (restantes.length > 0) {
+        const novaAtiva = restantes[0];
+        novaAtiva.status = 'ATIVA';
+        novaAtiva.updated_at = new Date().toISOString();
+
+        for (const ref of this.regionalReferences) {
+          if (ref.import_batch_id === novaAtiva.id) {
+            ref.is_active = true;
+          }
+        }
+      }
+    }
+
+    this.reconstruirMapaReferencia();
+    this.salvarTudo();
+
+    // Remover do IndexedDB de forma segura
+    try {
+      if (idb?.inventory_import_batches) {
+        await idb.inventory_import_batches.delete(batchId);
+      }
+      if (idb?.regional_inventory_reference) {
+        await idb.regional_inventory_reference.where('import_batch_id').equals(batchId).delete();
+      }
+    } catch (idbErr) {
+      console.warn('Erro ao deletar base de referência do IndexedDB:', idbErr);
+    }
+
+    // Se Supabase ativo, deletar em background
+    if (isSupabaseConfigured && supabase) {
+      const supa = supabase;
+      (async () => {
+        try {
+          await supa.from('regional_inventory_reference').delete().eq('import_batch_id', batchId);
+          await supa.from('inventory_import_batches').delete().eq('id', batchId);
+        } catch (supaErr) {
+          console.warn('Erro ao deletar base do Supabase em background:', supaErr);
+        }
+      })().catch(() => {});
+    }
+
+    const usuarioNome = this.usuarioAtual?.nome || 'Administrador';
+    this.registrarHistorico(
+      usuarioNome,
+      'EXCLUIR_BASE_REFERENCIA',
+      `Excluída a base de referência ${batchRemovido.file_name} v${batchRemovido.version} da regional ${batchRemovido.regional}`,
+      batchRemovido.regional
+    );
+
+    this.notificarMudanca('regional_reference');
+    return { sucesso: true };
+  }
+
 
   listarLotesDinamicos(regional?: string): AuditLot[] {
     if (!regional) return [...this.auditLots];

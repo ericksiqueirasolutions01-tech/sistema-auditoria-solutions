@@ -13,23 +13,21 @@ export interface InfoVersaoSistema {
 
 // Versão compilada neste pacote do aplicativo
 export const VERSAO_LOCAL: InfoVersaoSistema = {
-  versao: '1.2.0',
-  versaoCodigo: 120,
-  dataPublicacao: '2026-09-15T13:20:00.000Z',
+  versao: '1.3.0',
+  versaoCodigo: 130,
+  dataPublicacao: '2026-09-22T19:00:00.000Z',
   obrigatoria: true,
   titulo: 'Sistema de Auditoria Solutions Samsung',
   descricao:
-    'Versão oficial v1.2.0 com campo obrigatório de conferência de NF, pesquisa rápida de lote, relatório Excel estruturado em abas e módulo completo de auditoria administrativa.',
+    'Versão oficial v1.3.0 com lacre de segurança por caixa na bipagem e espelho, relatório do administrador com lacre de cada caixa, exclusão e gestão de bases de referência, conferência de produtos pendentes antes do fechamento e justificativa obrigatória com Caixa 0.',
   novidades: [
-    'Campo obrigatório "NF FOI CONFERIDA" (🟢 SIM / NÃO) ao lado de PRODUTO LACRADO',
-    'Validação obrigatória de conferência de NF em todos os itens antes do fechamento do lote',
-    'Campo de busca e botão dedicado "🔎 PESQUISAR LOTE" no painel administrativo',
-    'Tabela completa de produtos do lote com status de Lacre, NF Conferida e ações',
-    'Relatório Excel aprimorado: Aba 1 (Resumo do Lote) e Aba 2 (Produtos do Lote)',
-    'Módulo de edição e exclusão de itens de lotes finalizados pelo Administrador com motivo',
-    'Trilha de auditoria permanente registrando responsável, data/hora e justificativa',
-    'Botão de re-finalização de lote exclusivo para o Administrador',
-    'Bloqueio permanente de lotes finalizados para operadores',
+    'Campo e controle de Lacre de Segurança por Caixa na bipagem contínua e cabeçalho operacional',
+    'Exibição do Lacre de Segurança nos Espelhos de Caixa (Modelos 1 e 2) e PDFs oficiais',
+    'Relatório do Administrador (Excel e PDF) com coluna dedicada ao Número do Lacre de cada caixa',
+    'Exclusão de bases de referência regionais pelo Administrador com reativação automática de versão anterior',
+    'Validação prévia de produtos pendentes ao fechar lote comparando listagem oficial com itens bipados',
+    'Campo obrigatório de justificativa/motivo para fechamento de lote com pendências',
+    'Produtos pendentes listados nos relatórios com numeração de Caixa = 0 e motivo registrado',
   ],
   downloadUrl:
     'https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe',

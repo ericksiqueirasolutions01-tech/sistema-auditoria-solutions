@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { db } from '../db/storage';
-import { FotosFechamentoLote, RegistroLoteFinalizado } from '../types';
+import { FotosFechamentoLote, RegistroLoteFinalizado, ItemPendenteLote } from '../types';
 import {
   Lock,
   Camera,
@@ -17,6 +17,7 @@ import {
   Layers,
   User,
   Calendar,
+  AlertCircle,
 } from 'lucide-react';
 import { ModalVisualizarFotoLote } from './ModalVisualizarFotoLote';
 
@@ -85,6 +86,12 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
   const [mostrarConfirmacao, setMostrarConfirmacao] = useState(false);
   const [fotoZoom, setFotoZoom] = useState<{ url: string; titulo: string } | null>(null);
 
+  // Estados para Gestão de Produtos Pendentes antes da finalização
+  const [produtosPendentes, setProdutosPendentes] = useState<ItemPendenteLote[]>([]);
+  const [mostrarConfirmacaoPendencias, setMostrarConfirmacaoPendencias] = useState(false);
+  const [motivoPendencias, setMotivoPendencias] = useState('');
+  const [erroMotivo, setErroMotivo] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +111,10 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
       setSlotAtivo('caixaFechada');
       setErroValidacao(null);
       setMostrarConfirmacao(false);
+      setProdutosPendentes([]);
+      setMostrarConfirmacaoPendencias(false);
+      setMotivoPendencias('');
+      setErroMotivo(null);
       iniciarCamera();
     } else {
       pararCamera();
@@ -119,6 +130,8 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
       if (e.key === 'Escape') {
         if (fotoZoom) {
           setFotoZoom(null);
+        } else if (mostrarConfirmacaoPendencias) {
+          setMostrarConfirmacaoPendencias(false);
         } else if (mostrarConfirmacao) {
           setMostrarConfirmacao(false);
         } else {
@@ -128,7 +141,7 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, fotoZoom, mostrarConfirmacao]);
+  }, [isOpen, onClose, fotoZoom, mostrarConfirmacao, mostrarConfirmacaoPendencias]);
 
   const iniciarCamera = async () => {
     setErroCamera(null);
@@ -277,8 +290,44 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
       return;
     }
 
+    // Comparar os produtos da listagem regional com os produtos lançados pelo colaborador
+    const pendentes = db.obterProdutosPendentesLote(lote, regional);
+    if (pendentes.length > 0) {
+      setProdutosPendentes(pendentes);
+      setMotivoPendencias('');
+      setErroMotivo(null);
+      setMostrarConfirmacaoPendencias(true);
+      return;
+    }
+
     // Exibir confirmação do bloqueio definitivo
     setMostrarConfirmacao(true);
+  };
+
+  const handleConfirmarFechamentoComPendencias = () => {
+    const motivoLimpo = motivoPendencias.trim();
+    if (!motivoLimpo) {
+      setErroMotivo('O preenchimento do motivo pelo qual os produtos não foram lançados é obrigatório.');
+      return;
+    }
+
+    pararCamera();
+
+    const res = db.finalizarLote({
+      numeroLote: lote,
+      regional,
+      colaborador,
+      fotos,
+      motivoPendencias: motivoLimpo,
+      produtosPendentes,
+    });
+
+    if (res.sucesso && res.lote) {
+      onLoteFinalizado(res.lote);
+    } else {
+      setErroValidacao(res.erro || 'Erro ao finalizar lote.');
+      setMostrarConfirmacaoPendencias(false);
+    }
   };
 
   const handleConfirmarFechamentoOficial = () => {
@@ -657,6 +706,189 @@ export const ModalFechamentoLote: React.FC<ModalFechamentoLoteProps> = ({
           fotoDataUri={fotoZoom.url}
           onClose={() => setFotoZoom(null)}
         />
+      )}
+
+      {/* Modal de Alerta de Produtos Pendentes com Justificativa Obrigatória */}
+      {mostrarConfirmacaoPendencias && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="titulo-produtos-pendentes"
+          className="fixed inset-0 z-60 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn"
+        >
+          <div className="bg-white rounded-2xl max-w-xl w-full border-2 border-amber-500 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-slate-900 text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-300/40 flex items-center justify-center text-amber-200 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
+                      Atenção
+                    </span>
+                    <span className="text-xs text-amber-200 font-bold">
+                      Lote {lote}
+                    </span>
+                  </div>
+                  <h3 id="titulo-produtos-pendentes" className="text-base font-black text-white uppercase tracking-tight">
+                    Produtos Pendentes Identificados
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmacaoPendencias(false)}
+                className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo rolável */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Box comparativo de contagens */}
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 sm:p-4 text-xs">
+                <div className="flex items-start gap-2 mb-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-amber-950 font-bold text-sm">
+                      Foram encontrados {produtosPendentes.length} produto(s) pendente(s) da listagem oficial que não foram lançados!
+                    </p>
+                    <p className="text-amber-800 text-[11px] mt-0.5">
+                      Antes de finalizar o lote, compare os produtos da listagem com os produtos lançados pelo colaborador.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-white p-2 rounded-lg border border-amber-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Listagem</span>
+                    <span className="text-base font-black text-slate-800">
+                      {produtosPendentes.length + totalProdutos}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-emerald-200">
+                    <span className="text-[10px] uppercase font-bold text-emerald-600 block">Lançados</span>
+                    <span className="text-base font-black text-emerald-700">
+                      {totalProdutos}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-rose-300 bg-rose-50/50">
+                    <span className="text-[10px] uppercase font-bold text-rose-600 block">Pendentes</span>
+                    <span className="text-base font-black text-rose-700">
+                      {produtosPendentes.length}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista dos produtos pendentes */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                    Relação de Produtos Pendentes ({produtosPendentes.length})
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    Caixa: 0 (Não lançado)
+                  </span>
+                </div>
+                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50 text-xs">
+                  {produtosPendentes.map((item, idx) => (
+                    <div key={item.imei || idx} className="p-2.5 flex items-center justify-between gap-2 hover:bg-white transition-colors">
+                      <div className="min-w-0">
+                        <div className="font-mono font-bold text-slate-900 truncate">
+                          {item.imei}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {item.modelo || 'Modelo não especificado'} {item.sku ? `• SKU: ${item.sku}` : ''}
+                        </div>
+                      </div>
+                      <span className="bg-rose-100 text-rose-800 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
+                        Pendente
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pergunta e Campo Obrigatório de Motivo */}
+              <div className="space-y-2 border-t border-slate-200 pt-3">
+                <label htmlFor="motivo-pendencias-input" className="block text-xs font-black text-slate-900 uppercase">
+                  Deseja finalizar o lote mesmo assim? Informe o motivo obrigatório: *
+                </label>
+                <p className="text-[11px] text-slate-500">
+                  Estes produtos serão registrados no relatório do administrador com Caixa 0 e a justificativa fornecida abaixo.
+                </p>
+
+                {/* Sugestões de preenchimento rápido */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    'Não entregue pelo cliente',
+                    'Não lançado',
+                    'Produto não localizado no palete',
+                    'Avaria / retenção física',
+                  ].map((motivoSugerido) => (
+                    <button
+                      key={motivoSugerido}
+                      type="button"
+                      onClick={() => {
+                        setMotivoPendencias(motivoSugerido);
+                        setErroMotivo(null);
+                      }}
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                        motivoPendencias === motivoSugerido
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      {motivoSugerido}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  id="motivo-pendencias-input"
+                  rows={3}
+                  value={motivoPendencias}
+                  onChange={(e) => {
+                    setMotivoPendencias(e.target.value);
+                    if (e.target.value.trim()) setErroMotivo(null);
+                  }}
+                  placeholder="Informe detalhadamente por que os produtos da listagem não foram lançados..."
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-900 resize-none"
+                />
+
+                {erroMotivo && (
+                  <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {erroMotivo}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Rodapé de Ações */}
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmacaoPendencias(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs uppercase hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Voltar e Lançar Produtos
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarFechamentoComPendencias}
+                className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Sim, Finalizar com Pendências</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
-import React from 'react';
-import { History, X, CheckCircle2, Archive, FileSpreadsheet, User, Calendar, Database } from 'lucide-react';
+import React, { useState } from 'react';
+import { History, X, CheckCircle2, Archive, FileSpreadsheet, User, Calendar, Database, Trash2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { db, extrairCodigoRegional } from '../../../db/storage';
 import type { InventoryImportBatch } from '../../../types';
 
@@ -7,21 +7,50 @@ interface ModalHistoricoVersoesPlanilhaProps {
   regional: string;
   onFechar: () => void;
   onImportarNova: () => void;
+  onBaseExcluida?: () => void;
 }
 
 export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanilhaProps> = ({
   regional,
   onFechar,
   onImportarNova,
+  onBaseExcluida,
 }) => {
-  const batches = db.listarHistoricoImportacoes(regional);
+  const [batches, setBatches] = useState<InventoryImportBatch[]>(() => db.listarHistoricoImportacoes(regional));
+  const [batchParaExcluir, setBatchParaExcluir] = useState<InventoryImportBatch | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  const [sucessoExclusao, setSucessoExclusao] = useState<string | null>(null);
+
   const codigoReg = extrairCodigoRegional(regional);
+
+  const handleConfirmarExclusao = async () => {
+    if (!batchParaExcluir) return;
+    setExcluindo(true);
+    setErroExclusao(null);
+    try {
+      const res = await db.excluirBaseReferenciaRegional(batchParaExcluir.id);
+      if (res.sucesso) {
+        setSucessoExclusao(`Base v${batchParaExcluir.version} (${batchParaExcluir.file_name}) excluída com sucesso.`);
+        setBatches(db.listarHistoricoImportacoes(regional));
+        setBatchParaExcluir(null);
+        onBaseExcluida?.();
+        setTimeout(() => setSucessoExclusao(null), 4000);
+      } else {
+        setErroExclusao(res.erro || 'Falha ao excluir base.');
+      }
+    } catch {
+      setErroExclusao('Erro inesperado ao excluir base de dados.');
+    } finally {
+      setExcluindo(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-fade-in overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 flex flex-col max-h-[85vh]">
         {/* Cabeçalho */}
-        <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
               <History className="w-5 h-5" />
@@ -45,6 +74,14 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Mensagem de Sucesso */}
+        {sucessoExclusao && (
+          <div className="mx-5 sm:mx-6 mt-3 p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{sucessoExclusao}</span>
+          </div>
+        )}
 
         {/* Lista de Versões */}
         <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
@@ -76,10 +113,10 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
               return (
                 <div
                   key={b.id}
-                  className={`border rounded-2xl p-4 transition-all ${
+                  className={`border rounded-2xl p-4 transition-all relative ${
                     isAtiva
                       ? 'border-emerald-300 bg-emerald-50/40 shadow-xs'
-                      : 'border-slate-200 bg-slate-50/60 opacity-80 hover:opacity-100'
+                      : 'border-slate-200 bg-slate-50/60 opacity-90 hover:opacity-100'
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -97,10 +134,25 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
                       <span className="text-xs font-bold text-slate-700">{b.regional}</span>
                     </div>
 
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" />
-                      {dataFormatada}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {dataFormatada}
+                      </span>
+                      {/* Botão de Excluir Base */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBatchParaExcluir(b);
+                          setErroExclusao(null);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="Excluir esta base de dados"
+                        aria-label={`Excluir base v${b.version}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -136,7 +188,7 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
         </div>
 
         {/* Rodapé */}
-        <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex items-center justify-between">
+        <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex items-center justify-between shrink-0">
           <span className="text-xs text-slate-500 font-medium">
             {batches.length} versão(ões) registrada(s)
           </span>
@@ -160,7 +212,73 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
           </div>
         </div>
       </div>
+
+      {/* Diálogo de Confirmação de Exclusão de Base */}
+      {batchParaExcluir && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-fadeIn"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 border-2 border-rose-300 shadow-2xl space-y-4">
+            <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-base font-black text-slate-900 uppercase">
+                Excluir Base de Referência?
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Você está prestes a excluir a base <strong>v{batchParaExcluir.version}</strong> ({batchParaExcluir.file_name}) da regional <strong>{batchParaExcluir.regional}</strong>.
+              </p>
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mt-3 text-left text-xs text-rose-800 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Atenção: Ação Irreversível</span>
+                </div>
+                <p className="text-[11px] text-rose-700">
+                  Todos os <strong>{batchParaExcluir.valid_count} IMEIs</strong> desta planilha serão removidos da base de dados regional.
+                </p>
+              </div>
+            </div>
+
+            {erroExclusao && (
+              <p className="text-xs text-rose-600 font-bold text-center">
+                {erroExclusao}
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={excluindo}
+                onClick={() => setBatchParaExcluir(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs uppercase hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={excluindo}
+                onClick={handleConfirmarExclusao}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {excluindo ? (
+                  <span>Excluindo...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirmar Exclusão</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 

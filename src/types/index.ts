@@ -92,6 +92,7 @@ export interface ProdutoAuditoria {
   numero_nf?: string; // Número da Nota Fiscal (Ex: 'NF 001', '12345')
   nf_conferida?: SimNao | null; // 'SIM' ou 'NÃO' ou null (Conferência de NF)
   produto_lacrado: SimNao;
+  lacre_seguranca?: string | null; // Número do Lacre de Segurança da Caixa
   kit_completo: SimNao | null;
   aparelho_marcas_uso: SimNao | null;
   observacao: string;
@@ -138,6 +139,7 @@ export interface ConfiguracaoCaixa {
   classificacao: string | null;
   condicaoLacre: BoxSealedStatus | null;
   produto_lacrado?: SimNao | null;
+  lacre_seguranca?: string | null;
 }
 
 export type PerfilUsuario = 'SUPER_ADMIN' | 'ADMINISTRADOR' | 'SUPERVISOR_REGIONAL' | 'OPERADOR';
@@ -371,6 +373,15 @@ export interface HistoricoAlteracaoLote {
   detalhes: string;
 }
 
+export interface ItemPendenteLote {
+  imei: string;
+  sku?: string;
+  modelo?: string;
+  fabricante?: string;
+  origin_invoice?: string | null;
+  motivo?: string;
+}
+
 export interface RegistroLoteFinalizado {
   id: string;
   numero_lote: string;
@@ -387,6 +398,8 @@ export interface RegistroLoteFinalizado {
   reaberto_por?: string | null;
   data_reabertura?: string | null;
   motivo_reabertura?: string | null;
+  motivo_pendencias?: string | null;
+  produtos_pendentes?: ItemPendenteLote[];
   historico_alteracoes: HistoricoAlteracaoLote[];
 }
 

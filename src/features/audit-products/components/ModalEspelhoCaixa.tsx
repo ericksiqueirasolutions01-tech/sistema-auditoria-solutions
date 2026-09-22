@@ -31,6 +31,7 @@ export interface EspelhoCaixaData {
   itens: ProdutoAuditoria[];
   resumoEans: ResumoEanItem[];
   resumoModelos: ResumoModeloItem[];
+  lacreSeguranca?: string;
 }
 
 export interface ModalEspelhoCaixaProps {
@@ -154,7 +155,7 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
 
         {/* Quadro de Detalhes da Caixa */}
         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div>
               <span className="font-bold text-slate-400 uppercase text-[10px] block">Volume / Caixa:</span>
               <span className="font-black text-blue-700 text-base uppercase">{espelhoCaixaAtual.caixaNome}</span>
@@ -163,6 +164,12 @@ export const ModalEspelhoCaixa: React.FC<ModalEspelhoCaixaProps> = ({
               <span className="font-bold text-slate-400 uppercase text-[10px] block">Lote:</span>
               <span className="font-black text-amber-600 text-base uppercase">
                 LOTE {espelhoCaixaAtual.itens.length > 0 && espelhoCaixaAtual.itens[0].numero_lote ? espelhoCaixaAtual.itens[0].numero_lote : loteAtivo}
+              </span>
+            </div>
+            <div>
+              <span className="font-bold text-slate-400 uppercase text-[10px] block">Lacre de Segurança:</span>
+              <span className="font-black text-indigo-700 text-base uppercase font-mono">
+                {espelhoCaixaAtual.lacreSeguranca || espelhoCaixaAtual.itens.find((p) => p.lacre_seguranca)?.lacre_seguranca || 'NÃO INFORMADO'}
               </span>
             </div>
             <div>

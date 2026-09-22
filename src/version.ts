@@ -13,21 +13,23 @@ export interface InfoVersaoSistema {
 
 // Versão compilada neste pacote do aplicativo
 export const VERSAO_LOCAL: InfoVersaoSistema = {
-  versao: '1.3.1',
-  versaoCodigo: 131,
-  dataPublicacao: '2026-09-22T19:20:00.000Z',
+  versao: '1.3.2',
+  versaoCodigo: 132,
+  dataPublicacao: '2026-09-22T19:35:00.000Z',
   obrigatoria: true,
   titulo: 'Sistema de Auditoria Solutions Samsung',
   descricao:
-    'Versão oficial v1.3.1 com edição livre de fabricante e modelo para produtos fora da lista, cálculo dinâmico de classificação por marca e formulário administrativo atualizado.',
+    'Versão oficial v1.3.2 com padronização de badge para itens na lista Samsung e alerta imediato de atualização do sistema.',
   novidades: [
-    'Edição de Fabricante e Modelo para produtos fora da lista tanto na bipagem ativa (Desktop e Mobile) quanto na edição inline de linhas registradas',
-    'Datalist inteligente de fabricantes (Samsung, Motorola, Apple, Xiaomi, Oppo, Jovi, Outra Marca) com classificação automática dinâmica',
-    'Recálculo em tempo real de classificação de caixa e produto ao alterar fabricante/modelo de itens fora da lista',
-    'Suporte à edição de Fabricante pelo Administrador no modal de edição de produtos',
+    'Badge de itens da lista padronizado para "PRODUTO NA LISTA SAMSUNG" quando não houver dealer cadastrado',
+    'Detecção imediata de atualização na abertura do aplicativo Windows com aviso "Nova versão disponível, por favor atualizar agora" e botão direto de atualização',
+    'Edição de Fabricante e Modelo para produtos fora da lista tanto na bipagem ativa (Desktop e Mobile) quanto na edição inline',
+    'Datalist inteligente de fabricantes com recálculo automático da classificação de caixa e lote',
     'Lacre de Segurança por Caixa e Relatórios do Administrador com Lacre e Produtos Pendentes (Caixa 0)',
   ],
   downloadUrl:
     'https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe',
+  sha256: 'cfcc795cfa6e0e949ae406bc09477ad14081b73b5d941faa906c050675e7deeb',
+  size_bytes: 21699584,
 };
 

@@ -25,10 +25,11 @@ class UpdateService {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      // Checagem imediata após carregar a interface
-      setTimeout(() => this.verificarAtualizacao(), 1200);
+      // Checagem imediata assim que abrir o sistema
+      setTimeout(() => this.verificarAtualizacao(), 50);
+      setTimeout(() => this.verificarAtualizacao(), 2500);
 
-      // Checagem contínua a cada 60 segundos
+      // Checagem contínua periódica a cada 60 segundos
       setInterval(() => this.verificarAtualizacao(), 60000);
 
       // Checagem ao reconectar a internet ou focar a janela
@@ -61,6 +62,7 @@ class UpdateService {
     try {
       // 1. No aplicativo desktop, verificar versão real dos arquivos locais
       let versaoLocalEmUso = VERSAO_LOCAL.versaoCodigo;
+      let versaoLocalStr = VERSAO_LOCAL.versao;
       if (isDesktopApp()) {
         try {
           const resLocal = await fetch('/api/system/version', {
@@ -74,21 +76,33 @@ class UpdateService {
             if (dataLocal && typeof dataLocal.versaoCodigo === 'number') {
               versaoLocalEmUso = dataLocal.versaoCodigo;
             }
+            if (dataLocal && typeof dataLocal.versao === 'string') {
+              versaoLocalStr = dataLocal.versao;
+            }
           }
         } catch {
           // Se falhar o endpoint, mantém versaoLocalEmUso
         }
       }
 
-      // 2. Consultar version.json oficial da nuvem com timestamp anti-cache
+      // 2. Consultar version.json oficial da nuvem com timestamp anti-cache e headers rigorosos
       const urlVersion = `https://sistema-auditoria-solutions.vercel.app/version.json?_t=${Date.now()}`;
-      const res = await fetch(urlVersion, { cache: 'no-store' });
+      const res = await fetch(urlVersion, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      });
 
       if (res.ok) {
         const dataRemota: InfoVersaoSistema = await res.json();
         if (dataRemota && typeof dataRemota.versaoCodigo === 'number') {
-          // Se a versão remota for maior que a local instalada
-          const precisaAtualizar = dataRemota.versaoCodigo > versaoLocalEmUso;
+          // Se a versão remota for maior que a local instalada ou for versão obrigatória diferente
+          const precisaAtualizar =
+            dataRemota.versaoCodigo > versaoLocalEmUso ||
+            (dataRemota.versao !== versaoLocalStr && (dataRemota.obrigatoria || dataRemota.versaoCodigo >= versaoLocalEmUso));
           if (precisaAtualizar) {
             this.status.temAtualizacao = true;
             this.status.infoNovaVersao = dataRemota;

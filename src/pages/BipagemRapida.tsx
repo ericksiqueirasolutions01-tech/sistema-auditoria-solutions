@@ -65,6 +65,20 @@ export const FABRICANTES_PRESET = [
   'OUTRA MARCA',
 ];
 
+/**
+ * Formata o texto do badge para produtos na lista:
+ * Se o dealer for 'SEM DEALER', vazio ou 'LISTA', exibe 'PRODUTO NA LISTA SAMSUNG' (ou marca correspondente).
+ * Se tiver um dealer real específico (ex: SIRI COMERCIO...), exibe o dealer.
+ */
+export const formatarBadgeLista = (dealer?: string | null, fab?: string | null): string => {
+  const dUpper = (dealer || '').trim().toUpperCase();
+  if (!dUpper || dUpper === 'SEM DEALER' || dUpper === 'LISTA') {
+    const marca = fab && fab.trim().toUpperCase() !== 'OUTRA MARCA' ? fab.trim().toUpperCase() : 'SAMSUNG';
+    return `PRODUTO NA LISTA ${marca}`;
+  }
+  return dUpper;
+};
+
 export const BipagemRapida: React.FC = () => {
   const usuarioAtual = db.getUsuarioAtual();
   const regionalAtiva = usuarioAtual?.regional || (usuarioAtual?.perfil === 'ADMINISTRADOR' ? 'TODAS AS REGIONAIS (ADMIN)' : 'VIA VAREJO RJ');
@@ -2376,7 +2390,7 @@ export const BipagemRapida: React.FC = () => {
               <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-900 shadow-xs">
                 <div className="flex items-center gap-1.5 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>LISTADO • {referenciaDetectada.dealer_normalized}</span>
+                  <span>{formatarBadgeLista(referenciaDetectada.dealer_normalized, referenciaDetectada.brand || fabricanteAtivo)}</span>
                 </div>
                 {referenciaDetectada.origin_invoice && (
                   <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
@@ -2645,7 +2659,7 @@ export const BipagemRapida: React.FC = () => {
                         <span>{item.modelo_produto} • EAN {item.ean} • #{produtos.length - idx}</span>
                         {item.source_type === 'LISTED' && (
                           <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
-                            ✓ {item.dealer || 'LISTA'} {item.origin_invoice ? `• NF ${item.origin_invoice}` : ''}
+                            ✓ {formatarBadgeLista(item.dealer, item.fabricante || item.brand)} {item.origin_invoice ? `• NF ${item.origin_invoice}` : ''}
                           </span>
                         )}
                         {item.source_type === 'OUT_OF_LIST' && (
@@ -3511,7 +3525,7 @@ export const BipagemRapida: React.FC = () => {
                       {item.source_type === 'LISTED' && (
                         <div className="flex items-center gap-1 mt-0.5">
                           <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-0.5">
-                            ✓ {item.dealer || 'LISTA'}
+                            ✓ {formatarBadgeLista(item.dealer, item.fabricante || item.brand)}
                           </span>
                         </div>
                       )}
@@ -3752,7 +3766,7 @@ export const BipagemRapida: React.FC = () => {
                     <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-800">
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        {referenciaDetectada.dealer_normalized}
+                        {formatarBadgeLista(referenciaDetectada.dealer_normalized, referenciaDetectada.brand || fabricanteAtivo)}
                       </span>
                       {referenciaDetectada.origin_invoice && (
                         <span className="px-1 py-0.5 font-mono text-[9px] rounded bg-slate-100 text-slate-600 border border-slate-300">

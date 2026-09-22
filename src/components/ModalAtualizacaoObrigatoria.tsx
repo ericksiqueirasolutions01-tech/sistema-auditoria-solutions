@@ -44,10 +44,10 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
               Acesso Bloqueado Temporariamente
             </div>
             <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-950 leading-tight">
-              Nova Atualização Disponível
+              Nova Versão Disponível, Por Favor Atualizar Agora
             </h2>
             <p className="text-xs sm:text-sm font-bold text-slate-900/90 mt-0.5">
-              É obrigatório atualizar o sistema para continuar trabalhando na bancada.
+              Identificamos uma nova versão oficial do sistema. Por favor, atualize agora para continuar trabalhando na bancada.
             </p>
           </div>
         </div>
@@ -81,22 +81,12 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
               Novas Regras e Funcionalidades Obrigatórias:
             </div>
             <ul className="space-y-1.5 text-xs text-slate-300 font-medium pl-1">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span><strong>Identificação do Colaborador:</strong> Registro obrigatório do nome completo após login.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span><strong>Fechamento de Lote com 3 Fotos:</strong> Caixa fechada, espelho e lacre de segurança.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span><strong>Bloqueio de Lote Finalizado:</strong> Impede alterações acidentais em lotes encerrados.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span><strong>Tela Operacional Limpa:</strong> Foco exclusivo na bipagem e conferência Samsung.</span>
-              </li>
+              {(info?.novidades && info.novidades.length > 0 ? info.novidades : VERSAO_LOCAL.novidades).map((item, idx) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <span>{item}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -124,7 +114,7 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
             </div>
           )}
 
-          {/* Botão de Ação Principal (Clique aqui para atualizar) */}
+          {/* Botão de Ação Principal (Clicar aqui para atualizar o sistema) */}
           {!status.atualizando && (
             <div className="space-y-2.5 pt-2">
               <button
@@ -134,7 +124,7 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
                 className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm sm:text-base uppercase tracking-wider shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2.5 cursor-pointer transition-all active:scale-98 ring-2 ring-amber-300"
               >
                 <RefreshCw className="w-5 h-5 text-slate-950 animate-spin-slow" />
-                {iniciouClique ? 'Atualizando Sistema...' : 'Clique Aqui Para Atualizar o Sistema'}
+                {iniciouClique ? 'Atualizando Sistema...' : 'Clicar Aqui Para Atualizar o Sistema'}
               </button>
 
               <div className="flex items-center justify-center gap-3 pt-1">

@@ -509,8 +509,8 @@ namespace SistemaAuditoriaSolutions
 
                     if (req.Url.AbsolutePath == "/api/system/version")
                     {
-                        int vCod = 131;
-                        string vStr = "1.3.1";
+                        int vCod = 132;
+                        string vStr = "1.3.2";
                         string vJsonPath = Path.Combine(rootDir, "version.json");
                         if (File.Exists(vJsonPath))
                         {

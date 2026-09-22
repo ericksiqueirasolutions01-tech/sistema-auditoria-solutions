@@ -143,7 +143,7 @@ $hashInstaller = (Get-FileHash -Algorithm SHA256 -Path $installerExe).Hash.ToLow
 
 $manifestJson = @{
     generated_at = (Get-Date).ToString("o")
-    version = "1.3.1"
+    version = "1.3.2"
     app_executable = @{
         name = "SistemaAuditoriaSolutions.exe"
         sha256 = $hashApp
@@ -165,6 +165,24 @@ Set-Content -Path "$downloadsDist\manifest.json" -Value $manifestJson -Encoding 
 Set-Content -Path "$buildDir\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
 Set-Content -Path "$downloadsPublic\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
 Set-Content -Path "$downloadsDist\SHA256SUMS.txt" -Value $sumsContent -Encoding UTF8
+
+# Atualiza public/version.json e dist/version.json com o hash e tamanho oficial do instalador gerado
+$versionJsonPath = "$baseDir\public\version.json"
+if (Test-Path $versionJsonPath) {
+    try {
+        $vObj = Get-Content -Path $versionJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $vObj.sha256 = $hashInstaller
+        $vObj.size_bytes = (Get-Item $installerExe).Length
+        $vObjJson = $vObj | ConvertTo-Json -Depth 5
+        Set-Content -Path $versionJsonPath -Value $vObjJson -Encoding UTF8
+        if (Test-Path "$baseDir\dist") {
+            Set-Content -Path "$baseDir\dist\version.json" -Value $vObjJson -Encoding UTF8
+        }
+        Write-Host " -> public/version.json sincronizado com hash e tamanho oficial do instalador." -ForegroundColor Green
+    } catch {
+        Write-Warning "Falha ao sincronizar sha256 no version.json: $_"
+    }
+}
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host " SUCESSO! INSTALADOR WINDOWS GERADO COM ÊXITO" -ForegroundColor Green

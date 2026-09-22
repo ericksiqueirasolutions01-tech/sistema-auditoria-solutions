@@ -333,34 +333,59 @@ export const PainelAdmin: React.FC = () => {
     const lista = produtosOrdenados;
     const dadosExcel = lista.map((p, idx) => ({
       'Nº': idx + 1,
-      Regional: p.regional,
-      'Computador ID': p.computador_id || 'PC-01',
-      'Nome Estação': p.computador_nome || 'Estação 01',
-      Fabricante: p.fabricante,
-      'Modelo Produto': p.modelo_produto,
-      EAN: p.ean,
-      IMEI: p.imei || p.serial,
-      Caixa: p.numero_caixa,
-      Lote: p.numero_lote || '01',
+      Estação: p.computador_id || 'PC-01',
+      Regional: p.regional || 'VIA VAREJO RJ',
+      Fabricante: p.brand || p.fabricante || 'SAMSUNG',
+      'Modelo Produto': p.modelo_produto || '-',
+      SKU: p.sku || p.ean || '-',
+      'IMEI (Bipar / Editar)': p.imei || p.serial,
+      'NF Origem': p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-',
       'Data Auditoria': p.data_auditoria,
+      Caixa: p.box_name || p.numero_caixa,
+      Lote: p.numero_lote || '01',
+      Classificação: p.classificacao_produto || p.product_classification || p.box_classification || '-',
       'Produto Lacrado': p.produto_lacrado,
-      'NF Conferida': p.nf_conferida || 'SIM',
-      'Kit Completo': p.kit_completo || '-',
-      'Marcas de Uso': p.aparelho_marcas_uso || '-',
-      Observações: p.observacao || '-',
-      Auditor: p.usuario_cadastro,
-      'Status Sincronização':
+      'Lacre Segurança 🔒': p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, p.regional) || '-',
+      'Kit Completo': p.produto_lacrado === 'SIM' ? '-' : (p.kit_completo || '-'),
+      'Marcas de Uso': p.produto_lacrado === 'SIM' ? '-' : (p.aparelho_marcas_uso || '-'),
+      Observação: p.observacao || '-',
+      'Status Sync':
         p.status_sincronizacao === 'ENVIADO'
           ? 'Enviado para Online'
           : p.status_sincronizacao === 'ERRO_DUPLICADO'
           ? 'Duplicado Servidor'
           : 'Aguardando envio para Online',
+      Auditor: p.usuario_cadastro || '-',
       'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
       'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
       'ID Servidor': p.id_servidor || '-',
     }));
 
     const ws = XLSX.utils.json_to_sheet(dadosExcel);
+    ws['!cols'] = [
+      { wch: 6 },  // Nº
+      { wch: 14 }, // Estação
+      { wch: 18 }, // Regional
+      { wch: 14 }, // Fabricante
+      { wch: 34 }, // Modelo Produto
+      { wch: 14 }, // SKU
+      { wch: 22 }, // IMEI
+      { wch: 16 }, // NF Origem
+      { wch: 14 }, // Data Auditoria
+      { wch: 12 }, // Caixa
+      { wch: 10 }, // Lote
+      { wch: 28 }, // Classificação
+      { wch: 16 }, // Produto Lacrado
+      { wch: 20 }, // Lacre Segurança 🔒
+      { wch: 14 }, // Kit Completo
+      { wch: 14 }, // Marcas de Uso
+      { wch: 24 }, // Observação
+      { wch: 20 }, // Status Sync
+      { wch: 18 }, // Auditor
+      { wch: 16 }, // Data Envio Online
+      { wch: 18 }, // Horário Envio Online
+      { wch: 18 }, // ID Servidor
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Relatorio_Geral');
     XLSX.writeFile(wb, `Relatorio_Geral_Auditoria_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -406,34 +431,59 @@ export const PainelAdmin: React.FC = () => {
 
     const dadosExcel = lista.map((p, idx) => ({
       'Nº': idx + 1,
-      Regional: p.regional,
-      'Computador ID': p.computador_id || 'PC-01',
-      'Nome Estação': p.computador_nome || 'Estação 01',
-      Fabricante: p.fabricante,
-      'Modelo Produto': p.modelo_produto,
-      EAN: p.ean,
-      Serial: p.serial,
-      Caixa: p.numero_caixa,
-      Lote: p.numero_lote || '01',
+      Estação: p.computador_id || 'PC-01',
+      Regional: p.regional || regionalAlvo,
+      Fabricante: p.brand || p.fabricante || 'SAMSUNG',
+      'Modelo Produto': p.modelo_produto || '-',
+      SKU: p.sku || p.ean || '-',
+      'IMEI (Bipar / Editar)': p.imei || p.serial,
+      'NF Origem': p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-',
       'Data Auditoria': p.data_auditoria,
+      Caixa: p.box_name || p.numero_caixa,
+      Lote: p.numero_lote || '01',
+      Classificação: p.classificacao_produto || p.product_classification || p.box_classification || '-',
       'Produto Lacrado': p.produto_lacrado,
-      'NF Conferida': p.nf_conferida || 'SIM',
-      'Kit Completo': p.kit_completo || '-',
-      'Marcas de Uso': p.aparelho_marcas_uso || '-',
-      Observações: p.observacao || '-',
-      Auditor: p.usuario_cadastro,
-      'Status Sincronização':
+      'Lacre Segurança 🔒': p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, p.regional || regionalAlvo) || '-',
+      'Kit Completo': p.produto_lacrado === 'SIM' ? '-' : (p.kit_completo || '-'),
+      'Marcas de Uso': p.produto_lacrado === 'SIM' ? '-' : (p.aparelho_marcas_uso || '-'),
+      Observação: p.observacao || '-',
+      'Status Sync':
         p.status_sincronizacao === 'ENVIADO'
           ? 'Enviado para Online'
           : p.status_sincronizacao === 'ERRO_DUPLICADO'
           ? 'Duplicado Servidor'
           : 'Aguardando envio para Online',
+      Auditor: p.usuario_cadastro || '-',
       'Data Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleDateString('pt-BR') : '-',
       'Horário Envio Online': p.data_sincronizacao ? new Date(p.data_sincronizacao).toLocaleTimeString('pt-BR') : '-',
       'ID Servidor': p.id_servidor || '-',
     }));
 
     const ws = XLSX.utils.json_to_sheet(dadosExcel);
+    ws['!cols'] = [
+      { wch: 6 },  // Nº
+      { wch: 14 }, // Estação
+      { wch: 18 }, // Regional
+      { wch: 14 }, // Fabricante
+      { wch: 34 }, // Modelo Produto
+      { wch: 14 }, // SKU
+      { wch: 22 }, // IMEI
+      { wch: 16 }, // NF Origem
+      { wch: 14 }, // Data Auditoria
+      { wch: 12 }, // Caixa
+      { wch: 10 }, // Lote
+      { wch: 28 }, // Classificação
+      { wch: 16 }, // Produto Lacrado
+      { wch: 20 }, // Lacre Segurança 🔒
+      { wch: 14 }, // Kit Completo
+      { wch: 14 }, // Marcas de Uso
+      { wch: 24 }, // Observação
+      { wch: 20 }, // Status Sync
+      { wch: 18 }, // Auditor
+      { wch: 16 }, // Data Envio Online
+      { wch: 18 }, // Horário Envio Online
+      { wch: 18 }, // ID Servidor
+    ];
     const wb = XLSX.utils.book_new();
     const sheetName = regionalAlvo === 'CONSOLIDADO' ? 'Geral_Todas_Regionais' : regionalAlvo.replace(/\s+/g, '_').substring(0, 31);
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -481,32 +531,35 @@ export const PainelAdmin: React.FC = () => {
 
     const tableData = lista.map((p, idx) => [
       (idx + 1).toString(),
-      p.regional,
       p.computador_id || 'PC-01',
-      p.numero_caixa,
-      p.modelo_produto,
-      p.ean,
+      p.brand || p.fabricante || 'SAMSUNG',
+      p.modelo_produto || '-',
+      p.sku || p.ean || '-',
       p.imei || p.serial,
+      p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-',
+      p.box_name || p.numero_caixa,
+      p.numero_lote || '01',
+      p.classificacao_produto || p.product_classification || p.box_classification || '-',
       p.produto_lacrado,
-      p.nf_conferida || 'SIM',
+      p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, p.regional || regionalAlvo) || '-',
       p.status_sincronizacao === 'ENVIADO' ? '🟢 OK' : '🟡 Pend',
       p.data_auditoria,
     ]);
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Computador', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Sync', 'Data']],
+      head: [['Nº', 'Estação', 'Fabricante', 'Modelo Produto', 'SKU', 'IMEI', 'NF Origem', 'Caixa', 'Lote', 'Classificação', 'Lacrado', 'Lacre Seg.', 'Sync', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
         fillColor: [12, 77, 162],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 7.5,
+        fontSize: 6.5,
       },
       styles: {
-        fontSize: 7,
-        cellPadding: 2,
+        fontSize: 6,
+        cellPadding: 1.5,
       },
       alternateRowStyles: {
         fillColor: [248, 250, 252],
@@ -2164,23 +2217,34 @@ export const PainelAdmin: React.FC = () => {
                 <thead className="bg-[#0C4DA2] text-white uppercase text-[10px] font-black tracking-wider">
                   <tr>
                     <th className="py-2.5 px-3 text-center w-12 border-r border-blue-600">Nº</th>
-                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[110px]">Computador 💻</th>
+                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[100px]">Estação 💻</th>
+                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[110px]">Fabricante</th>
                     <th
                       onClick={() => alternarOrdem('modelo_produto')}
                       className="py-2.5 px-4 border-r border-blue-600 cursor-pointer select-none hover:bg-blue-800"
                     >
                       <div className="flex items-center gap-1">
-                        <span>Modelo</span>
+                        <span>Modelo Produto</span>
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
-                    <th className="py-2.5 px-3 font-mono border-r border-blue-600">EAN</th>
+                    <th className="py-2.5 px-3 font-mono border-r border-blue-600">SKU</th>
                     <th
                       onClick={() => alternarOrdem('serial')}
                       className="py-2.5 px-4 font-mono border-r border-blue-600 cursor-pointer select-none hover:bg-blue-800"
                     >
                       <div className="flex items-center gap-1">
-                        <span>IMEI</span>
+                        <span>IMEI (Bipar / Editar)</span>
+                        <ArrowUpDown className="w-3 h-3 text-blue-200" />
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[110px]">NF Origem</th>
+                    <th
+                      onClick={() => alternarOrdem('data_auditoria')}
+                      className="py-2.5 px-3 text-center border-r border-blue-600 cursor-pointer select-none hover:bg-blue-800"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Data Auditoria</span>
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
@@ -2194,19 +2258,12 @@ export const PainelAdmin: React.FC = () => {
                       </div>
                     </th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Lote</th>
-                    <th className="py-2.5 px-3 text-center border-r border-blue-600">Lacrado</th>
+                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[150px]">Classificação</th>
+                    <th className="py-2.5 px-3 text-center border-r border-blue-600">Produto Lacrado</th>
+                    <th className="py-2.5 px-3 text-center border-r border-blue-600 min-w-[110px] bg-blue-900/40">Lacre Segurança 🔒</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Kit Compl.</th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600">Marcas Uso</th>
                     <th className="py-2.5 px-4 border-r border-blue-600">Observação</th>
-                    <th
-                      onClick={() => alternarOrdem('data_auditoria')}
-                      className="py-2.5 px-3 text-center border-r border-blue-600 cursor-pointer select-none hover:bg-blue-800"
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>Data</span>
-                        <ArrowUpDown className="w-3 h-3 text-blue-200" />
-                      </div>
-                    </th>
                     <th className="py-2.5 px-3 text-center border-r border-blue-600 min-w-[95px]">Status Sync</th>
                     <th className="py-2.5 px-3 text-center min-w-[120px]">Horário Envio 🕒</th>
                   </tr>
@@ -2214,7 +2271,7 @@ export const PainelAdmin: React.FC = () => {
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   {produtosPaginados.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="py-12 text-center text-slate-400 font-sans">
+                      <td colSpan={18} className="py-12 text-center text-slate-400 font-sans">
                         Nenhum registro encontrado com os filtros aplicados.
                       </td>
                     </tr>
@@ -2229,21 +2286,40 @@ export const PainelAdmin: React.FC = () => {
                             💻 {p.computador_id || 'PC-01'}
                           </span>
                         </td>
-                        <td className="py-2 px-4 font-sans font-bold text-slate-900 border-r border-slate-200">
-                          {p.modelo_produto}
+                        <td className="py-2 px-3 font-sans font-bold text-slate-700 border-r border-slate-200 whitespace-nowrap">
+                          {p.brand || p.fabricante || 'SAMSUNG'}
                         </td>
-                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 font-bold">
-                          {p.ean}
+                        <td className="py-2 px-4 font-sans font-bold text-slate-900 border-r border-slate-200 min-w-[180px]">
+                          {p.modelo_produto || '-'}
                         </td>
-                        <td className="py-2 px-4 font-black text-slate-900 tracking-wider border-r border-slate-200">
-                          {p.imei || p.serial}
+                        <td className="py-2 px-3 text-slate-600 border-r border-slate-200 font-bold whitespace-nowrap">
+                          {p.sku || p.ean || '-'}
                         </td>
-                        <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase border-r border-slate-200">
-                          {p.numero_caixa}
+                        <td className="py-2 px-4 font-black text-slate-900 tracking-wider border-r border-slate-200 whitespace-nowrap">
+                          <div>{p.imei || p.serial}</div>
+                          {p.source_type === 'LISTED' && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 inline-block mt-0.5">
+                              ✓ {p.dealer || 'PRODUTO NA LISTA SAMSUNG'}
+                            </span>
+                          )}
                         </td>
-                        <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
+                        <td className="py-2 px-3 font-sans text-xs text-slate-700 border-r border-slate-200 whitespace-nowrap">
+                          {p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-'}
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans text-slate-500 border-r border-slate-200 whitespace-nowrap">
+                          {p.data_auditoria}
+                        </td>
+                        <td className="py-2 px-3 font-sans font-bold text-blue-700 uppercase border-r border-slate-200 whitespace-nowrap">
+                          {p.box_name || p.numero_caixa}
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans border-r border-slate-200 whitespace-nowrap">
                           <span className="bg-amber-50 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded text-[10px] uppercase">
                             LOTE {p.numero_lote || '01'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 font-sans text-xs border-r border-slate-200">
+                          <span className="font-bold px-2 py-0.5 rounded text-[10px] border bg-blue-50 text-blue-900 border-blue-200 whitespace-nowrap block truncate max-w-[200px]" title={p.classificacao_produto || p.product_classification || p.box_classification || '-'}>
+                            {p.classificacao_produto || p.product_classification || p.box_classification || '-'}
                           </span>
                         </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
@@ -2256,6 +2332,15 @@ export const PainelAdmin: React.FC = () => {
                           >
                             {p.produto_lacrado}
                           </span>
+                        </td>
+                        <td className="py-2 px-3 text-center font-mono border-r border-slate-200 bg-indigo-50/20 whitespace-nowrap">
+                          {p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, p.regional) ? (
+                            <span className="font-mono font-black px-2 py-0.5 rounded text-[10px] border bg-indigo-100 text-indigo-900 border-indigo-300">
+                              {p.lacre_seguranca || db.obterLacreCaixa(p.box_name || p.numero_caixa, p.regional)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">-</span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200 text-slate-600">
                           {p.kit_completo || '-'}
@@ -2271,9 +2356,6 @@ export const PainelAdmin: React.FC = () => {
                         </td>
                         <td className="py-2 px-4 font-sans text-slate-600 max-w-xs truncate border-r border-slate-200">
                           {p.observacao || '-'}
-                        </td>
-                        <td className="py-2 px-3 text-center font-sans text-slate-500 border-r border-slate-200">
-                          {p.data_auditoria}
                         </td>
                         <td className="py-2 px-3 text-center font-sans border-r border-slate-200">
                           <span

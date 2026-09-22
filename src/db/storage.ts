@@ -2775,6 +2775,14 @@ class AuditoriaDatabase {
       if (p.lacre_seguranca && p.lacre_seguranca.trim()) {
         return p.lacre_seguranca.trim();
       }
+      if (p.observacao && p.observacao.includes('[LACRE:')) {
+        const m = p.observacao.match(/\[LACRE:(.*?)\]/);
+        if (m && m[1]) {
+          const l = m[1].trim();
+          p.lacre_seguranca = l;
+          return l;
+        }
+      }
     }
 
     // 2. Procurar no mapa persistido do LocalStorage
@@ -3886,32 +3894,66 @@ class AuditoriaDatabase {
             .order('created_at', { ascending: false });
 
           if (Array.isArray(dbProducts) && dbProducts.length > 0) {
-            produtosRemotos = dbProducts.map((p: any, idx: number): ProdutoAuditoria => ({
-              id: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
-              id_local: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
-              id_servidor: p.id || null,
-              uuid: p.id || String(Date.now() + idx),
-              serial: p.serial,
-              imei: p.imei || p.serial,
-              fabricante: p.fabricante || 'SAMSUNG',
-              modelo_produto: p.modelo || 'Modelo Desconhecido',
-              ean: p.ean || '',
-              numero_lote: p.numero_lote || '01',
-              numero_caixa: p.numero_caixa || '01',
-              regional: p.regions?.nome || p.regions?.codigo || 'VIA VAREJO RJ',
-              produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
-              kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
-              aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
-              observacao: p.observacao || '',
-              data_cadastro: p.data_auditoria || p.created_at || new Date().toISOString(),
-              usuario_cadastro: p.usuario_bipagem || 'Operador',
-              computador_id: 'PC-SUPABASE',
-              computador_nome: 'Supabase Central',
-              data_alteracao: null,
-              data_auditoria: p.data_auditoria || new Date().toISOString().split('T')[0],
-              data_sincronizacao: p.created_at || new Date().toISOString(),
-              status_sincronizacao: (p.status_sincronizacao as StatusSincronizacaoItem) || 'ENVIADO',
-            }));
+            produtosRemotos = dbProducts.map((p: any, idx: number): ProdutoAuditoria => {
+              let lacreSeguranca = p.lacre_seguranca || null;
+              let obsLimpa = p.observacao || '';
+              if (p.observacao && p.observacao.includes('[LACRE:')) {
+                const m = p.observacao.match(/\[LACRE:(.*?)\]/);
+                if (m && m[1]) {
+                  lacreSeguranca = m[1].trim();
+                  obsLimpa = p.observacao.replace(/\[LACRE:.*?\]\s*/g, '').trim();
+                }
+              }
+
+                const classifCalculada =
+                  p.product_classification ||
+                  p.box_classification ||
+                  (p.source_type === 'LISTED'
+                    ? (p.dealer && p.dealer.toUpperCase() !== 'SAMSUNG'
+                        ? `PRODUTO NA LISTA - ${p.dealer.toUpperCase()}`
+                        : `PRODUTO NA LISTA - SAMSUNG`)
+                    : ((p.fabricante || p.brand || 'SAMSUNG').toUpperCase() === 'SAMSUNG'
+                        ? 'FORA DA LISTA - SAMSUNG'
+                        : `FORA DA LISTA - ${(p.fabricante || p.brand || 'OUTRA MARCA').toUpperCase()}`));
+
+                return {
+                  id: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
+                  id_local: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,
+                  id_servidor: p.id || null,
+                  uuid: p.id || String(Date.now() + idx),
+                  serial: p.serial,
+                  imei: p.imei || p.serial,
+                  fabricante: p.fabricante || p.brand || 'SAMSUNG',
+                  brand: p.brand || p.fabricante || 'SAMSUNG',
+                  modelo_produto: p.modelo || 'Modelo Desconhecido',
+                  ean: p.ean || '',
+                  sku: p.sku || p.ean || '',
+                  numero_lote: p.numero_lote || '01',
+                  numero_caixa: p.numero_caixa || '01',
+                  box_name: p.box_name || p.numero_caixa || '01',
+                  regional: p.regions?.nome || p.regions?.codigo || 'VIA VAREJO RJ',
+                  produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
+                  kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
+                  aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+                  lacre_seguranca: lacreSeguranca,
+                  observacao: obsLimpa,
+                  data_cadastro: p.data_auditoria || p.created_at || new Date().toISOString(),
+                  usuario_cadastro: p.usuario_bipagem || 'Operador',
+                  computador_id: p.device_id || 'PC-01',
+                  computador_nome: 'Estação',
+                  data_alteracao: null,
+                  data_auditoria: p.data_auditoria || new Date().toISOString().split('T')[0],
+                  data_sincronizacao: p.created_at || new Date().toISOString(),
+                  status_sincronizacao: (p.status_sincronizacao as StatusSincronizacaoItem) || 'ENVIADO',
+                  origin_invoice: p.origin_invoice || null,
+                  nf_origem: p.origin_invoice || null,
+                  classificacao_produto: classifCalculada,
+                  product_classification: classifCalculada,
+                  box_classification: classifCalculada,
+                  source_type: p.source_type || 'OUT_OF_LIST',
+                  dealer: p.dealer || null,
+                };
+              });
           }
         } catch (errSup) {
           console.warn('[Storage] Falha ao consultar Supabase diretamente:', errSup);
@@ -3998,6 +4040,9 @@ class AuditoriaDatabase {
     }
 
     for (const cp of produtosCentral) {
+      if (cp.lacre_seguranca && cp.numero_caixa) {
+        this.definirLacreCaixa(cp.numero_caixa, cp.lacre_seguranca, cp.regional);
+      }
       const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
       // Se for operador e este produto foi limpo da tela deste computador, não restaurar na tela dele
       if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.seriaisLimposDaTela.has(chave)) {
@@ -4015,6 +4060,31 @@ class AuditoriaDatabase {
         this.serialMap.set(cp.serial.trim().toUpperCase(), novo);
         locaisMap.set(chave, novo);
         alterou = true;
+      } else {
+        if (cp.lacre_seguranca && !local.lacre_seguranca) {
+          local.lacre_seguranca = cp.lacre_seguranca;
+          alterou = true;
+        }
+        if (cp.sku && !local.sku) {
+          local.sku = cp.sku;
+          alterou = true;
+        }
+        if (cp.origin_invoice && !local.origin_invoice) {
+          local.origin_invoice = cp.origin_invoice;
+          local.nf_origem = cp.origin_invoice;
+          alterou = true;
+        }
+        if (cp.box_classification && !local.box_classification) {
+          local.box_classification = cp.box_classification;
+          local.product_classification = cp.product_classification || cp.box_classification;
+          local.classificacao_produto = cp.classificacao_produto || cp.box_classification;
+          alterou = true;
+        }
+        if (cp.status_sincronizacao === 'ENVIADO' && local.status_sincronizacao !== 'ENVIADO') {
+          local.status_sincronizacao = 'ENVIADO';
+          local.sync_status = 'ENVIADO';
+          alterou = true;
+        }
       }
     }
     return alterou;
@@ -4125,6 +4195,25 @@ class AuditoriaDatabase {
       }
     }
 
+    // Mapa de lacres de caixas para enviar junto no payload
+    const lacresCaixasMap: Record<string, string> = {};
+    for (const p of this.produtos) {
+      const cx = p.numero_caixa || p.box_name;
+      if (cx) {
+        const l = p.lacre_seguranca || this.obterLacreCaixa(cx, regAlvo || compAtual.regional);
+        if (l) lacresCaixasMap[cx.trim().toUpperCase()] = l;
+      }
+    }
+
+    const pendentesComLacre = pendentes.map((p) => {
+      const cxNorm = (p.numero_caixa || p.box_name || 'Caixa 01').trim().toUpperCase();
+      const l = p.lacre_seguranca || lacresCaixasMap[cxNorm] || this.obterLacreCaixa(cxNorm, p.regional || compAtual.regional) || null;
+      return {
+        ...p,
+        lacre_seguranca: l,
+      };
+    });
+
     for (const endpoint of endpointsParaTentar) {
       if (sincronizouComSucesso) break;
       try {
@@ -4132,7 +4221,8 @@ class AuditoriaDatabase {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            produtos: pendentes,
+            produtos: pendentesComLacre,
+            lacres_caixas: lacresCaixasMap,
             fotos: pendentesFotosSync,
             lotes_finalizados: this.lotesFinalizados,
             computador: compAtual,
@@ -4192,7 +4282,7 @@ class AuditoriaDatabase {
         const duplicadosList: DetalheImeiDuplicado[] = [];
         const paraInserir: any[] = [];
 
-        for (const p of pendentes) {
+        for (const p of pendentesComLacre) {
           const sn = (p.serial || '').trim().toUpperCase();
           if (!sn) continue;
           if (mapExistentes.has(sn)) {
@@ -4210,23 +4300,39 @@ class AuditoriaDatabase {
               id_local: p.id,
             });
           } else {
+            const cx = p.numero_caixa || 'Caixa 01';
+            const lacre = (p.lacre_seguranca || this.obterLacreCaixa(cx, regNome) || '').trim();
+            const obsOriginal = (p.observacao || '').trim();
+            let obsFinal = obsOriginal;
+            if (lacre && !obsOriginal.includes('[LACRE:')) {
+              obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
+            }
+
             paraInserir.push({
               id_local: p.id,
               serial: sn,
               imei: p.serial,
-              ean: '',
+              ean: p.ean || '',
               modelo: p.modelo_produto || 'Modelo Desconhecido',
-              fabricante: 'SAMSUNG',
+              fabricante: p.brand || p.fabricante || 'SAMSUNG',
               numero_lote: p.numero_lote || '01',
-              numero_caixa: p.numero_caixa || '01',
+              numero_caixa: cx,
               regional_id: regionalId,
               produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
               kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
               aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
-              observacao: p.observacao || null,
+              observacao: obsFinal || null,
               usuario_bipagem: this.usuarioAtual?.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',
-              data_auditoria: p.data_cadastro || new Date().toISOString().split('T')[0],
+              data_auditoria: p.data_auditoria || p.data_cadastro || new Date().toISOString().split('T')[0],
+              reference_id: p.reference_id || null,
+              import_batch_id: p.import_batch_id || null,
+              source_type: p.source_type || 'OUT_OF_LIST',
+              dealer: p.dealer || null,
+              origin_invoice: p.origin_invoice || p.nf_origem || p.numero_nf || null,
+              sku: p.sku || p.ean || null,
+              brand: p.brand || p.fabricante || 'SAMSUNG',
+              misuse: p.misuse !== undefined ? p.misuse : (p.aparelho_marcas_uso === 'SIM'),
             });
             novosCount++;
           }

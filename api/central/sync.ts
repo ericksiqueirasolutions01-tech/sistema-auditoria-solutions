@@ -364,11 +364,13 @@ export default async function handler(req: any, res: any) {
           });
         } else {
           const cxNorm = String(p.numero_caixa || p.caixa || 'Caixa 01').trim();
+          const lacreItem = (p.lacre_seguranca || (body.lacres_caixas && body.lacres_caixas[cxNorm]) || '').trim() || null;
           const itemNormalizado = {
             ...p,
             serial: sn || im,
             imei: im || sn,
             numero_caixa: cxNorm,
+            lacre_seguranca: lacreItem,
             box_id: p.box_id || cxNorm.toLowerCase().replace(/\s+/g, '-'),
             box_name: p.box_name || cxNorm,
             id_servidor: `SRV-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
@@ -408,6 +410,13 @@ export default async function handler(req: any, res: any) {
         if (regionalId) {
           const rowsToInsert = novosParaDb.map((item) => {
             const cx = item.numero_caixa || item.caixa || 'Caixa 01';
+            const lacre = (item.lacre_seguranca || (body.lacres_caixas && body.lacres_caixas[cx]) || '').trim();
+            const obsOriginal = (item.observacao || '').trim();
+            let obsFinal = obsOriginal;
+            if (lacre && !obsOriginal.includes('[LACRE:')) {
+              obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
+            }
+
             return {
               id_local: item.id || `LOC-${Date.now()}`,
               serial: item.serial,
@@ -423,7 +432,7 @@ export default async function handler(req: any, res: any) {
               produto_lacrado: item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
               kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
               aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
-              observacao: item.observacao || null,
+              observacao: obsFinal || null,
               usuario_bipagem: usuario.nome || usuario.login || 'Operador',
               status_sincronizacao: 'ENVIADO',
               data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
@@ -435,9 +444,6 @@ export default async function handler(req: any, res: any) {
               origin_invoice: item.origin_invoice || item.nf_origem || item.numero_nf || null,
               sku: item.sku || null,
               brand: item.brand || item.fabricante || 'OUTRA MARCA',
-              product_classification: item.product_classification || item.classificacao_produto || null,
-              box_classification: item.box_classification || item.product_classification || item.classificacao_produto || null,
-              box_sealed_status: item.box_sealed_status || (item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN'),
               misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
             };
           });

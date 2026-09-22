@@ -163,25 +163,82 @@ export default async function handler(req: any, res: any) {
 
         const { data: dbProducts, error: dbError } = await query;
         if (!dbError && Array.isArray(dbProducts) && dbProducts.length > 0) {
-          const produtosFormatados = dbProducts.map((p: any) => ({
-            id: p.id_local || p.id,
-            id_servidor: p.id,
-            serial: p.serial,
-            imei: p.imei,
-            ean: p.ean,
-            modelo_produto: p.modelo,
-            numero_lote: p.numero_lote,
-            numero_caixa: p.numero_caixa,
-            regional: p.regions?.nome || p.regions?.codigo || userRegional || 'VIA VAREJO RJ',
-            produto_lacrado: p.produto_lacrado,
-            kit_completo: p.kit_completo,
-            aparelho_marcas_uso: p.aparelho_marcas_uso,
-            observacao: p.observacao,
-            usuario_sincronizacao: p.usuario_bipagem,
-            data_auditoria: p.data_auditoria,
-            data_sincronizacao: p.created_at,
-            status_sincronizacao: p.status_sincronizacao,
-          }));
+          // Mapa de lacres por caixa para garantir que toda a caixa herde o lacre
+          const lacresPorCaixa = new Map<string, string>();
+          for (const dp of dbProducts) {
+            const cx = (dp.numero_caixa || '').trim().toUpperCase();
+            const reg = (dp.regions?.nome || dp.regions?.codigo || '').trim().toUpperCase();
+            let lacre = dp.lacre_seguranca || '';
+            if (!lacre && dp.observacao && dp.observacao.includes('[LACRE:')) {
+              const m = dp.observacao.match(/\[LACRE:(.*?)\]/);
+              if (m && m[1]) lacre = m[1].trim();
+            }
+            if (lacre && cx) {
+              lacresPorCaixa.set(`${reg}:::${cx}`, lacre);
+              lacresPorCaixa.set(cx, lacre);
+            }
+          }
+
+          const produtosFormatados = dbProducts.map((p: any) => {
+            const cxNorm = (p.numero_caixa || '').trim().toUpperCase();
+            const regNorm = (p.regions?.nome || p.regions?.codigo || userRegional || 'VIA VAREJO RJ').trim().toUpperCase();
+            let lacreSeguranca = p.lacre_seguranca || lacresPorCaixa.get(`${regNorm}:::${cxNorm}`) || lacresPorCaixa.get(cxNorm) || null;
+            let observacaoLimpa = p.observacao || '';
+            if (p.observacao && p.observacao.includes('[LACRE:')) {
+              const match = p.observacao.match(/\[LACRE:(.*?)\]/);
+              if (match && match[1]) {
+                if (!lacreSeguranca) lacreSeguranca = match[1].trim();
+                observacaoLimpa = p.observacao.replace(/\[LACRE:.*?\]\s*/g, '').trim();
+              }
+            }
+
+            const classifCalculada =
+              p.product_classification ||
+              p.box_classification ||
+              (p.source_type === 'LISTED'
+                ? (p.dealer && p.dealer.toUpperCase() !== 'SAMSUNG'
+                    ? `PRODUTO NA LISTA - ${p.dealer.toUpperCase()}`
+                    : `PRODUTO NA LISTA - SAMSUNG`)
+                : ((p.fabricante || p.brand || 'SAMSUNG').toUpperCase() === 'SAMSUNG'
+                    ? 'FORA DA LISTA - SAMSUNG'
+                    : `FORA DA LISTA - ${(p.fabricante || p.brand || 'OUTRA MARCA').toUpperCase()}`));
+
+            return {
+              id: p.id_local || p.id,
+              id_local: p.id_local || p.id,
+              id_servidor: p.id,
+              serial: p.serial,
+              imei: p.imei || p.serial,
+              ean: p.ean || '',
+              sku: p.sku || p.ean || '',
+              modelo_produto: p.modelo,
+              fabricante: p.fabricante || p.brand || 'SAMSUNG',
+              brand: p.brand || p.fabricante || 'SAMSUNG',
+              numero_lote: p.numero_lote,
+              numero_caixa: p.numero_caixa,
+              box_name: p.box_name || p.numero_caixa,
+              regional: p.regions?.nome || p.regions?.codigo || userRegional || 'VIA VAREJO RJ',
+              produto_lacrado: p.produto_lacrado,
+              kit_completo: p.kit_completo,
+              aparelho_marcas_uso: p.aparelho_marcas_uso,
+              lacre_seguranca: lacreSeguranca,
+              observacao: observacaoLimpa,
+              usuario_sincronizacao: p.usuario_bipagem,
+              usuario_cadastro: p.usuario_bipagem,
+              data_auditoria: p.data_auditoria,
+              data_sincronizacao: p.created_at,
+              status_sincronizacao: p.status_sincronizacao,
+              origin_invoice: p.origin_invoice || null,
+              nf_origem: p.origin_invoice || null,
+              classificacao_produto: classifCalculada,
+              product_classification: classifCalculada,
+              box_classification: classifCalculada,
+              source_type: p.source_type || 'OUT_OF_LIST',
+              dealer: p.dealer || null,
+              computador_id: p.device_id || 'PC-01',
+              computador_nome: 'Estação',
+            };
+          });
 
           const localData = obterDadosCentraisLocais();
           return res.status(200).json({
@@ -220,10 +277,31 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    const produtosFormatadosLocal = produtosFiltrados.map((p: any) => {
+      let lacre = p.lacre_seguranca || null;
+      let obs = p.observacao || '';
+      if (!lacre && obs.includes('[LACRE:')) {
+        const m = obs.match(/\[LACRE:(.*?)\]/);
+        if (m && m[1]) {
+          lacre = m[1].trim();
+          obs = obs.replace(/\[LACRE:.*?\]\s*/g, '').trim();
+        }
+      }
+      return {
+        ...p,
+        lacre_seguranca: lacre,
+        observacao: obs,
+        sku: p.sku || p.ean || '',
+        fabricante: p.fabricante || p.brand || 'SAMSUNG',
+        brand: p.brand || p.fabricante || 'SAMSUNG',
+        computador_id: p.computador_id || 'PC-01',
+      };
+    });
+
     return res.status(200).json({
       sucesso: true,
       origem: 'LOCAL_STORAGE',
-      produtos: produtosFiltrados,
+      produtos: produtosFormatadosLocal,
       fotos: dados.fotos,
       historico_envios: dados.historico_envios,
       tentativas_duplicadas: dados.tentativas_duplicadas,

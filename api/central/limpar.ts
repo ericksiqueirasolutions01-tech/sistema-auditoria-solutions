@@ -131,16 +131,21 @@ export default async function handler(req: any, res: any) {
     // 1. Limpeza segura no Supabase se configurado
     if (supabase) {
       try {
-        // Soft delete em audit_products e lots
+        // Limpeza real em audit_products, lot_photos e lots
         await supabase
           .from('audit_products')
-          .update({ deleted_at: agora })
-          .is('deleted_at', null);
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        await supabase
+          .from('lot_photos')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
 
         await supabase
           .from('lots')
-          .update({ deleted_at: agora })
-          .is('deleted_at', null);
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
 
         // Trilha imutável append-only
         await supabase.from('audit_log').insert({

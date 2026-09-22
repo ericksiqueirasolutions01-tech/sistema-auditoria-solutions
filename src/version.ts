@@ -29,7 +29,7 @@ export const VERSAO_LOCAL: InfoVersaoSistema = {
   ],
   downloadUrl:
     'https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe',
-  sha256: 'cfcc795cfa6e0e949ae406bc09477ad14081b73b5d941faa906c050675e7deeb',
-  size_bytes: 21699584,
+  sha256: '4739c9e9c1d80cbdae520877dd9e28a8b77c3a94b614ff9e7389aedea9baddc1',
+  size_bytes: 22579200,
 };
 

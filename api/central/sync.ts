@@ -304,6 +304,7 @@ export default async function handler(req: any, res: any) {
           const { data: dbProducts } = await supabase
             .from('audit_products')
             .select('serial, imei, modelo, numero_caixa, created_at, usuario_bipagem, regional_id')
+            .is('deleted_at', null)
             .or(`serial.in.(${serialsConsulta.join(',')}),imei.in.(${serialsConsulta.join(',')})`);
 
           if (Array.isArray(dbProducts)) {
@@ -441,7 +442,7 @@ export default async function handler(req: any, res: any) {
             };
           });
 
-          await supabase.from('audit_products').insert(rowsToInsert);
+          await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
         }
 
         // Trilha imutável em audit_log

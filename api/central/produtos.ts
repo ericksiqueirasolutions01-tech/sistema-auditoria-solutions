@@ -132,6 +132,7 @@ export default async function handler(req: any, res: any) {
         let query = supabase
           .from('audit_products')
           .select('*, regions(codigo, nome)')
+          .is('deleted_at', null)
           .order('created_at', { ascending: false });
 
         if (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL') {

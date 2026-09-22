@@ -174,9 +174,10 @@ if (Test-Path $versionJsonPath) {
         $vObj.sha256 = $hashInstaller
         $vObj.size_bytes = (Get-Item $installerExe).Length
         $vObjJson = $vObj | ConvertTo-Json -Depth 5
-        Set-Content -Path $versionJsonPath -Value $vObjJson -Encoding UTF8
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($versionJsonPath, $vObjJson, $utf8NoBom)
         if (Test-Path "$baseDir\dist") {
-            Set-Content -Path "$baseDir\dist\version.json" -Value $vObjJson -Encoding UTF8
+            [System.IO.File]::WriteAllText("$baseDir\dist\version.json", $vObjJson, $utf8NoBom)
         }
         Write-Host " -> public/version.json sincronizado com hash e tamanho oficial do instalador." -ForegroundColor Green
     } catch {

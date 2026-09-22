@@ -3682,9 +3682,9 @@ class AuditoriaDatabase {
       // 6.2 Fallback direto para o Supabase se configurado no cliente
       if (isSupabaseConfigured && supabase) {
         try {
-          const agoraIso = new Date().toISOString();
-          await supabase.from('audit_products').update({ deleted_at: agoraIso }).is('deleted_at', null);
-          await supabase.from('lots').update({ deleted_at: agoraIso }).is('deleted_at', null);
+          await supabase.from('audit_products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('lot_photos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('lots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         } catch (errSup) {
           console.warn('[Storage] Falha ao zerar no Supabase diretamente:', errSup);
         }
@@ -4167,6 +4167,7 @@ class AuditoriaDatabase {
         const { data: dbExistentes } = await supabase
           .from('audit_products')
           .select('serial, imei, modelo, numero_caixa, created_at, usuario_bipagem')
+          .is('deleted_at', null)
           .in('serial', serialsConsulta);
 
         const mapExistentes = new Map<string, any>();
@@ -4232,7 +4233,7 @@ class AuditoriaDatabase {
         }
 
         if (paraInserir.length > 0 && regionalId) {
-          const { error: insErr } = await supabase.from('audit_products').insert(paraInserir);
+          const { error: insErr } = await supabase.from('audit_products').upsert(paraInserir, { onConflict: 'serial,regional_id' });
           if (!insErr) {
             sincronizouComSucesso = true;
           }

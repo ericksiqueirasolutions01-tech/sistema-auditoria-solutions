@@ -1471,11 +1471,15 @@ class AuditoriaDatabase {
     const refLookup = this.consultarImeiReferencia(serialNorm, regionalFinal);
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
-    const resolvedFabricante = inferirFabricante(
-      refLookup ? refLookup.model_description : item.modelo_produto,
-      refLookup?.brand || item.fabricante || item.brand || null,
-      item.sku || refLookup?.sku || null
-    );
+    const fabExplicit = (item.fabricante || item.brand || '').trim().toUpperCase();
+    const resolvedFabricante =
+      resolvedSourceType === 'OUT_OF_LIST' && fabExplicit && fabExplicit !== 'FABRICANTE NÃO IDENTIFICADO'
+        ? fabExplicit
+        : inferirFabricante(
+            refLookup ? refLookup.model_description : item.modelo_produto,
+            refLookup?.brand || item.fabricante || item.brand || null,
+            item.sku || refLookup?.sku || null
+          );
 
     // Nova Regra de Lote: informado pelo colaborador (ex: LOTE 1). Não gera "BA - LISTA - SAMSUNG"
     let loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || 'LOTE 1').toUpperCase();
@@ -1624,7 +1628,7 @@ class AuditoriaDatabase {
       uuid: crypto.randomUUID ? crypto.randomUUID() : `sec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       regional: regionalFinal,
       fabricante: resolvedFabricante,
-      modelo_produto: item.modelo_produto.trim(),
+      modelo_produto: (resolvedSourceType === 'LISTED' && refLookup?.model_description ? refLookup.model_description : item.modelo_produto).trim(),
       ean: eanFinal,
       serial: serialNorm,
       imei: serialNorm,
@@ -1790,16 +1794,42 @@ class AuditoriaDatabase {
         ? dados.numero_nf
         : anterior.origin_invoice || anterior.nf_origem || anterior.numero_nf;
 
+    const isItemForaDaLista =
+      anterior.source_type === 'OUT_OF_LIST' ||
+      dados.source_type === 'OUT_OF_LIST' ||
+      anterior.origin_invoice === 'NÃO LOCALIZADA NA BASE' ||
+      anterior.nf_origem === 'NÃO LOCALIZADA NA BASE' ||
+      Boolean(anterior.classificacao_produto?.includes('FORA DA LISTA'));
+
+    const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = isItemForaDaLista
+      ? 'OUT_OF_LIST'
+      : (dados.source_type || anterior.source_type || 'LISTED');
+
+    const fabricanteAtualizado = (dados.fabricante || dados.brand || anterior.fabricante || anterior.brand || 'OUTRA MARCA').trim().toUpperCase();
+    const dealerAtualizado = dados.dealer !== undefined ? dados.dealer : anterior.dealer;
+
+    const mudouFabricanteOuModelo = Boolean(
+      (dados.fabricante && dados.fabricante.trim().toUpperCase() !== (anterior.fabricante || '').trim().toUpperCase()) ||
+      (dados.brand && dados.brand.trim().toUpperCase() !== (anterior.brand || '').trim().toUpperCase()) ||
+      (dados.modelo_produto && dados.modelo_produto.trim() !== anterior.modelo_produto.trim())
+    );
+
     const classificacaoAtualizada =
       dados.classificacao_produto ||
       dados.product_classification ||
-      anterior.classificacao_produto ||
-      anterior.product_classification ||
-      calcularClassificacaoProduto({
-        sourceType: dados.source_type || anterior.source_type || 'LISTED',
-        dealer: dados.dealer !== undefined ? dados.dealer : anterior.dealer,
-        fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand,
-      });
+      (mudouFabricanteOuModelo
+        ? calcularClassificacaoProduto({
+            sourceType: resolvedSourceType,
+            dealer: dealerAtualizado,
+            fabricante: fabricanteAtualizado,
+          })
+        : (anterior.classificacao_produto ||
+           anterior.product_classification ||
+           calcularClassificacaoProduto({
+             sourceType: resolvedSourceType,
+             dealer: dealerAtualizado,
+             fabricante: fabricanteAtualizado,
+           })));
 
     // Validação de Caixa Homogênea ao atualizar
     const caixaFinal = (dados.numero_caixa || anterior.numero_caixa).trim().toUpperCase();
@@ -1831,8 +1861,8 @@ class AuditoriaDatabase {
       ...dados,
       serial: serialNovo,
       imei: serialNovo,
-      fabricante: dados.fabricante || dados.brand || anterior.fabricante || anterior.brand || 'OUTRA MARCA',
-      brand: dados.brand || dados.fabricante || anterior.brand || anterior.fabricante || 'OUTRA MARCA',
+      fabricante: fabricanteAtualizado,
+      brand: fabricanteAtualizado,
       numero_caixa: caixaFinal,
       numero_lote: dados.numero_lote !== undefined ? (dados.numero_lote || '').trim().toUpperCase() : anterior.numero_lote,
       numero_nf: dados.numero_nf !== undefined ? (dados.numero_nf || '').trim() : (originInvoiceAtualizado || ''),

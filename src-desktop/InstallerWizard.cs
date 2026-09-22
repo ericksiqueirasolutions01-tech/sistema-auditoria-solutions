@@ -67,7 +67,7 @@ namespace SistemaAuditoriaInstaller
 
             lblSubtitle = new Label
             {
-                Text = "Conferência, Qualidade e Rastreabilidade Samsung • Versão 1.3.0",
+                Text = "Conferência, Qualidade e Rastreabilidade Samsung • Versão 1.3.1",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(148, 163, 184),
                 Location = new Point(20, 42),
@@ -563,8 +563,8 @@ namespace SistemaAuditoriaInstaller
                 {
                     if (key != null)
                     {
-                        key.SetValue("DisplayName", "Sistema de Auditoria Grupo Solutions - Samsung v1.3.0");
-                        key.SetValue("DisplayVersion", "1.3.0");
+                        key.SetValue("DisplayName", "Sistema de Auditoria Grupo Solutions - Samsung v1.3.1");
+                        key.SetValue("DisplayVersion", "1.3.1");
                         key.SetValue("Publisher", "Grupo Solutions");
                         key.SetValue("InstallLocation", installDir);
                         key.SetValue("DisplayIcon", exePath);

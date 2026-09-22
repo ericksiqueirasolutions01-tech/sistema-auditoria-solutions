@@ -1,18 +1,16 @@
 {
-  "versao": "1.3.0",
-  "versaoCodigo": 130,
-  "dataPublicacao": "2026-09-22T19:00:00.000Z",
+  "versao": "1.3.1",
+  "versaoCodigo": 131,
+  "dataPublicacao": "2026-09-22T19:20:00.000Z",
   "obrigatoria": true,
-  "titulo": "Nova Atualização Obrigatória Disponível (v1.3.0)",
-  "descricao": "Esta versão v1.3.0 inclui lacre de segurança por caixa na bipagem e espelho, relatório do administrador com lacre de cada caixa, exclusão e gestão de bases de referência, conferência de produtos pendentes antes do fechamento e justificativa obrigatória com Caixa 0.",
+  "titulo": "Nova Atualização Obrigatória Disponível (v1.3.1)",
+  "descricao": "Esta versão v1.3.1 inclui edição livre de fabricante e modelo para produtos fora da lista, cálculo dinâmico de classificação por marca e formulário administrativo atualizado.",
   "novidades": [
-    "Campo e controle de Lacre de Segurança por Caixa na bipagem contínua e cabeçalho operacional",
-    "Exibição do Lacre de Segurança nos Espelhos de Caixa (Modelos 1 e 2) e PDFs oficiais",
-    "Relatório do Administrador (Excel e PDF) com coluna dedicada ao Número do Lacre de cada caixa",
-    "Exclusão de bases de referência regionais pelo Administrador com reativação automática de versão anterior",
-    "Validação prévia de produtos pendentes ao fechar lote comparando listagem oficial com itens bipados",
-    "Campo obrigatório de justificativa/motivo para fechamento de lote com pendências",
-    "Produtos pendentes listados nos relatórios com numeração de Caixa = 0 e motivo registrado"
+    "Edição de Fabricante e Modelo para produtos fora da lista tanto na bipagem ativa (Desktop e Mobile) quanto na edição inline de linhas registradas",
+    "Datalist inteligente de fabricantes (Samsung, Motorola, Apple, Xiaomi, Oppo, Jovi, Outra Marca) com classificação automática dinâmica",
+    "Recálculo em tempo real de classificação de caixa e produto ao alterar fabricante/modelo de itens fora da lista",
+    "Suporte à edição de Fabricante pelo Administrador no modal de edição de produtos",
+    "Lacre de Segurança por Caixa e Relatórios do Administrador com Lacre e Produtos Pendentes (Caixa 0)"
   ],
   "downloadUrl": "https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe",
   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

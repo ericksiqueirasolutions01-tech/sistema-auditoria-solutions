@@ -98,6 +98,7 @@ export const PainelAdmin: React.FC = () => {
 
   // Estados para Edição de Produtos pelo Administrador (Requisito 10)
   const [produtoParaEditar, setProdutoParaEditar] = useState<ProdutoAuditoria | null>(null);
+  const [editFabricanteAdmin, setEditFabricanteAdmin] = useState('');
   const [editModeloAdmin, setEditModeloAdmin] = useState('');
   const [editEanAdmin, setEditEanAdmin] = useState('');
   const [editImeiAdmin, setEditImeiAdmin] = useState('');
@@ -661,6 +662,7 @@ export const PainelAdmin: React.FC = () => {
 
   const abrirEdicaoProdutoAdmin = (p: ProdutoAuditoria) => {
     setProdutoParaEditar(p);
+    setEditFabricanteAdmin(p.fabricante || p.brand || '');
     setEditModeloAdmin(p.modelo_produto);
     setEditEanAdmin(p.ean);
     setEditImeiAdmin(p.imei || p.serial);
@@ -700,6 +702,8 @@ export const PainelAdmin: React.FC = () => {
 
     const res = db.atualizarProduto(produtoParaEditar.id, {
       modelo_produto: editModeloAdmin.trim(),
+      fabricante: editFabricanteAdmin.trim() ? editFabricanteAdmin.trim().toUpperCase() : undefined,
+      brand: editFabricanteAdmin.trim() ? editFabricanteAdmin.trim().toUpperCase() : undefined,
       ean: editEanAdmin.trim(),
       imei: editImeiAdmin.trim(),
       serial: editImeiAdmin.trim(),
@@ -3709,6 +3713,17 @@ export const PainelAdmin: React.FC = () => {
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-700 block mb-1">Fabricante:</label>
+                  <input
+                    type="text"
+                    value={editFabricanteAdmin}
+                    onChange={(e) => setEditFabricanteAdmin(e.target.value.toUpperCase())}
+                    placeholder="Ex: SAMSUNG, MOTOROLA, APPLE..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-black uppercase text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
                 <div>
                   <label className="text-xs font-black uppercase text-slate-700 block mb-1">Modelo do Produto:</label>
                   <input

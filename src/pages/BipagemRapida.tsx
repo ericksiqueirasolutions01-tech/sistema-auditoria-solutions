@@ -53,6 +53,18 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
+export const FABRICANTES_PRESET = [
+  'SAMSUNG',
+  'MOTOROLA',
+  'APPLE',
+  'XIAOMI',
+  'OPPO',
+  'JOVI',
+  'REALME',
+  'INFINIX',
+  'OUTRA MARCA',
+];
+
 export const BipagemRapida: React.FC = () => {
   const usuarioAtual = db.getUsuarioAtual();
   const regionalAtiva = usuarioAtual?.regional || (usuarioAtual?.perfil === 'ADMINISTRADOR' ? 'TODAS AS REGIONAIS (ADMIN)' : 'VIA VAREJO RJ');
@@ -175,6 +187,7 @@ export const BipagemRapida: React.FC = () => {
 
   // Editing state for previously recorded rows (full inline editing of any cell)
   const [linhaEditandoId, setLinhaEditandoId] = useState<number | null>(null);
+  const [editFabricante, setEditFabricante] = useState('');
   const [editModelo, setEditModelo] = useState('');
   const [editEan, setEditEan] = useState('');
   const [editSerial, setEditSerial] = useState('');
@@ -186,6 +199,13 @@ export const BipagemRapida: React.FC = () => {
   const [editKit, setEditKit] = useState<SimNao | ''>('');
   const [editMarcas, setEditMarcas] = useState<SimNao | ''>('');
   const [editObs, setEditObs] = useState('');
+
+  const isItemForaDaLista = (item: ProdutoAuditoria) =>
+    item.source_type === 'OUT_OF_LIST' ||
+    item.origin_invoice === 'NÃO LOCALIZADA NA BASE' ||
+    item.nf_origem === 'NÃO LOCALIZADA NA BASE' ||
+    Boolean(item.classificacao_produto?.includes('FORA DA LISTA')) ||
+    Boolean(item.product_classification?.includes('FORA DA LISTA'));
 
   // UI Modals
   const [mostrarEspelhoModal, setMostrarEspelhoModal] = useState(false);
@@ -345,6 +365,18 @@ export const BipagemRapida: React.FC = () => {
     recarregarDados(filtroCaixa);
   };
 
+  const handleFabricanteChange = (novoFab: string) => {
+    const fabUpper = novoFab.toUpperCase();
+    setFabricanteAtivo(fabUpper);
+    if (statusReferencia === 'OUT_OF_LIST' || statusReferencia === 'IDLE') {
+      const classif = calcularClassificacaoProduto({
+        sourceType: 'OUT_OF_LIST',
+        fabricante: fabUpper,
+      });
+      setClassificacaoAtiva(classif);
+    }
+  };
+
   // When user changes the model input, try to auto-fill EAN if it matches a Samsung preset, but keep it editable!
   const handleModeloChange = (novoModelo: string) => {
     setModeloAtivo(novoModelo);
@@ -355,8 +387,17 @@ export const BipagemRapida: React.FC = () => {
     if (encontrado) {
       setEanAtivo(encontrado.ean);
     }
-    const fabResolvido = inferirFabricante(novoModelo, null, skuPreenchido);
-    setFabricanteAtivo(fabResolvido);
+    const fabInformativo = inferirFabricante(novoModelo, null, skuPreenchido);
+    if (fabInformativo && fabInformativo !== 'FABRICANTE NÃO IDENTIFICADO' && statusReferencia !== 'LISTED') {
+      setFabricanteAtivo(fabInformativo);
+      if (statusReferencia === 'OUT_OF_LIST' || statusReferencia === 'IDLE') {
+        const classif = calcularClassificacaoProduto({
+          sourceType: 'OUT_OF_LIST',
+          fabricante: fabInformativo,
+        });
+        setClassificacaoAtiva(classif);
+      }
+    }
   };
 
   // Main Bipagem Process (Excel Row Enter)
@@ -427,11 +468,15 @@ export const BipagemRapida: React.FC = () => {
       const dealerResolvido = refLookup?.dealer_normalized || null;
       const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();
       const skuResolvido = (refLookup?.sku || eanLimpo).trim();
-      const fabricanteResolvido = inferirFabricante(
-        modeloResolvido,
-        refLookup?.brand || null,
-        skuResolvido
-      );
+      const fabricanteResolvido = refLookup
+        ? inferirFabricante(
+            refLookup.model_description,
+            refLookup.brand || null,
+            refLookup.sku
+          )
+        : (fabricanteAtivo && fabricanteAtivo.trim() && fabricanteAtivo.trim().toUpperCase() !== 'FABRICANTE NÃO IDENTIFICADO'
+            ? fabricanteAtivo.trim().toUpperCase()
+            : inferirFabricante(modeloResolvido, null, skuResolvido));
       const originInvoiceResolvido = refLookup
         ? (refLookup.origin_invoice || null)
         : 'NÃO LOCALIZADA NA BASE';
@@ -616,6 +661,7 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
     setLinhaEditandoId(item.id);
+    setEditFabricante(item.fabricante || item.brand || inferirFabricante(item.modelo_produto, null, item.ean));
     setEditModelo(item.modelo_produto);
     setEditEan(item.ean);
     setEditSerial(item.serial);
@@ -669,14 +715,20 @@ export const BipagemRapida: React.FC = () => {
       return;
     }
 
+    const itemOriginal = produtos.find((p) => p.id === id);
+    const isItemFora = itemOriginal ? isItemForaDaLista(itemOriginal) : false;
+
     const refLookup = db.consultarImeiReferencia(editSerial.trim(), regItem);
-    const fabResolvido = inferirFabricante(
-      editModelo.trim(),
-      refLookup?.brand || null,
-      editEan.trim()
-    );
+    const fabResolvido = isItemFora && editFabricante.trim()
+      ? editFabricante.trim().toUpperCase()
+      : (refLookup
+          ? inferirFabricante(refLookup.model_description, refLookup.brand || null, refLookup.sku)
+          : (editFabricante.trim()
+              ? editFabricante.trim().toUpperCase()
+              : inferirFabricante(editModelo.trim(), null, editEan.trim())));
+
     const classifResolvida = calcularClassificacaoProduto({
-      sourceType: refLookup ? 'LISTED' : 'OUT_OF_LIST',
+      sourceType: isItemFora ? 'OUT_OF_LIST' : (refLookup ? 'LISTED' : 'OUT_OF_LIST'),
       dealer: refLookup?.dealer_normalized || null,
       fabricante: fabResolvido,
     });
@@ -1623,6 +1675,12 @@ export const BipagemRapida: React.FC = () => {
         ))}
       </datalist>
 
+      <datalist id="lista-fabricantes">
+        {FABRICANTES_PRESET.map((fab) => (
+          <option key={fab} value={fab} />
+        ))}
+      </datalist>
+
       {/* ========================================================================= */}
       {/* BARRA DE ALTERNAÇÃO DE VISUALIZAÇÃO: MODO CELULAR VS PLANILHA EXCEL */}
       {/* ========================================================================= */}
@@ -2194,16 +2252,43 @@ export const BipagemRapida: React.FC = () => {
               ))}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
               <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Modelo Selecionado:</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Fabricante {statusReferencia === 'LISTED' ? '(Bloqueado)' : '(Editável)'}:
+                </span>
+                <input
+                  list="lista-fabricantes"
+                  type="text"
+                  value={fabricanteAtivo}
+                  onChange={(e) => handleFabricanteChange(e.target.value)}
+                  readOnly={statusReferencia === 'LISTED'}
+                  placeholder="Fabricante..."
+                  className={`w-full text-sm font-black uppercase rounded-xl px-3 py-2 border-2 focus:outline-none ${
+                    statusReferencia === 'LISTED'
+                      ? 'bg-slate-100 text-slate-600 border-slate-300 cursor-not-allowed select-none'
+                      : 'bg-white text-slate-900 border-emerald-500 focus:border-emerald-600'
+                  }`}
+                  title={statusReferencia === 'LISTED' ? 'Fabricante fixado pela base regional' : 'Fabricante editável para produto fora da lista'}
+                />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Modelo {statusReferencia === 'LISTED' ? '(Bloqueado)' : '(Editável)'}:
+                </span>
                 <input
                   list="lista-modelos-samsung"
                   type="text"
                   value={modeloAtivo}
                   onChange={(e) => handleModeloChange(e.target.value)}
+                  readOnly={statusReferencia === 'LISTED'}
                   placeholder="Digite ou escolha o modelo..."
-                  className="w-full text-sm font-black text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-xl px-3 py-2 focus:border-blue-600 focus:bg-white focus:outline-none"
+                  className={`w-full text-sm font-black rounded-xl px-3 py-2 border-2 focus:outline-none ${
+                    statusReferencia === 'LISTED'
+                      ? 'bg-slate-100 text-slate-600 border-slate-300 cursor-not-allowed select-none'
+                      : 'bg-white text-slate-900 border-slate-300 focus:border-blue-600'
+                  }`}
+                  title={statusReferencia === 'LISTED' ? 'Modelo fixado pela base regional' : 'Digite ou escolha o modelo'}
                 />
               </div>
               <div>
@@ -3150,7 +3235,7 @@ export const BipagemRapida: React.FC = () => {
               <tr>
                 <th className="py-1.5 px-2 w-10 text-center bg-slate-300 border-r border-slate-300">#</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[85px] bg-slate-100 text-center">Estação 💻</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 w-24 text-center">Fabricante</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 w-28 text-center">Fabricante ✏️</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 min-w-[220px]">Modelo Produto ✏️</th>
                 <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[110px]">SKU ✏️</th>
                 <th className="py-1.5 px-3 border-r border-slate-300 min-w-[160px] bg-blue-100 text-blue-950">
@@ -3194,20 +3279,44 @@ export const BipagemRapida: React.FC = () => {
                       <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-slate-700 bg-amber-100/50 border-r border-amber-200 whitespace-nowrap">
                         💻 {item.computador_id || 'PC-01'}
                       </td>
-                      <td className="py-2 px-3 font-bold text-slate-700 border-r border-amber-200 whitespace-nowrap">
-                        {item.brand || item.fabricante || inferirFabricante(editModelo, null)}
-                      </td>
+
+                      {/* Fabricante */}
+                      {isItemForaDaLista(item) ? (
+                        <td className="py-2 px-2 border-r border-amber-200 min-w-[130px]">
+                          <input
+                            list="lista-fabricantes"
+                            type="text"
+                            value={editFabricante}
+                            onChange={(e) => setEditFabricante(e.target.value.toUpperCase())}
+                            placeholder="Fabricante..."
+                            className="w-full text-xs font-black text-slate-900 bg-white border border-amber-400 rounded px-2 py-1 uppercase focus:ring-1 focus:ring-amber-500"
+                            title="Fabricante do produto fora da lista (editável)"
+                          />
+                        </td>
+                      ) : (
+                        <td className="py-2 px-3 font-bold text-slate-700 border-r border-amber-200 whitespace-nowrap bg-slate-100/50">
+                          🔒 {item.brand || item.fabricante || 'SAMSUNG'}
+                        </td>
+                      )}
 
                       {/* Modelo Produto */}
-                      <td className="py-2 px-2 border-r border-amber-200 min-w-[220px]">
-                        <input
-                          list="lista-modelos-samsung"
-                          type="text"
-                          value={editModelo}
-                          onChange={(e) => setEditModelo(e.target.value)}
-                          className="w-full text-xs font-bold text-slate-900 bg-white border border-amber-400 rounded px-2 py-1"
-                        />
-                      </td>
+                      {isItemForaDaLista(item) ? (
+                        <td className="py-2 px-2 border-r border-amber-200 min-w-[220px]">
+                          <input
+                            list="lista-modelos-samsung"
+                            type="text"
+                            value={editModelo}
+                            onChange={(e) => setEditModelo(e.target.value)}
+                            placeholder="Modelo..."
+                            className="w-full text-xs font-bold text-slate-900 bg-white border border-amber-400 rounded px-2 py-1 focus:ring-1 focus:ring-amber-500"
+                            title="Modelo do produto fora da lista (editável)"
+                          />
+                        </td>
+                      ) : (
+                        <td className="py-2 px-3 font-bold text-slate-700 border-r border-amber-200 min-w-[220px] bg-slate-100/50">
+                          🔒 {item.modelo_produto}
+                        </td>
+                      )}
 
                       {/* SKU */}
                       <td className="py-2 px-2 border-r border-amber-200 min-w-[110px]">
@@ -3552,8 +3661,26 @@ export const BipagemRapida: React.FC = () => {
                 <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-emerald-950 bg-emerald-100/70 border-r border-emerald-300 whitespace-nowrap">
                   💻 {computadorAtual.id}
                 </td>
-                <td className="py-2 px-3 font-black text-slate-800 border-r border-emerald-300 whitespace-nowrap">
-                  {fabricanteAtivo}
+                {/* FABRICANTE */}
+                <td className="py-2 px-2 border-r border-emerald-300 min-w-[130px]">
+                  {statusReferencia === 'LISTED' ? (
+                    <div
+                      className="w-full text-xs font-black text-slate-600 bg-slate-100 border border-slate-300 rounded px-2 py-1.5 select-none text-center cursor-not-allowed"
+                      title="Fabricante fixado pela base regional oficial (somente leitura)"
+                    >
+                      🔒 {fabricanteAtivo}
+                    </div>
+                  ) : (
+                    <input
+                      list="lista-fabricantes"
+                      type="text"
+                      value={fabricanteAtivo}
+                      onChange={(e) => handleFabricanteChange(e.target.value)}
+                      placeholder="Fabricante..."
+                      className="w-full text-xs font-black text-slate-900 bg-white border-2 border-emerald-500 rounded px-2 py-1.5 focus:border-emerald-600 focus:outline-none uppercase"
+                      title={statusReferencia === 'OUT_OF_LIST' ? 'Fabricante editável para produto fora da lista' : 'Fabricante editável'}
+                    />
+                  )}
                 </td>
 
                 {/* MODELO PRODUTO */}
@@ -3563,9 +3690,14 @@ export const BipagemRapida: React.FC = () => {
                     type="text"
                     value={modeloAtivo}
                     onChange={(e) => handleModeloChange(e.target.value)}
-                    placeholder="Ex: Galaxy S24"
-                    className="w-full text-xs font-black text-slate-900 bg-white border border-slate-300 rounded px-2 py-1.5 focus:border-emerald-600 focus:outline-none"
-                    title="Digite ou selecione o modelo"
+                    readOnly={statusReferencia === 'LISTED'}
+                    placeholder={statusReferencia === 'LISTED' ? 'Modelo da base regional...' : 'Ex: Galaxy S24, Moto G54...'}
+                    className={`w-full text-xs font-black rounded px-2 py-1.5 focus:outline-none ${
+                      statusReferencia === 'LISTED'
+                        ? 'bg-slate-100 font-bold text-slate-600 border border-slate-300 cursor-not-allowed select-none'
+                        : 'bg-white text-slate-900 border border-slate-300 focus:border-emerald-600'
+                    }`}
+                    title={statusReferencia === 'LISTED' ? 'Modelo fixado pela base regional (somente leitura)' : 'Digite ou selecione o modelo'}
                   />
                 </td>
 

@@ -454,17 +454,18 @@ export default async function handler(req: any, res: any) {
     // Persistência no banco Supabase se configurado
     if (supabase && novosParaDb.length > 0) {
       try {
-        // Obter regional_id
+        // Obter regional_id de forma robusta
         let regionalId: string | null = null;
-        const { data: regData } = await supabase
-          .from('regions')
-          .select('id')
-          .or(`codigo.eq.${regionalNome},nome.eq.${regionalNome}`)
-          .limit(1)
-          .maybeSingle();
-
-        if (regData?.id) {
-          regionalId = regData.id;
+        const { data: allRegions } = await supabase.from('regions').select('id, codigo, nome');
+        if (Array.isArray(allRegions)) {
+          const regLimpa = regionalNome.toUpperCase().replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+          const found = allRegions.find((r: any) =>
+            (r.codigo && r.codigo.toUpperCase() === regLimpa) ||
+            (r.nome && r.nome.toUpperCase() === regionalNome.toUpperCase()) ||
+            (r.codigo && regionalNome.toUpperCase().includes(r.codigo.toUpperCase())) ||
+            (r.nome && r.nome.toUpperCase().includes(regLimpa))
+          );
+          if (found) regionalId = found.id;
         }
 
         if (regionalId) {
@@ -477,8 +478,10 @@ export default async function handler(req: any, res: any) {
               obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
             }
 
+            const isLacrado = item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM';
+
             return {
-              id_local: item.id || `LOC-${Date.now()}`,
+              id_local: String(item.id || `LOC-${Date.now()}`),
               serial: item.serial,
               imei: item.imei || item.serial,
               ean: item.ean || '',
@@ -486,12 +489,10 @@ export default async function handler(req: any, res: any) {
               fabricante: item.fabricante || item.brand || 'OUTRA MARCA',
               numero_lote: item.numero_lote || item.lote || '01',
               numero_caixa: cx,
-              box_id: item.box_id || cx.toLowerCase().replace(/\s+/g, '-'),
-              box_name: item.box_name || cx,
               regional_id: regionalId,
-              produto_lacrado: item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
-              kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
-              aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+              produto_lacrado: isLacrado,
+              kit_completo: isLacrado === 'SIM' ? null : (item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM'),
+              aparelho_marcas_uso: isLacrado === 'SIM' ? null : (item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO'),
               observacao: obsFinal || null,
               usuario_bipagem: usuarioNormalizado.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',
@@ -508,7 +509,10 @@ export default async function handler(req: any, res: any) {
             };
           });
 
-          await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
+          const { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
+          if (upsertErr) {
+            console.error('[Central] Erro ao persistir audit_products no Supabase:', upsertErr);
+          }
         }
 
         // Trilha imutável em audit_log

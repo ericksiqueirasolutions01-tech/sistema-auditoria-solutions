@@ -135,34 +135,28 @@ export default async function handler(req: any, res: any) {
           .is('deleted_at', null)
           .order('created_at', { ascending: false });
 
-        if (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL') {
-          if (userRegional && userRegional !== 'TODAS') {
-            // Filtrar pela regional
-            const { data: reg } = await supabase
-              .from('regions')
-              .select('id')
-              .or(`codigo.eq.${userRegional},nome.eq.${userRegional}`)
-              .maybeSingle();
+        const regionalFiltro = (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL')
+          ? userRegional
+          : (req.query?.regional ? String(req.query.regional).trim().toUpperCase() : 'TODAS');
 
-            if (reg?.id) {
-              query = query.eq('regional_id', reg.id);
+        if (regionalFiltro && regionalFiltro !== 'TODAS') {
+          const { data: allRegions } = await supabase.from('regions').select('id, codigo, nome');
+          if (Array.isArray(allRegions)) {
+            const regLimpa = regionalFiltro.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+            const found = allRegions.find((r: any) =>
+              (r.codigo && r.codigo.toUpperCase() === regLimpa) ||
+              (r.nome && r.nome.toUpperCase() === regionalFiltro) ||
+              (r.codigo && regionalFiltro.includes(r.codigo.toUpperCase())) ||
+              (r.nome && r.nome.toUpperCase().includes(regLimpa))
+            );
+            if (found?.id) {
+              query = query.eq('regional_id', found.id);
             }
-          }
-        } else if (req.query?.regional && req.query.regional !== 'TODAS') {
-          const regFiltro = req.query.regional.trim().toUpperCase();
-          const { data: reg } = await supabase
-            .from('regions')
-            .select('id')
-            .or(`codigo.eq.${regFiltro},nome.eq.${regFiltro}`)
-            .maybeSingle();
-
-          if (reg?.id) {
-            query = query.eq('regional_id', reg.id);
           }
         }
 
         const { data: dbProducts, error: dbError } = await query;
-        if (!dbError && Array.isArray(dbProducts) && dbProducts.length > 0) {
+        if (!dbError && Array.isArray(dbProducts)) {
           // Mapa de lacres por caixa para garantir que toda a caixa herde o lacre
           const lacresPorCaixa = new Map<string, string>();
           for (const dp of dbProducts) {

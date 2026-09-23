@@ -3864,8 +3864,21 @@ class AuditoriaDatabase {
       let resetTimestampRemoto: string | null = null;
 
       try {
-        const urlProds = obterApiUrl(`/api/central/produtos?_t=${Date.now()}`);
-        const res = await fetch(urlProds);
+        const params = new URLSearchParams();
+        params.set('_t', String(Date.now()));
+        if (this.usuarioAtual?.perfil) params.set('perfil', this.usuarioAtual.perfil);
+        if (this.usuarioAtual?.regional) params.set('regional', this.usuarioAtual.regional);
+
+        const urlProds = obterApiUrl(`/api/central/produtos?${params.toString()}`);
+        const headers: Record<string, string> = {
+          'x-user-perfil': this.usuarioAtual?.perfil || 'ADMINISTRADOR',
+          'x-user-regional': this.usuarioAtual?.regional || 'TODAS',
+        };
+        const token = typeof window !== 'undefined' ? sessionStorage.getItem('solutions_auth_session_token_v1') : null;
+        if (token) {
+          headers['authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(urlProds, { headers });
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {

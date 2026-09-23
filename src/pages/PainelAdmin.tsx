@@ -190,19 +190,27 @@ export const PainelAdmin: React.FC = () => {
 
   // Atualização reativa automática e sincronização contínua com o servidor central
   useEffect(() => {
-    setAtualizandoServidor(true);
-    db.puxarAtualizacoesServidor().finally(() => {
-      setAtualizandoServidor(false);
-      setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
-      setForcarAtualizacao((v) => v + 1);
-    });
+    const atualizarDados = () => {
+      setAtualizandoServidor(true);
+      db.puxarAtualizacoesServidor().finally(() => {
+        setAtualizandoServidor(false);
+        setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
+        setForcarAtualizacao((v) => v + 1);
+      });
+    };
+
+    atualizarDados();
 
     const unsub = db.onMudanca(() => {
       setForcarAtualizacao((v) => v + 1);
     });
 
+    // Polling automático a cada 15 segundos para capturar novos envios de operadores e celulares em tempo real
+    const intervalo = setInterval(atualizarDados, 15000);
+
     return () => {
       unsub();
+      clearInterval(intervalo);
     };
   }, []);
 

@@ -143,7 +143,27 @@ export default async function handler(req: any, res: any) {
           .neq('id', '00000000-0000-0000-0000-000000000000');
 
         await supabase
+          .from('sync_events')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        await supabase
           .from('lots')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        await supabase
+          .from('audit_lots')
+          .delete()
+          .neq('id', 'dummy');
+
+        await supabase
+          .from('regional_inventory_reference')
+          .delete()
+          .neq('id', 'dummy');
+
+        await supabase
+          .from('inventory_import_batches')
           .delete()
           .neq('id', '00000000-0000-0000-0000-000000000000');
 

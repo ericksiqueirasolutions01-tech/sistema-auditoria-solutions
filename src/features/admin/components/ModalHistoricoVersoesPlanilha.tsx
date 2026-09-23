@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { History, X, CheckCircle2, Archive, FileSpreadsheet, User, Calendar, Database, Trash2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { db, extrairCodigoRegional } from '../../../db/storage';
 import type { InventoryImportBatch } from '../../../types';
@@ -18,11 +18,35 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
 }) => {
   const [batches, setBatches] = useState<InventoryImportBatch[]>(() => db.listarHistoricoImportacoes(regional));
   const [batchParaExcluir, setBatchParaExcluir] = useState<InventoryImportBatch | null>(null);
+  const [confirmandoLimparTudo, setConfirmandoLimparTudo] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [limpandoTudo, setLimpandoTudo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
   const [sucessoExclusao, setSucessoExclusao] = useState<string | null>(null);
 
   const codigoReg = extrairCodigoRegional(regional);
+
+  useEffect(() => {
+    setBatches(db.listarHistoricoImportacoes(regional));
+
+    let cancelado = false;
+    db.puxarAtualizacoesServidor().then(() => {
+      if (!cancelado) {
+        setBatches(db.listarHistoricoImportacoes(regional));
+      }
+    });
+
+    const unsub = db.onMudanca(() => {
+      if (!cancelado) {
+        setBatches(db.listarHistoricoImportacoes(regional));
+      }
+    });
+
+    return () => {
+      cancelado = true;
+      unsub();
+    };
+  }, [regional]);
 
   const handleConfirmarExclusao = async () => {
     if (!batchParaExcluir) return;
@@ -43,6 +67,27 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
       setErroExclusao('Erro inesperado ao excluir base de dados.');
     } finally {
       setExcluindo(false);
+    }
+  };
+
+  const handleConfirmarLimparTudo = async () => {
+    setLimpandoTudo(true);
+    setErroExclusao(null);
+    try {
+      const res = await db.excluirTodasBasesReferencia(regional);
+      if (res.sucesso) {
+        setSucessoExclusao(`Todas as ${res.totalRemovidos} bases da regional ${codigoReg} foram excluídas com sucesso.`);
+        setBatches([]);
+        setConfirmandoLimparTudo(false);
+        onBaseExcluida?.();
+        setTimeout(() => setSucessoExclusao(null), 4000);
+      } else {
+        setErroExclusao(res.erro || 'Falha ao excluir todas as bases.');
+      }
+    } catch {
+      setErroExclusao('Erro inesperado ao excluir todas as bases de dados.');
+    } finally {
+      setLimpandoTudo(false);
     }
   };
 
@@ -189,9 +234,22 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
 
         {/* Rodapé */}
         <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex items-center justify-between shrink-0">
-          <span className="text-xs text-slate-500 font-medium">
-            {batches.length} versão(ões) registrada(s)
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 font-medium">
+              {batches.length} versão(ões) registrada(s)
+            </span>
+            {batches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setConfirmandoLimparTudo(true)}
+                className="text-xs font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Excluir todas as versões de planilhas desta regional"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Zerar Histórico
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -270,6 +328,71 @@ export const ModalHistoricoVersoesPlanilha: React.FC<ModalHistoricoVersoesPlanil
                   <>
                     <Trash2 className="w-4 h-4" />
                     <span>Confirmar Exclusão</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diálogo de Confirmação de Zerar Todo o Histórico */}
+      {confirmandoLimparTudo && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-fadeIn"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 border-2 border-rose-300 shadow-2xl space-y-4">
+            <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-base font-black text-slate-900 uppercase">
+                Zerar Histórico de Planilhas?
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Você está prestes a excluir <strong>todas as {batches.length} versões</strong> de planilhas da regional <strong>{codigoReg}</strong>.
+              </p>
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mt-3 text-left text-xs text-rose-800 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Atenção: Ação Irreversível</span>
+                </div>
+                <p className="text-[11px] text-rose-700">
+                  Todas as referências de IMEI desta regional serão excluídas do banco central e deste computador para permitir uma nova importação limpa.
+                </p>
+              </div>
+            </div>
+
+            {erroExclusao && (
+              <p className="text-xs text-rose-600 font-bold text-center">
+                {erroExclusao}
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={limpandoTudo}
+                onClick={() => setConfirmandoLimparTudo(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs uppercase hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={limpandoTudo}
+                onClick={handleConfirmarLimparTudo}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {limpandoTudo ? (
+                  <span>Zerando...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirmar Zeramento</span>
                   </>
                 )}
               </button>

@@ -192,7 +192,7 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]);
   }
 
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
@@ -206,6 +206,49 @@ export default async function handler(req: any, res: any) {
       body = JSON.parse(body);
     } catch {
       return res.status(400).json({ sucesso: false, erro: 'Payload JSON inválido.' });
+    }
+  }
+
+  // DELETE: excluir uma versão específica ou todas as versões da regional/sistema
+  if (req.method === 'DELETE') {
+    const supabase = getSupabaseServerAdmin();
+    if (!supabase) {
+      return res.status(500).json({ sucesso: false, erro: 'Banco central não configurado.' });
+    }
+    const batchId = req.query?.batch_id || body?.batch_id;
+    const regional = req.query?.regional || body?.regional;
+    const limparTudo = req.query?.all === 'true' || body?.all === true;
+
+    try {
+      if (batchId) {
+        await supabase.from('regional_inventory_reference').delete().eq('import_batch_id', batchId);
+        const { error } = await supabase.from('inventory_import_batches').delete().eq('id', batchId);
+        if (error) throw error;
+        return res.status(200).json({ sucesso: true, mensagem: `Base ${batchId} excluída do banco central.` });
+      }
+
+      if (limparTudo || regional === 'TODAS') {
+        await supabase.from('regional_inventory_reference').delete().neq('id', 'dummy');
+        const { error } = await supabase.from('inventory_import_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        if (error) throw error;
+        return res.status(200).json({ sucesso: true, mensagem: 'Todas as bases de referência foram excluídas do banco central.' });
+      }
+
+      if (regional) {
+        const regUpper = String(regional).trim().toUpperCase();
+        const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+        const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+
+        await supabase.from('regional_inventory_reference').delete().in('regional', regionaisValidas);
+        const { error } = await supabase.from('inventory_import_batches').delete().in('regional', regionaisValidas);
+        if (error) throw error;
+        return res.status(200).json({ sucesso: true, mensagem: `Bases da regional ${regional} excluídas do banco central.` });
+      }
+
+      return res.status(400).json({ sucesso: false, erro: 'Parâmetro batch_id, regional ou all=true obrigatório para exclusão.' });
+    } catch (errDel: any) {
+      console.error('[ReferenciaImport] Erro ao excluir base:', errDel);
+      return res.status(500).json({ sucesso: false, erro: errDel.message || 'Erro ao excluir base.' });
     }
   }
 

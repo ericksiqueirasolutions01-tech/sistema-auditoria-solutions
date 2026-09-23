@@ -3753,6 +3753,10 @@ class AuditoriaDatabase {
     this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
     this.lotesFinalizados = [];
+    this.importBatches = [];
+    this.regionalReferences = [];
+    this.auditLots = [];
+    this.referenceMap.clear();
     this.salvarUltimoLote('01');
 
     // 4. Limpar completamente o LocalStorage
@@ -3769,6 +3773,9 @@ class AuditoriaDatabase {
       localStorage.removeItem('solutions_ultima_sincronizacao');
       localStorage.removeItem(STORAGE_KEY_ULTIMO_LOTE);
       localStorage.removeItem(STORAGE_KEY_LACRES_CAIXAS);
+      localStorage.removeItem(STORAGE_KEY_IMPORT_BATCHES);
+      localStorage.removeItem(STORAGE_KEY_REGIONAL_REFS);
+      localStorage.removeItem(STORAGE_KEY_AUDIT_LOTS);
     }
 
     // 5. Limpar completamente o IndexedDB de forma síncrona/aguardada
@@ -3778,6 +3785,9 @@ class AuditoriaDatabase {
         await idb.produtos.clear();
         await idb.lotes_finalizados.clear();
         await idb.fotos_evidencias.clear();
+        if (idb.inventory_import_batches) await idb.inventory_import_batches.clear();
+        if (idb.regional_inventory_reference) await idb.regional_inventory_reference.clear();
+        if (idb.audit_lots) await idb.audit_lots.clear();
       } catch (errIdb) {
         console.warn('[Storage] Erro ao limpar tabelas do IndexedDB:', errIdb);
       }
@@ -3814,7 +3824,11 @@ class AuditoriaDatabase {
         try {
           await supabase.from('audit_products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
           await supabase.from('lot_photos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('sync_events').delete().neq('id', '00000000-0000-0000-0000-000000000000');
           await supabase.from('lots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('audit_lots').delete().neq('id', 'dummy');
+          await supabase.from('regional_inventory_reference').delete().neq('id', 'dummy');
+          await supabase.from('inventory_import_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         } catch (errSup) {
           console.warn('[Storage] Falha ao zerar no Supabase diretamente:', errSup);
         }
@@ -3832,6 +3846,10 @@ class AuditoriaDatabase {
     this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
     this.lotesFinalizados = [];
+    this.importBatches = [];
+    this.regionalReferences = [];
+    this.auditLots = [];
+    this.referenceMap.clear();
     this.salvarUltimoLote('01');
 
     this.salvarTudo();
@@ -4036,12 +4054,12 @@ class AuditoriaDatabase {
         if (resRef.ok) {
           const refData = await resRef.json();
           if (refData && refData.sucesso) {
-            if (Array.isArray(refData.batches) && refData.batches.length > 0) {
-              const alterouB = this.mesclarBatchesCentral(refData.batches);
+            if (Array.isArray(refData.batches)) {
+              const alterouB = this.sincronizarBatchesComCentral(refData.batches, regAlvo);
               if (alterouB) alterou = true;
             }
-            if (Array.isArray(refData.references) && refData.references.length > 0) {
-              const alterouR = this.mesclarReferenciasCentral(refData.references);
+            if (Array.isArray(refData.references)) {
+              const alterouR = this.sincronizarReferenciasComCentral(refData.references, regAlvo);
               if (alterouR) alterou = true;
             }
           }
@@ -4323,8 +4341,32 @@ class AuditoriaDatabase {
     return alterou;
   }
 
-  mesclarBatchesCentral(batchesCentral: InventoryImportBatch[]): boolean {
+  sincronizarBatchesComCentral(batchesCentral: InventoryImportBatch[], regAlvo?: string): boolean {
     let alterou = false;
+    const centralIds = new Set(batchesCentral.map((b) => b.id));
+
+    if (!regAlvo || regAlvo === 'TODAS') {
+      const batchesFiltrados = this.importBatches.filter((b) => centralIds.has(b.id));
+      if (batchesFiltrados.length !== this.importBatches.length) {
+        this.importBatches = batchesFiltrados;
+        alterou = true;
+      }
+    } else {
+      const regCod = extrairCodigoRegional(regAlvo);
+      const regFull = regAlvo.toUpperCase();
+      const batchesFiltrados = this.importBatches.filter((b) => {
+        const pertence = b.regional.toUpperCase() === regFull || extrairCodigoRegional(b.regional) === regCod;
+        if (pertence) {
+          return centralIds.has(b.id);
+        }
+        return true;
+      });
+      if (batchesFiltrados.length !== this.importBatches.length) {
+        this.importBatches = batchesFiltrados;
+        alterou = true;
+      }
+    }
+
     const map = new Map<string, InventoryImportBatch>();
     for (const b of this.importBatches) {
       map.set(b.id, b);
@@ -4352,8 +4394,36 @@ class AuditoriaDatabase {
     return alterou;
   }
 
-  mesclarReferenciasCentral(referenciasCentral: RegionalInventoryReference[]): boolean {
+  mesclarBatchesCentral(batchesCentral: InventoryImportBatch[], regAlvo?: string): boolean {
+    return this.sincronizarBatchesComCentral(batchesCentral, regAlvo);
+  }
+
+  sincronizarReferenciasComCentral(referenciasCentral: RegionalInventoryReference[], regAlvo?: string): boolean {
     let alterou = false;
+    const centralIds = new Set(referenciasCentral.map((r) => r.id));
+
+    if (!regAlvo || regAlvo === 'TODAS') {
+      const refsFiltradas = this.regionalReferences.filter((r) => centralIds.has(r.id));
+      if (refsFiltradas.length !== this.regionalReferences.length) {
+        this.regionalReferences = refsFiltradas;
+        alterou = true;
+      }
+    } else {
+      const regCod = extrairCodigoRegional(regAlvo);
+      const regFull = regAlvo.toUpperCase();
+      const refsFiltradas = this.regionalReferences.filter((r) => {
+        const pertence = r.regional.toUpperCase() === regFull || extrairCodigoRegional(r.regional) === regCod;
+        if (pertence) {
+          return centralIds.has(r.id);
+        }
+        return true;
+      });
+      if (refsFiltradas.length !== this.regionalReferences.length) {
+        this.regionalReferences = refsFiltradas;
+        alterou = true;
+      }
+    }
+
     const map = new Map<string, RegionalInventoryReference>();
     for (const r of this.regionalReferences) {
       map.set(r.id, r);
@@ -4379,6 +4449,10 @@ class AuditoriaDatabase {
       } catch {}
     }
     return alterou;
+  }
+
+  mesclarReferenciasCentral(referenciasCentral: RegionalInventoryReference[], regAlvo?: string): boolean {
+    return this.sincronizarReferenciasComCentral(referenciasCentral, regAlvo);
   }
 
   async sincronizarOnline(): Promise<ResultadoSincronizacao> {
@@ -5635,6 +5709,81 @@ class AuditoriaDatabase {
     return { sucesso: true };
   }
 
+  async excluirTodasBasesReferencia(regional?: string): Promise<{ sucesso: boolean; erro?: string; totalRemovidos: number }> {
+    const regUpper = regional ? regional.trim().toUpperCase() : 'TODAS';
+    const regCod = regional ? extrairCodigoRegional(regional) : 'TODAS';
+    const limparTudo = !regional || regUpper === 'TODAS';
+
+    const batchesParaRemover = limparTudo
+      ? [...this.importBatches]
+      : this.importBatches.filter((b) => b.regional.toUpperCase() === regUpper || extrairCodigoRegional(b.regional) === regCod);
+
+    const totalRemovidos = batchesParaRemover.length;
+
+    if (limparTudo) {
+      this.importBatches = [];
+      this.regionalReferences = [];
+      this.auditLots = [];
+      this.referenceMap.clear();
+      try {
+        localStorage.removeItem(STORAGE_KEY_IMPORT_BATCHES);
+        localStorage.removeItem(STORAGE_KEY_REGIONAL_REFS);
+        localStorage.removeItem(STORAGE_KEY_AUDIT_LOTS);
+      } catch {}
+      if (idb?.inventory_import_batches) await idb.inventory_import_batches.clear().catch(() => {});
+      if (idb?.regional_inventory_reference) await idb.regional_inventory_reference.clear().catch(() => {});
+      if (idb?.audit_lots) await idb.audit_lots.clear().catch(() => {});
+    } else {
+      const idsParaRemover = new Set(batchesParaRemover.map((b) => b.id));
+      this.importBatches = this.importBatches.filter((b) => !idsParaRemover.has(b.id));
+      this.regionalReferences = this.regionalReferences.filter((r) => !idsParaRemover.has(r.import_batch_id));
+      this.reconstruirMapaReferencia();
+
+      salvarIndexedDB(STORAGE_KEY_IMPORT_BATCHES, this.importBatches).catch(() => {});
+      salvarIndexedDB(STORAGE_KEY_REGIONAL_REFS, this.regionalReferences).catch(() => {});
+      try {
+        localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+        localStorage.setItem(STORAGE_KEY_REGIONAL_REFS, JSON.stringify(this.regionalReferences));
+      } catch {}
+    }
+
+    this.salvarTudo();
+    this.notificarMudanca('regional_reference');
+    this.notificarMudanca('dados');
+
+    // Chamar API central para deletar no Supabase
+    try {
+      const url = obterApiUrl(`/api/central/referencia-import?${limparTudo ? 'all=true' : `regional=${encodeURIComponent(regional!)}`}`);
+      await fetch(url, { method: 'DELETE' });
+    } catch (errApi) {
+      console.warn('[Storage] Erro ao deletar bases na API central:', errApi);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        if (limparTudo) {
+          await supabase.from('regional_inventory_reference').delete().neq('id', 'dummy');
+          await supabase.from('inventory_import_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        } else {
+          const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regCod}`, regCod])).filter(Boolean);
+          await supabase.from('regional_inventory_reference').delete().in('regional', regionaisValidas);
+          await supabase.from('inventory_import_batches').delete().in('regional', regionaisValidas);
+        }
+      } catch (errSup) {
+        console.warn('[Storage] Erro ao deletar bases no Supabase:', errSup);
+      }
+    }
+
+    const usuarioNome = this.usuarioAtual?.nome || 'Administrador';
+    this.registrarHistorico(
+      usuarioNome,
+      'EXCLUIR_BASES_REFERENCIA_TOTAL',
+      limparTudo ? 'Excluídas todas as bases de referência de todas as regionais' : `Excluídas todas as bases da regional ${regional}`,
+      regional || 'TODAS'
+    );
+
+    return { sucesso: true, totalRemovidos };
+  }
 
   listarLotesDinamicos(regional?: string): AuditLot[] {
     if (!regional) return [...this.auditLots];

@@ -1078,6 +1078,14 @@ class AuditoriaDatabase {
     comp.last_seen_at = new Date().toISOString();
     comp.app_version = VERSAO_LOCAL.versao;
 
+    // Atualiza regional e sufixo do computador conforme a regional ativa
+    if (reg && comp.regional !== reg) {
+      comp.regional = reg;
+      if (comp.id && comp.id.match(/^PC-(RJ|SP|MG|BA)-/i)) {
+        comp.id = comp.id.replace(/^PC-(RJ|SP|MG|BA)-/i, `PC-${sufixo}-`);
+      }
+    }
+
     // Sincroniza com a lista de dispositivos para verificar revogações
     const lista = this.listarComputadoresCadastrados();
     const existente = lista.find((c) => c.device_id === comp!.device_id || c.id === comp!.id);
@@ -4144,8 +4152,9 @@ class AuditoriaDatabase {
   async sincronizarOnline(): Promise<ResultadoSincronizacao> {
     const agora = new Date().toISOString();
     const agoraFormatada = new Date().toLocaleString('pt-BR');
-    const compAtual = this.obterComputadorAtual();
-    const regAlvo = this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined;
+    const regAlvo = this.usuarioAtual?.regional || (this.produtos.length > 0 && this.produtos[0].regional ? this.produtos[0].regional : undefined);
+    const compAtual = this.obterComputadorAtual(regAlvo);
+    const regionalFinal = this.usuarioAtual?.regional || regAlvo || compAtual.regional || 'VIA VAREJO RJ';
 
     // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE ou ERRO_DUPLICADO)
     const pendentes = this.produtos.filter((p) => {
@@ -4206,14 +4215,14 @@ class AuditoriaDatabase {
     for (const p of this.produtos) {
       const cx = p.numero_caixa || p.box_name;
       if (cx) {
-        const l = p.lacre_seguranca || this.obterLacreCaixa(cx, regAlvo || compAtual.regional);
+        const l = p.lacre_seguranca || this.obterLacreCaixa(cx, regionalFinal);
         if (l) lacresCaixasMap[cx.trim().toUpperCase()] = l;
       }
     }
 
     const pendentesComLacre = pendentes.map((p) => {
       const cxNorm = (p.numero_caixa || p.box_name || 'Caixa 01').trim().toUpperCase();
-      const l = p.lacre_seguranca || lacresCaixasMap[cxNorm] || this.obterLacreCaixa(cxNorm, p.regional || compAtual.regional) || null;
+      const l = p.lacre_seguranca || lacresCaixasMap[cxNorm] || this.obterLacreCaixa(cxNorm, p.regional || regionalFinal) || null;
       return {
         ...p,
         lacre_seguranca: l,
@@ -4226,12 +4235,12 @@ class AuditoriaDatabase {
       nome: colabAtivo,
       login: this.usuarioAtual.login || colabAtivo.toLowerCase(),
       perfil: this.usuarioAtual.perfil || 'OPERADOR',
-      regional: compAtual.regional || (this.usuarioAtual.regional || 'VIA VAREJO RJ'),
+      regional: this.usuarioAtual.regional || regionalFinal,
     } : {
       nome: colabAtivo,
       login: 'operador',
       perfil: 'OPERADOR',
-      regional: compAtual.regional || 'VIA VAREJO RJ',
+      regional: regionalFinal,
     };
 
     let ultimoErroServidor: string | null = null;
@@ -4249,7 +4258,7 @@ class AuditoriaDatabase {
             lotes_finalizados: this.lotesFinalizados,
             computador: compAtual,
             usuario: usuarioPayload,
-            regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+            regional: regionalFinal,
           }),
         });
 
@@ -4296,7 +4305,7 @@ class AuditoriaDatabase {
         }
 
         let regionalId: string | null = null;
-        const regNome = compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ');
+        const regNome = regionalFinal;
         const { data: reg } = await supabase
           .from('regions')
           .select('id')
@@ -4481,7 +4490,7 @@ class AuditoriaDatabase {
       if (idsSincronizados.length > 0) {
         this.salvarRegistroEnvio({
           data_envio: agoraFormatada,
-          regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
+          regional: regionalFinal,
           computador_id: compAtual.id,
           computador_nome: compAtual.nome,
           quantidade_enviada: dataResposta.sincronizados,
@@ -4495,7 +4504,7 @@ class AuditoriaDatabase {
           usuarioNome,
           'ENVIAR_PARA_ONLINE',
           `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${dataResposta.sincronizados} novos seriais sincronizados no servidor central.`,
-          compAtual.regional
+          regionalFinal
         );
       }
 

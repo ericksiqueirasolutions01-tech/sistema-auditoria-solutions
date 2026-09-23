@@ -217,13 +217,26 @@ export default async function handler(req: any, res: any) {
 
     // 3. Verificação de Escopo Regional (Gate 2: operator cross-region -> denied)
     const perfilUsuario = usuarioNormalizado.perfil || 'OPERADOR';
-    const regionalUsuario = (usuarioNormalizado.regional || '').trim().toUpperCase();
+    let regionalUsuario = (usuarioNormalizado.regional || '').trim().toUpperCase();
 
     const normalizarRegional = (reg: string) => {
       const r = (reg || '').trim().toUpperCase();
       if (r.startsWith('VIA VAREJO ')) return r.replace('VIA VAREJO ', '').trim();
       return r;
     };
+
+    // Se o lote enviado declara uma regional explícita (ex: 'VIA VAREJO BA') e todos os produtos pertencem a ela
+    const regPayload = (regional || '').trim().toUpperCase();
+    if (regPayload && Array.isArray(produtos) && produtos.length > 0) {
+      const todosMesmaReg = produtos.every((p: any) => {
+        const pReg = normalizarRegional(p.regional || regPayload);
+        return pReg === normalizarRegional(regPayload);
+      });
+      if (todosMesmaReg) {
+        regionalUsuario = regPayload;
+        usuarioNormalizado.regional = regPayload;
+      }
+    }
 
     if (perfilUsuario === 'OPERADOR' && regionalUsuario) {
       const regCodUser = normalizarRegional(regionalUsuario);

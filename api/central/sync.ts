@@ -451,12 +451,26 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    let debugDb: any = {
+      url: getSupabaseUrl(),
+      keyPrefix: getSupabaseServiceKey().slice(0, 15),
+      hasSupabase: Boolean(supabase),
+      novosParaDbCount: novosParaDb.length,
+      regionalId: null,
+      upsertError: null,
+      upsertSuccess: false,
+      errDbSync: null,
+    };
+
     // Persistência no banco Supabase se configurado
     if (supabase && novosParaDb.length > 0) {
       try {
         // Obter regional_id de forma robusta
         let regionalId: string | null = null;
-        const { data: allRegions } = await supabase.from('regions').select('id, codigo, nome');
+        const { data: allRegions, error: regErr } = await supabase.from('regions').select('id, codigo, nome');
+        if (regErr) {
+          debugDb.regErr = regErr;
+        }
         if (Array.isArray(allRegions)) {
           const regLimpa = regionalNome.toUpperCase().replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
           const found = allRegions.find((r: any) =>
@@ -467,6 +481,8 @@ export default async function handler(req: any, res: any) {
           );
           if (found) regionalId = found.id;
         }
+
+        debugDb.regionalId = regionalId;
 
         if (regionalId) {
           const rowsToInsert = novosParaDb.map((item) => {
@@ -511,7 +527,10 @@ export default async function handler(req: any, res: any) {
 
           const { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
           if (upsertErr) {
+            debugDb.upsertError = upsertErr;
             console.error('[Central] Erro ao persistir audit_products no Supabase:', upsertErr);
+          } else {
+            debugDb.upsertSuccess = true;
           }
         }
 
@@ -525,7 +544,8 @@ export default async function handler(req: any, res: any) {
           regional: regionalNome,
           detalhes: `${novosCount} produtos sincronizados online (${duplicadosList.length} duplicados bloqueados)`,
         });
-      } catch (errDbSync) {
+      } catch (errDbSync: any) {
+        debugDb.errDbSync = errDbSync?.message || String(errDbSync);
         console.warn('[Central] Aviso na sincronização do Supabase:', errDbSync);
       }
     }
@@ -600,6 +620,7 @@ export default async function handler(req: any, res: any) {
       totalNaBaseCentral: centralData.produtos.length,
       produtosCentral: centralData.produtos,
       fotosCentral: centralData.fotos,
+      debug_db: debugDb,
       mensagem:
         duplicadosList.length > 0
           ? `${novosCount} novo(s) serial(is) sincronizado(s). ${duplicadosList.length} IMEI(s) não foram enviados pois já constam no servidor.`

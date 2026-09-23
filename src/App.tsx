@@ -8,6 +8,7 @@ import { SamsungLogo } from './components/SamsungLogo';
 import { SolutionsLogo } from './components/SolutionsLogo';
 import { ModalPrimeiraSincronizacao } from './components/ModalPrimeiraSincronizacao';
 import { ModalAtualizacaoObrigatoria } from './components/ModalAtualizacaoObrigatoria';
+import { ModalAtivacaoEstacao } from './components/ModalAtivacaoEstacao';
 import { iniciarMonitoramentoCicloVida } from './services/systemLifecycle';
 import { updateService, StatusAtualizacao } from './services/updateService';
 
@@ -30,6 +31,7 @@ const LoadingModuloFallback = () => (
 
 export const App: React.FC = () => {
   const [usuario, setUsuario] = useState(() => db.getUsuarioAtual());
+  const [precisaAtivacao, setPrecisaAtivacao] = useState(() => !db.isEstacaoAtivada());
   const [precisaSincronizacaoInicial, setPrecisaSincronizacaoInicial] = useState(
     () => !db.isConfiguracaoInicialConcluida()
   );
@@ -149,6 +151,21 @@ export const App: React.FC = () => {
   // O sistema não deixa o colaborador acessar enquanto ele não atualizar!
   if (statusAtualizacao.temAtualizacao) {
     return <ModalAtualizacaoObrigatoria status={statusAtualizacao} />;
+  }
+
+  // FASE 1 & FASE 2: VERIFICAÇÃO DE ATIVAÇÃO DA ESTAÇÃO WINDOWS
+  // Se a estação ainda não foi ativada:
+  // - Se offline: Bloqueia totalmente com mensagem obrigatória
+  // - Se online: Exibe modal de ativação e sincronização inicial completa
+  if (isDesktopApp() && precisaAtivacao) {
+    return (
+      <ModalAtivacaoEstacao
+        onAtivado={() => {
+          setPrecisaAtivacao(false);
+          setPrecisaSincronizacaoInicial(false);
+        }}
+      />
+    );
   }
 
   if (!usuario) {

@@ -47,12 +47,24 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
 
 
   const [statusSync, setStatusSync] = useState(() => db.obterStatusSincronizacao());
+  const [statusEstacao, setStatusEstacao] = useState(() => db.obterStatusEstacao());
 
   useEffect(() => {
-    return db.onMudanca(() => {
+    const atualizar = () => {
       setStatusSync(db.obterStatusSincronizacao());
+      setStatusEstacao(db.obterStatusEstacao());
       setColaboradorAtivo(db.obterColaboradorAtivo());
-    });
+    };
+    const unsub = db.onMudanca(atualizar);
+    window.addEventListener('online', atualizar);
+    window.addEventListener('offline', atualizar);
+    const interval = setInterval(atualizar, 3000);
+    return () => {
+      unsub();
+      window.removeEventListener('online', atualizar);
+      window.removeEventListener('offline', atualizar);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSincronizar = async () => {
@@ -230,41 +242,45 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               </>
             )}
 
-            {/* Indicador Permanente de Monitoramento de Sincronização (Item 3) */}
+            {/* Indicador de Status da Estação Windows (FASE 6) */}
             <button
               onClick={() => setMostrarPainelStatusModal(true)}
               className={`flex items-center gap-2 px-3 py-1 rounded-xl border shrink-0 h-10 text-xs shadow-2xs whitespace-nowrap cursor-pointer transition-all hover:shadow-sm active:scale-95 ${
-                statusSync.statusConexao === 'SINCRONIZADO'
+                statusEstacao.cor === 'verde'
                   ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100/70'
-                  : statusSync.statusConexao === 'ONLINE'
+                  : statusEstacao.cor === 'azul'
                   ? 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100/70'
+                  : statusEstacao.cor === 'amarelo'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/70 ring-1 ring-amber-300'
                   : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100/70'
               }`}
-              title={`Status Servidor: ${statusSync.statusConexao}\nÚltima Sincronização: ${statusSync.ultimaSincronizacao ? new Date(statusSync.ultimaSincronizacao).toLocaleString('pt-BR') : 'Nenhuma'}\nÚltimo Envio: ${statusSync.ultimoEnvio ? new Date(statusSync.ultimoEnvio).toLocaleString('pt-BR') : 'Nenhum'}\nPendências: ${statusSync.pendentes}`}
+              title={`Status Estação: ${statusEstacao.rotulo} (${statusEstacao.descricao})\nÚltima Sincronização: ${statusEstacao.ultimaSincronizacao ? new Date(statusEstacao.ultimaSincronizacao).toLocaleString('pt-BR') : 'Nenhuma'}\nÚltima Comunicação: ${statusEstacao.ultimaComunicacao ? new Date(statusEstacao.ultimaComunicacao).toLocaleString('pt-BR') : 'Nenhuma'}\nPendências: ${statusEstacao.pendentes}`}
             >
               <div className="flex items-center gap-1.5">
                 <span
                   className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    statusSync.statusConexao === 'SINCRONIZADO'
+                    statusEstacao.cor === 'verde'
                       ? 'bg-emerald-500'
-                      : statusSync.statusConexao === 'ONLINE'
-                      ? 'bg-blue-500 animate-pulse'
+                      : statusEstacao.cor === 'azul'
+                      ? 'bg-blue-500 animate-spin'
+                      : statusEstacao.cor === 'amarelo'
+                      ? 'bg-amber-500 animate-pulse'
                       : 'bg-rose-500'
                   }`}
                 />
                 <div className="flex flex-col text-left">
                   <div className="flex items-center gap-1">
                     <span className="text-[10px] font-black uppercase tracking-wider">
-                      {statusSync.statusConexao}
+                      {statusEstacao.rotulo}
                     </span>
-                    {statusSync.pendentes > 0 && (
+                    {statusEstacao.pendentes > 0 && (
                       <span className="px-1 py-0.2 bg-amber-200 text-amber-900 rounded text-[9px] font-black">
-                        {statusSync.pendentes} pend
+                        {statusEstacao.pendentes} pend
                       </span>
                     )}
                   </div>
                   <span className="text-[9px] font-bold text-slate-500 leading-none">
-                    Sync: {formatarHora(statusSync.ultimaSincronizacao)} | Envio: {formatarHora(statusSync.ultimoEnvio)}
+                    Sync: {formatarHora(statusEstacao.ultimaSincronizacao)} | Com: {formatarHora(statusEstacao.ultimaComunicacao)}
                   </span>
                 </div>
               </div>

@@ -44,10 +44,10 @@ export const ModalAtualizacaoObrigatoria: React.FC<ModalAtualizacaoObrigatoriaPr
               Acesso Bloqueado Temporariamente
             </div>
             <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-950 leading-tight">
-              Nova Versão Disponível, Por Favor Atualizar Agora
+              Nova Versão Disponível — Atualização Obrigatória
             </h2>
             <p className="text-xs sm:text-sm font-bold text-slate-900/90 mt-0.5">
-              Identificamos uma nova versão oficial do sistema. Por favor, atualize agora para continuar trabalhando na bancada.
+              Esta estação precisa sincronizar antes de continuar. Por favor, atualize agora para continuar trabalhando na bancada.
             </p>
           </div>
         </div>

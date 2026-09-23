@@ -1,6 +1,37 @@
 export type SimNao = 'SIM' | 'NÃO';
 
-export type StatusSincronizacaoItem = 'PENDENTE' | 'ENVIADO' | 'ERRO_DUPLICADO';
+export type StatusSincronizacaoItem = 'PENDENTE' | 'ENVIADO' | 'ERRO_DUPLICADO' | 'PENDENTE_ENVIO';
+
+export type StatusEstacao =
+  | 'ESTACAO_ATIVADA'
+  | 'SINCRONIZANDO'
+  | 'PENDENCIAS_ENVIO'
+  | 'ESTACAO_NAO_ATIVADA';
+
+export interface DeviceActivation {
+  device_id: string;
+  nome_maquina: string;
+  usuario_responsavel: string;
+  regional_vinculada: string;
+  data_ativacao: string;
+  ultima_sincronizacao: string;
+  versao_sistema: string;
+  versao_base_referencia: number | string;
+  device_activated: boolean;
+}
+
+export interface InfoStatusEstacao {
+  status: StatusEstacao;
+  rotulo: string;
+  descricao: string;
+  cor: 'verde' | 'azul' | 'amarelo' | 'vermelho';
+  pendentes: number;
+  ultimaSincronizacao: string | null;
+  ultimoEnvio: string | null;
+  ultimaComunicacao: string | null;
+  ativada: boolean;
+  detalhesAtivacao: DeviceActivation | null;
+}
 
 export interface DetalheImeiDuplicado {
   imei: string;
@@ -125,7 +156,7 @@ export interface ProdutoAuditoria {
   box_id?: string | null;
   box_name?: string | null;
   // Compatibilidade retroativa com campos anteriores:
-  sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO';
+  sync_status?: 'PENDENTE' | 'SINCRONIZADO' | 'ENVIADO' | 'ERRO_DUPLICADO' | 'PENDENTE_ENVIO';
   sync_data?: string | null;
 }
 

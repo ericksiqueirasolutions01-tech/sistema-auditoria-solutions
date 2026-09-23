@@ -42,6 +42,9 @@ import {
   ConfiguracaoCaixa,
   BoxSealedStatus,
   ItemPendenteLote,
+  DeviceActivation,
+  InfoStatusEstacao,
+  StatusEstacao,
 } from '../types';
 import { VERSAO_LOCAL } from '../version';
 import {
@@ -75,6 +78,8 @@ const STORAGE_KEY_IMPORT_BATCHES = 'solutions_inventory_import_batches_v1';
 const STORAGE_KEY_REGIONAL_REFS = 'solutions_regional_inventory_refs_v1';
 const STORAGE_KEY_AUDIT_LOTS = 'solutions_audit_lots_v1';
 const STORAGE_KEY_LACRES_CAIXAS = 'solutions_auditoria_lacres_caixas_v1';
+const STORAGE_KEY_DEVICE_ACTIVATION = 'solutions_device_activation_v1';
+const STORAGE_KEY_ULTIMA_COMUNICACAO = 'solutions_ultima_comunicacao';
 
 /**
  * Normaliza o valor de Dealer conforme regra central (Seção 6 do Prompt Mestre):
@@ -645,6 +650,7 @@ class AuditoriaDatabase {
   private regionalReferences: RegionalInventoryReference[] = [];
   private auditLots: AuditLot[] = [];
   private referenceMap: Map<string, RegionalInventoryReference> = new Map();
+  private deviceActivation: DeviceActivation | null = null;
 
   constructor() {
     this.carregarDados();
@@ -823,6 +829,14 @@ class AuditoriaDatabase {
       }
 
       this.reconstruirMapaReferencia();
+
+      // Carregar ativação da estação
+      try {
+        const actRaw = localStorage.getItem(STORAGE_KEY_DEVICE_ACTIVATION);
+        this.deviceActivation = actRaw ? JSON.parse(actRaw) : null;
+      } catch {
+        this.deviceActivation = null;
+      }
 
       // Carregar colaborador ativo da sessão
       const colabRaw = sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
@@ -1323,6 +1337,14 @@ class AuditoriaDatabase {
       return {
         sucesso: false,
         erro: 'Acesso bloqueado: Este dispositivo foi revogado pelo Administrador do Sistema. Contate o suporte.',
+      };
+    }
+
+    // FASE 2: Estação sem ativação não pode operar offline
+    if (!this.isEstacaoAtivada() && typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        sucesso: false,
+        erro: 'Esta estação ainda não foi ativada. Conecte este computador à internet para realizar a sincronização inicial.',
       };
     }
 
@@ -4896,31 +4918,241 @@ class AuditoriaDatabase {
   }
 
   // =========================================================================
-  // PRIMEIRA INSTALAÇÃO E SINCRONIZAÇÃO INICIAL (REQUISITO 4)
+  // ATIVAÇÃO DE ESTAÇÃO WINDOWS & SINCRONIZAÇÃO INICIAL (FASE 1 A 6)
   // =========================================================================
-  isConfiguracaoInicialConcluida(): boolean {
-    const raw = localStorage.getItem(STORAGE_KEY_CONFIG_INICIAL);
-    if (!raw) return false;
+  isEstacaoAtivada(): boolean {
+    if (this.deviceActivation && this.deviceActivation.device_activated) {
+      return true;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_DEVICE_ACTIVATION);
+        if (raw) {
+          const parsed: DeviceActivation = JSON.parse(raw);
+          if (parsed && parsed.device_activated) {
+            this.deviceActivation = parsed;
+            return true;
+          }
+        }
+      } catch {}
+      // Retrocompatibilidade com configuracao inicial legada
+      const confRaw = localStorage.getItem(STORAGE_KEY_CONFIG_INICIAL);
+      if (confRaw) {
+        try {
+          const parsed = JSON.parse(confRaw);
+          if (parsed && parsed.realizada) {
+            return true;
+          }
+        } catch {}
+      }
+    }
+    return false;
+  }
+
+  obterAtivacaoEstacao(): DeviceActivation | null {
+    if (this.deviceActivation) return this.deviceActivation;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_DEVICE_ACTIVATION);
+        if (raw) {
+          this.deviceActivation = JSON.parse(raw);
+          return this.deviceActivation;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  async ativarEstacao(dados?: {
+    nome_maquina?: string;
+    usuario_responsavel?: string;
+    regional_vinculada?: string;
+  }): Promise<{ sucesso: boolean; mensagem: string; ativacao?: DeviceActivation }> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        sucesso: false,
+        mensagem: 'Esta estação ainda não foi ativada. Conecte este computador à internet para realizar a sincronização inicial.',
+      };
+    }
+
+    this.sincronizando = true;
+    this.notificarMudanca('sync');
+
     try {
-      const parsed = JSON.parse(raw);
-      return !!parsed.realizada;
-    } catch {
-      return false;
+      // 1. Download de usuários autorizados, permissões, parâmetros e base de referência de IMEIs
+      await this.puxarAtualizacoesServidor();
+
+      const comp = this.obterComputadorAtual(dados?.regional_vinculada);
+      const regionalAlvo = dados?.regional_vinculada || comp.regional || 'VIA VAREJO BA';
+      const nomeEstacao = dados?.nome_maquina || comp.nome || comp.id || 'Estação 01';
+      const responsavel = dados?.usuario_responsavel || this.usuarioAtual?.nome || 'Operador';
+
+      // Determinar versão da base de referência
+      const batchesDaReg = this.listarHistoricoImportacoes(regionalAlvo);
+      const versaoBase = batchesDaReg.length > 0 && batchesDaReg[0].version ? batchesDaReg[0].version : 1;
+
+      const agora = new Date().toISOString();
+      const ativacao: DeviceActivation = {
+        device_id: comp.device_id || comp.id || gerarUUID(),
+        nome_maquina: nomeEstacao,
+        usuario_responsavel: responsavel,
+        regional_vinculada: regionalAlvo,
+        data_ativacao: agora,
+        ultima_sincronizacao: agora,
+        versao_sistema: VERSAO_LOCAL.versao,
+        versao_base_referencia: versaoBase,
+        device_activated: true,
+      };
+
+      this.deviceActivation = ativacao;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_DEVICE_ACTIVATION, JSON.stringify(ativacao));
+        localStorage.setItem('solutions_ultima_sincronizacao', agora);
+        localStorage.setItem(STORAGE_KEY_ULTIMA_COMUNICACAO, agora);
+      }
+
+      // Salvar no IndexedDB de computadores
+      if (typeof window !== 'undefined' && window.indexedDB && idb?.computadores) {
+        try {
+          await idb.computadores.put({
+            id: comp.id,
+            device_id: ativacao.device_id,
+            nome: ativacao.nome_maquina,
+            regional: ativacao.regional_vinculada,
+            data_primeiro_uso: ativacao.data_ativacao,
+            status: 'ATIVO',
+            app_version: ativacao.versao_sistema,
+            last_seen_at: agora,
+          });
+        } catch {}
+      }
+
+      // Registrar no Supabase se online
+      if (isSupabaseConfigured && supabase) {
+        try {
+          await supabase.from('devices').upsert({
+            device_id: ativacao.device_id,
+            nome: ativacao.nome_maquina,
+            app_version: ativacao.versao_sistema,
+            last_seen_at: agora,
+            status: 'ATIVO',
+          }, { onConflict: 'device_id' });
+        } catch {}
+      }
+
+      this.marcarConfiguracaoInicialConcluida(responsavel, 25);
+      this.registrarHistorico(
+        responsavel,
+        'ATIVACAO_ESTACAO_CONCLUIDA',
+        `Estação ${nomeEstacao} (${ativacao.device_id}) ativada com sucesso para a regional ${regionalAlvo}. Pronta para operação offline.`,
+        regionalAlvo
+      );
+
+      this.notificarMudanca('ativacao');
+      this.notificarMudanca('sync');
+
+      return {
+        sucesso: true,
+        mensagem: 'Estação ativada com sucesso! Base sincronizada e liberada para operação offline no galpão.',
+        ativacao,
+      };
+    } catch (err: any) {
+      console.error('[Storage] Erro ao ativar estação:', err);
+      return {
+        sucesso: false,
+        mensagem: err?.message || 'Falha ao ativar estação. Verifique a conexão com a internet e tente novamente.',
+      };
+    } finally {
+      this.sincronizando = false;
+      this.notificarMudanca('sync');
     }
   }
 
+  obterStatusEstacao(): InfoStatusEstacao {
+    const ativada = this.isEstacaoAtivada();
+    const syncStatus = this.obterStatusSincronizacao();
+    const pendentes = syncStatus.pendentes;
+    const ultimaSync = syncStatus.ultimaSincronizacao || (typeof window !== 'undefined' ? localStorage.getItem('solutions_ultima_sincronizacao') : null);
+    const ultimoEnv = syncStatus.ultimoEnvio || (typeof window !== 'undefined' ? localStorage.getItem('solutions_ultimo_envio') : null);
+    const ultimaCom = (typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_ULTIMA_COMUNICACAO) : null) || ultimaSync || ultimoEnv;
+
+    if (!ativada) {
+      return {
+        status: 'ESTACAO_NAO_ATIVADA',
+        rotulo: 'ESTAÇÃO NÃO ATIVADA',
+        descricao: 'Necessita primeira sincronização.',
+        cor: 'vermelho',
+        pendentes,
+        ultimaSincronizacao: ultimaSync,
+        ultimoEnvio: ultimoEnv,
+        ultimaComunicacao: ultimaCom,
+        ativada: false,
+        detalhesAtivacao: null,
+      };
+    }
+
+    if (this.sincronizando) {
+      return {
+        status: 'SINCRONIZANDO',
+        rotulo: 'SINCRONIZANDO',
+        descricao: 'Atualizando dados com o servidor...',
+        cor: 'azul',
+        pendentes,
+        ultimaSincronizacao: ultimaSync,
+        ultimoEnvio: ultimoEnv,
+        ultimaComunicacao: ultimaCom,
+        ativada: true,
+        detalhesAtivacao: this.obterAtivacaoEstacao(),
+      };
+    }
+
+    if (pendentes > 0) {
+      return {
+        status: 'PENDENCIAS_ENVIO',
+        rotulo: 'PENDÊNCIAS DE ENVIO',
+        descricao: `${pendentes} registro(s) aguardando internet.`,
+        cor: 'amarelo',
+        pendentes,
+        ultimaSincronizacao: ultimaSync,
+        ultimoEnvio: ultimoEnv,
+        ultimaComunicacao: ultimaCom,
+        ativada: true,
+        detalhesAtivacao: this.obterAtivacaoEstacao(),
+      };
+    }
+
+    return {
+      status: 'ESTACAO_ATIVADA',
+      rotulo: 'ESTAÇÃO ATIVADA',
+      descricao: 'Pronta para operação offline.',
+      cor: 'verde',
+      pendentes: 0,
+      ultimaSincronizacao: ultimaSync,
+      ultimoEnvio: ultimoEnv,
+      ultimaComunicacao: ultimaCom,
+      ativada: true,
+      detalhesAtivacao: this.obterAtivacaoEstacao(),
+    };
+  }
+
+  isConfiguracaoInicialConcluida(): boolean {
+    return this.isEstacaoAtivada();
+  }
+
   obterInfoConfiguracaoInicial(): ConfiguracaoInicialInfo {
-    const raw = localStorage.getItem(STORAGE_KEY_CONFIG_INICIAL);
-    if (raw) {
-      try {
-        return JSON.parse(raw);
-      } catch {}
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY_CONFIG_INICIAL);
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {}
+      }
     }
     return {
-      realizada: false,
-      data_hora: null,
-      usuario: null,
-      parametros_baixados: false,
+      realizada: this.isEstacaoAtivada(),
+      data_hora: this.deviceActivation?.data_ativacao || null,
+      usuario: this.deviceActivation?.usuario_responsavel || null,
+      parametros_baixados: this.isEstacaoAtivada(),
       total_modelos_catalogo: 0,
     };
   }
@@ -4933,62 +5165,26 @@ class AuditoriaDatabase {
       parametros_baixados: true,
       total_modelos_catalogo: totalModelos || 10,
     };
-    localStorage.setItem(STORAGE_KEY_CONFIG_INICIAL, JSON.stringify(info));
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY_CONFIG_INICIAL, JSON.stringify(info));
+      } catch {}
+    }
     this.notificarMudanca('config');
   }
 
-  async executarPrimeiraSincronizacao(usuario: string): Promise<{ sucesso: boolean; mensagem: string; modelosBaixados?: number }> {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return {
-        sucesso: false,
-        mensagem: 'Atenção: A primeira inicialização após a instalação requer conexão com a internet para baixar os parâmetros, regras e configurações oficiais do servidor. Por favor, conecte-se à internet para prosseguir.',
-      };
-    }
-
-    try {
-      // 1. Validar status do servidor
-      let statusOk = false;
-      try {
-        const resStatus = await fetch(obterApiUrl('/api/central/status'), { cache: 'no-store' });
-        if (resStatus.ok) {
-          statusOk = true;
-        }
-      } catch {
-        statusOk = false;
-      }
-
-      // Se falhar o endpoint local, verificar conectividade com o Supabase
-      if (!statusOk && isSupabaseConfigured && supabase) {
-        try {
-          const { count } = await supabase.from('audit_products').select('*', { count: 'exact', head: true });
-          if (typeof count === 'number') statusOk = true;
-        } catch {}
-      }
-
-      // 2. Executar sincronização completa de catálogo e base
-      await this.sincronizarOnline();
-
-      // 3. Salvar conclusão
-      this.marcarConfiguracaoInicialConcluida(usuario, 25);
-
-      this.registrarHistorico(
-        usuario,
-        'PRIMEIRA_SINCRONIZACAO_INSTALACAO',
-        'Sincronização inicial pós-instalação concluída com sucesso. Base de dados local e parâmetros oficiais do Grupo Solutions Samsung inicializados.',
-        this.usuarioAtual?.regional || undefined
-      );
-
-      return {
-        sucesso: true,
-        mensagem: 'Primeira sincronização concluída com sucesso! Base local estruturada e pronta para funcionamento 100% offline.',
-        modelosBaixados: 25,
-      };
-    } catch {
-      return {
-        sucesso: false,
-        mensagem: 'Não foi possível concluir a primeira sincronização com o servidor central. Verifique sua conexão e tente novamente.',
-      };
-    }
+  async executarPrimeiraSincronizacao(usuario: string, dados?: { nome_maquina?: string; regional?: string }): Promise<{ sucesso: boolean; mensagem: string; modelosBaixados?: number; ativacao?: DeviceActivation }> {
+    const resAtiv = await this.ativarEstacao({
+      nome_maquina: dados?.nome_maquina,
+      usuario_responsavel: usuario,
+      regional_vinculada: dados?.regional,
+    });
+    return {
+      sucesso: resAtiv.sucesso,
+      mensagem: resAtiv.mensagem,
+      modelosBaixados: 25,
+      ativacao: resAtiv.ativacao,
+    };
   }
 
   // =========================================================================

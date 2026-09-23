@@ -4357,19 +4357,21 @@ class AuditoriaDatabase {
               obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
             }
 
+            const isLacrado = p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM';
+
             paraInserir.push({
               id_local: p.id,
-              serial: sn,
-              imei: p.serial,
-              ean: p.ean || '',
-              modelo: p.modelo_produto || 'Modelo Desconhecido',
-              fabricante: p.brand || p.fabricante || 'SAMSUNG',
-              numero_lote: p.numero_lote || '01',
-              numero_caixa: cx,
+              serial: String(sn).slice(0, 50),
+              imei: String(p.imei || p.serial || '').slice(0, 20),
+              ean: String(p.ean || p.sku || '').slice(0, 20),
+              modelo: String(p.modelo_produto || 'Modelo Desconhecido').slice(0, 120),
+              fabricante: String(p.brand || p.fabricante || 'SAMSUNG').slice(0, 50),
+              numero_lote: String(p.numero_lote || '01').slice(0, 50),
+              numero_caixa: String(cx).slice(0, 50),
               regional_id: regionalId,
-              produto_lacrado: p.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM',
-              kit_completo: p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
-              aparelho_marcas_uso: p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
+              produto_lacrado: isLacrado,
+              kit_completo: isLacrado === 'SIM' ? null : (p.kit_completo === 'NÃO' ? 'NÃO' : 'SIM'),
+              aparelho_marcas_uso: isLacrado === 'SIM' ? null : (p.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO'),
               observacao: obsFinal || null,
               usuario_bipagem: this.usuarioAtual?.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',

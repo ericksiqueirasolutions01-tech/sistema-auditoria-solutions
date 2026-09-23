@@ -315,12 +315,14 @@ export function obterApiUrl(endpoint: string): string {
   const rotaLimpa = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-    // Quando executado no app desktop local (127.0.0.1, localhost) ou sem hostname, direciona para o servidor central oficial
-    if (host === 'localhost' || host === '127.0.0.1' || !host) {
-      return `${obterUrlServidorCentral()}${rotaLimpa}`;
+    // Se o cliente já estiver rodando diretamente no domínio oficial da Vercel
+    if (host && host.endsWith('vercel.app')) {
+      return rotaLimpa;
     }
+    // Quando executado no app desktop local, 127.0.0.1, IP de rede local, etc., direciona para o servidor central oficial
+    return `${obterUrlServidorCentral()}${rotaLimpa}`;
   }
-  return rotaLimpa;
+  return `${SERVIDOR_CENTRAL_PADRAO}${rotaLimpa}`;
 }
 
 export function isDesktopApp(): boolean {
@@ -4189,6 +4191,10 @@ class AuditoriaDatabase {
     const endpointsParaTentar: string[] = [
       obterApiUrl('/api/central/sync'),
     ];
+    const urlAbsoluta = `${SERVIDOR_CENTRAL_PADRAO}/api/central/sync`;
+    if (!endpointsParaTentar.includes(urlAbsoluta)) {
+      endpointsParaTentar.push(urlAbsoluta);
+    }
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
       if (!endpointsParaTentar.includes('/api/central/sync')) {
         endpointsParaTentar.push('/api/central/sync');
@@ -4214,6 +4220,22 @@ class AuditoriaDatabase {
       };
     });
 
+    const colabAtivo = this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Operador';
+    const usuarioPayload = typeof this.usuarioAtual === 'object' && this.usuarioAtual ? {
+      ...this.usuarioAtual,
+      nome: colabAtivo,
+      login: this.usuarioAtual.login || colabAtivo.toLowerCase(),
+      perfil: this.usuarioAtual.perfil || 'OPERADOR',
+      regional: compAtual.regional || (this.usuarioAtual.regional || 'VIA VAREJO RJ'),
+    } : {
+      nome: colabAtivo,
+      login: 'operador',
+      perfil: 'OPERADOR',
+      regional: compAtual.regional || 'VIA VAREJO RJ',
+    };
+
+    let ultimoErroServidor: string | null = null;
+
     for (const endpoint of endpointsParaTentar) {
       if (sincronizouComSucesso) break;
       try {
@@ -4226,21 +4248,26 @@ class AuditoriaDatabase {
             fotos: pendentesFotosSync,
             lotes_finalizados: this.lotesFinalizados,
             computador: compAtual,
-            usuario: this.obterColaboradorAtivo() || this.usuarioAtual?.nome || 'Operador',
+            usuario: usuarioPayload,
             regional: compAtual.regional || (this.usuarioAtual?.regional || 'VIA VAREJO RJ'),
           }),
         });
 
-        if (response.ok) {
+        let data: any = null;
+        try {
           const ct = response.headers.get('content-type') || '';
           if (ct.includes('application/json')) {
-            const data = await response.json();
-            if (data && data.sucesso) {
-              dataResposta = data;
-              sincronizouComSucesso = true;
-              break;
-            }
+            data = await response.json();
           }
+        } catch {}
+
+        if (response.ok && data && data.sucesso) {
+          dataResposta = data;
+          sincronizouComSucesso = true;
+          break;
+        } else if (data && data.erro) {
+          ultimoErroServidor = data.erro;
+          console.warn(`[Storage] Endpoint ${endpoint} retornou erro do servidor:`, data.erro);
         }
       } catch (err) {
         console.warn(`[Storage] Tentativa de sync em ${endpoint} falhou:`, err);
@@ -4489,7 +4516,9 @@ class AuditoriaDatabase {
       duplicadosEvitados: 0,
       itensDuplicados: [],
       timestamp: agora,
-      mensagem: 'Sem conexão com o servidor central no momento. Seus registros estão salvos localmente e serão sincronizados assim que a conexão for restabelecida.',
+      mensagem: ultimoErroServidor
+        ? `Aviso do servidor: ${ultimoErroServidor}`
+        : 'Sem conexão com o servidor central no momento. Seus registros estão salvos localmente e serão sincronizados assim que a conexão for restabelecida.',
     };
   }
 

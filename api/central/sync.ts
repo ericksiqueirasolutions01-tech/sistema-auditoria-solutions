@@ -128,12 +128,21 @@ function salvarBaseCentral(dados: {
 
 export default async function handler(req: any, res: any) {
   const origin = req.headers?.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // Requisição mesma origem
+  if (origin) {
+    if (
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1') ||
+      origin.includes('vercel.app') ||
+      origin.startsWith('tauri://') ||
+      origin === 'null' ||
+      ALLOWED_ORIGINS.includes(origin)
+    ) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
   } else {
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]);
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -159,13 +168,44 @@ export default async function handler(req: any, res: any) {
     }
     const { produtos, computador, usuario, regional, fotos } = body || {};
 
-    // 1. Verificação de Autenticação Server-Side (Gate 2: unauthenticated -> denied)
-    if (!usuario || (!usuario.login && !usuario.nome)) {
+    // 1. Verificação e Normalização de Autenticação Server-Side
+    if (!usuario) {
       return res.status(401).json({
         sucesso: false,
         erro: 'Não autorizado. Identificação de usuário e sessão autenticada são obrigatórias para sincronização.',
       });
     }
+
+    let userNome = '';
+    let userLogin = '';
+    let userPerfil = 'OPERADOR';
+    let userRegional = (regional || computador?.regional || '').trim().toUpperCase();
+
+    if (typeof usuario === 'string') {
+      userNome = usuario.trim();
+      userLogin = usuario.trim().toLowerCase();
+    } else if (typeof usuario === 'object') {
+      userNome = (usuario.nome || usuario.login || '').trim();
+      userLogin = (usuario.login || usuario.nome || '').trim().toLowerCase();
+      userPerfil = usuario.perfil || 'OPERADOR';
+      if (usuario.regional) {
+        userRegional = String(usuario.regional).trim().toUpperCase();
+      }
+    }
+
+    if (!userNome && !userLogin) {
+      return res.status(401).json({
+        sucesso: false,
+        erro: 'Não autorizado. Identificação de usuário e sessão autenticada são obrigatórias para sincronização.',
+      });
+    }
+
+    const usuarioNormalizado = {
+      nome: userNome,
+      login: userLogin,
+      perfil: userPerfil,
+      regional: userRegional,
+    };
 
     // 2. Verificação de Dispositivo Revogado (Gate 2: revoked device -> denied)
     if (computador?.status === 'REVOGADO') {
@@ -176,13 +216,20 @@ export default async function handler(req: any, res: any) {
     }
 
     // 3. Verificação de Escopo Regional (Gate 2: operator cross-region -> denied)
-    const perfilUsuario = usuario.perfil || 'OPERADOR';
-    const regionalUsuario = (usuario.regional || '').trim().toUpperCase();
+    const perfilUsuario = usuarioNormalizado.perfil || 'OPERADOR';
+    const regionalUsuario = (usuarioNormalizado.regional || '').trim().toUpperCase();
+
+    const normalizarRegional = (reg: string) => {
+      const r = (reg || '').trim().toUpperCase();
+      if (r.startsWith('VIA VAREJO ')) return r.replace('VIA VAREJO ', '').trim();
+      return r;
+    };
 
     if (perfilUsuario === 'OPERADOR' && regionalUsuario) {
+      const regCodUser = normalizarRegional(regionalUsuario);
       const temCrossRegion = Array.isArray(produtos) && produtos.some((p: any) => {
-        const pReg = (p.regional || '').trim().toUpperCase();
-        return pReg && pReg !== regionalUsuario;
+        const pReg = normalizarRegional(p.regional || '');
+        return pReg && regCodUser && pReg !== regCodUser;
       });
       if (temCrossRegion) {
         return res.status(403).json({
@@ -379,7 +426,7 @@ export default async function handler(req: any, res: any) {
             sync_status: 'ENVIADO',
             computador_id: computador?.id || p.computador_id || 'PC-001',
             computador_nome: computador?.nome || p.computador_nome || 'Estacao',
-            usuario_sincronizacao: usuario.nome || usuario.login || 'Operador',
+            usuario_sincronizacao: usuarioNormalizado.nome || 'Operador',
             regional: p.regional || regional || computador?.regional || regionalNome,
           };
           centralData.produtos.push(itemNormalizado);
@@ -433,7 +480,7 @@ export default async function handler(req: any, res: any) {
               kit_completo: item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM',
               aparelho_marcas_uso: item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO',
               observacao: obsFinal || null,
-              usuario_bipagem: usuario.nome || usuario.login || 'Operador',
+              usuario_bipagem: usuarioNormalizado.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',
               data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
               // Snapshot fields da referência e lote (Seções 4, 5, 16):
@@ -453,7 +500,7 @@ export default async function handler(req: any, res: any) {
 
         // Trilha imutável em audit_log
         await supabase.from('audit_log').insert({
-          actor_user_id: usuario.login || usuario.nome || 'Operador',
+          actor_user_id: usuarioNormalizado.login || usuarioNormalizado.nome || 'Operador',
           device_id: computador?.id || 'PC-001',
           action: 'SYNC_PRODUTOS',
           entity_type: 'PRODUTO',
@@ -493,7 +540,7 @@ export default async function handler(req: any, res: any) {
       regional: regional || computador?.regional || regionalNome,
       computador_id: computador?.id || 'PC-001',
       computador_nome: computador?.nome || 'Estacao',
-      usuario: usuario.nome || usuario.login || 'Operador',
+      usuario: usuarioNormalizado.nome || 'Operador',
       quantidade_enviada: novosCount,
       status: 'OK',
       detalhes: `${novosCount} novos seriais e ${fotosCount} fotos sincronizados na base central (${duplicadosList.length} duplicados evitados).`,
@@ -509,7 +556,7 @@ export default async function handler(req: any, res: any) {
     if (duplicadosList.length > 0) {
       for (const d of duplicadosList) {
         centralData.tentativas_duplicadas.unshift({
-          usuario: usuario.nome || usuario.login || 'Operador',
+          usuario: usuarioNormalizado.nome || 'Operador',
           data_hora: new Date().toLocaleString('pt-BR'),
           imei: d.serial || d.imei,
           computador: `${computador?.id || 'PC-001'} (${computador?.nome || 'Estacao'})`,

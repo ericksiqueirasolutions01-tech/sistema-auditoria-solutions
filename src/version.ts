@@ -19,13 +19,14 @@ export const VERSAO_LOCAL: InfoVersaoSistema = {
   obrigatoria: true,
   titulo: 'Sistema de Auditoria Solutions Samsung',
   descricao:
-    'Versão oficial v1.3.2 com padronização de badge para itens na lista Samsung e alerta imediato de atualização do sistema.',
+    'Versão oficial v1.3.3 com arquitetura Central-First, persistência única no Supabase PostgreSQL, monitor permanente de sincronização e invalidação profunda de cache.',
   novidades: [
-    'Badge de itens da lista padronizado para "PRODUTO NA LISTA SAMSUNG" quando não houver dealer cadastrado',
-    'Detecção imediata de atualização na abertura do aplicativo Windows com aviso "Nova versão disponível, por favor atualizar agora" e botão direto de atualização',
-    'Edição de Fabricante e Modelo para produtos fora da lista tanto na bipagem ativa (Desktop e Mobile) quanto na edição inline',
-    'Datalist inteligente de fabricantes com recálculo automático da classificação de caixa e lote',
-    'Lacre de Segurança por Caixa e Relatórios do Administrador com Lacre e Produtos Pendentes (Caixa 0)',
+    'Arquitetura Central-First com Supabase PostgreSQL como única fonte da verdade para todos os computadores e celulares',
+    'Consulta O(1) de referência online na bipagem para computadores sem base local',
+    'Normalização estrita de datas para PostgreSQL (eliminação do erro date/time out of range)',
+    'Monitor permanente de sincronização com status ONLINE, SINCRONIZADO e OFFLINE',
+    'Fila offline resiliente com retransmissão automática ao restabelecer conexão',
+    'Invalidação profunda de cache e atualização obrigatória para evitar bundles antigos',
   ],
   downloadUrl:
     'https://sistema-auditoria-solutions.vercel.app/downloads/Sistema-Auditoria-Solutions-Setup.exe',

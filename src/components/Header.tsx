@@ -84,6 +84,16 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
     }
   };
 
+  const formatarHora = (isoStr?: string | null) => {
+    if (!isoStr) return '--:--';
+    try {
+      const d = new Date(isoStr);
+      return isNaN(d.getTime()) ? isoStr : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return '--:--';
+    }
+  };
+
   return (
     <header className="bg-white border-b border-slate-200 shadow-xs sticky top-0 z-40 no-print">
       <div className="w-full px-2 sm:px-3">
@@ -220,27 +230,43 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
               </>
             )}
 
-            {/* Botão Painel de Status do Sistema (Requisito 11) */}
+            {/* Indicador Permanente de Monitoramento de Sincronização (Item 3) */}
             <button
               onClick={() => setMostrarPainelStatusModal(true)}
-              className={`hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl border shrink-0 h-10 text-xs font-bold shadow-2xs whitespace-nowrap cursor-pointer transition-all hover:shadow-sm active:scale-95 ${
-                statusSync.statusConexao === 'ONLINE'
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/70'
-                  : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100/70'
+              className={`flex items-center gap-2 px-3 py-1 rounded-xl border shrink-0 h-10 text-xs shadow-2xs whitespace-nowrap cursor-pointer transition-all hover:shadow-sm active:scale-95 ${
+                statusSync.statusConexao === 'SINCRONIZADO'
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100/70'
+                  : statusSync.statusConexao === 'ONLINE'
+                  ? 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100/70'
+                  : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100/70'
               }`}
-              title="Abrir Painel de Status Geral do Sistema (Conexão, Pendências, Envios e Bloqueios)"
+              title={`Status Servidor: ${statusSync.statusConexao}\nÚltima Sincronização: ${statusSync.ultimaSincronizacao ? new Date(statusSync.ultimaSincronizacao).toLocaleString('pt-BR') : 'Nenhuma'}\nÚltimo Envio: ${statusSync.ultimoEnvio ? new Date(statusSync.ultimoEnvio).toLocaleString('pt-BR') : 'Nenhum'}\nPendências: ${statusSync.pendentes}`}
             >
-              <Layers className="w-4 h-4 text-blue-600 shrink-0" />
-              <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black uppercase leading-none text-slate-500">Painel Status</span>
-                <span className="text-xs font-black tracking-tight flex items-center gap-1.5">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      statusSync.statusConexao === 'ONLINE' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
-                    }`}
-                  />
-                  {statusSync.statusConexao}
-                </span>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                    statusSync.statusConexao === 'SINCRONIZADO'
+                      ? 'bg-emerald-500'
+                      : statusSync.statusConexao === 'ONLINE'
+                      ? 'bg-blue-500 animate-pulse'
+                      : 'bg-rose-500'
+                  }`}
+                />
+                <div className="flex flex-col text-left">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider">
+                      {statusSync.statusConexao}
+                    </span>
+                    {statusSync.pendentes > 0 && (
+                      <span className="px-1 py-0.2 bg-amber-200 text-amber-900 rounded text-[9px] font-black">
+                        {statusSync.pendentes} pend
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-500 leading-none">
+                    Sync: {formatarHora(statusSync.ultimaSincronizacao)} | Envio: {formatarHora(statusSync.ultimoEnvio)}
+                  </span>
+                </div>
               </div>
             </button>
 

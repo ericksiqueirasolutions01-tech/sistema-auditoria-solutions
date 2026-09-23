@@ -53,6 +53,25 @@ export const App: React.FC = () => {
     iniciarMonitoramentoCicloVida();
   }, []);
 
+  // Fila Offline & Reconexão Automática (Item 4)
+  useEffect(() => {
+    const handleOnline = async () => {
+      console.log('[App] Conexão com a internet restabelecida! Processando fila offline e sincronização...');
+      try {
+        await db.puxarAtualizacoesServidor();
+        const status = db.obterStatusSincronizacao();
+        if (status.pendentes > 0) {
+          await db.sincronizarOnline();
+        }
+      } catch (err) {
+        console.warn('[App] Falha na sincronização automática pós-reconexão:', err);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
   // Route Guard: impedir acesso a áreas administrativas no aplicativo desktop ou por operador
   useEffect(() => {
     if (!usuario) {

@@ -215,7 +215,7 @@ export interface EstatisticasRegional {
   ultimaAuditoria: string | null;
 }
 
-export type StatusConexao = 'ONLINE' | 'OFFLINE';
+export type StatusConexao = 'ONLINE' | 'SINCRONIZADO' | 'OFFLINE';
 
 export interface LogAcessoUsuario {
   id: number;

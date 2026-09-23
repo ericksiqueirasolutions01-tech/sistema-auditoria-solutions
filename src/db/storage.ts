@@ -1418,6 +1418,44 @@ class AuditoriaDatabase {
     return this.historico.slice(0, limite);
   }
 
+  async registrarErroCritico(params: {
+    operacao: string;
+    erro: string;
+    detalhes?: any;
+  }): Promise<void> {
+    const usuario = this.usuarioAtual;
+    const computador = this.obterComputadorAtual();
+    const horario = new Date().toISOString();
+
+    // 1. Gravar no histórico de auditoria local
+    this.registrarHistorico(
+      usuario?.nome || 'Operador',
+      'ERRO_CRITICO',
+      `[${params.operacao}] ${params.erro}${params.detalhes ? ` - ${JSON.stringify(params.detalhes)}` : ''}`
+    );
+
+    // 2. Enviar para a API Central / Supabase audit_log
+    const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    if (!isTestEnv) {
+      try {
+        const urlLog = obterApiUrl('/api/central/log');
+        await fetch(urlLog, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            usuario,
+            computador,
+            horario,
+            erro: params.erro,
+            operacao: params.operacao,
+            detalhes: params.detalhes,
+            regional: usuario?.regional || computador.regional,
+          }),
+        }).catch(() => {});
+      } catch {}
+    }
+  }
+
   // =========================================================================
   // LOGS E GESTÃO DE TENTATIVAS DE ENVIO DUPLICADO (IMEI BLOQUEADO NO SERVIDOR)
   // =========================================================================
@@ -4151,6 +4189,10 @@ class AuditoriaDatabase {
         if (alterouLotes) alterou = true;
       }
 
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('solutions_ultima_sincronizacao', new Date().toISOString());
+      }
+
       if (alterou) {
         this.salvarTudo();
         this.notificarMudanca('produtos');
@@ -4703,6 +4745,11 @@ class AuditoriaDatabase {
           `Envio online realizado pelo ${compAtual.id} (${compAtual.nome}): ${dataResposta.sincronizados} novos seriais sincronizados no servidor central.`,
           regionalFinal
         );
+
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('solutions_ultimo_envio', agora);
+          localStorage.setItem('solutions_ultima_sincronizacao', agora);
+        }
       }
 
       return {
@@ -4748,10 +4795,17 @@ class AuditoriaDatabase {
     const quantidadeBloqueada = Math.max(tentativasDup.length, duplicadosLocais);
 
     const historico = this.listarHistoricoEnvios();
-    const ultimoEnvio = historico.length > 0 ? historico[0].data_envio : null;
-    const ultimaSincronizacao = localStorage.getItem('solutions_ultima_sincronizacao');
+    const ultimoEnvio = (typeof localStorage !== 'undefined' && localStorage.getItem('solutions_ultimo_envio')) || (historico.length > 0 ? historico[0].data_envio : null);
+    const ultimaSincronizacao = (typeof localStorage !== 'undefined' && localStorage.getItem('solutions_ultima_sincronizacao')) || null;
     const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-    const statusConexao: StatusConexao = isOffline ? 'OFFLINE' : 'ONLINE';
+    let statusConexao: StatusConexao = 'ONLINE';
+    if (isOffline) {
+      statusConexao = 'OFFLINE';
+    } else if (pendentes === 0) {
+      statusConexao = 'SINCRONIZADO';
+    } else {
+      statusConexao = 'ONLINE';
+    }
 
     return {
       pendentes,

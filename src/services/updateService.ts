@@ -168,22 +168,53 @@ class UpdateService {
         return { sucesso: false, erro: msg };
       }
     } else {
-      // Modo Web Online: Limpar caches e recarregar
+      // Modo Web Online: Limpar caches, invalidar service worker e recarregar
       try {
-        this.status.progresso = 'Atualizando aplicação Web com os novos módulos...';
-        this.notificar();
-        if ('caches' in window) {
-          const chs = await caches.keys();
-          await Promise.all(chs.map((c) => caches.delete(c)));
-        }
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+        await this.executarLimpezaEAtualizacaoCache();
         return { sucesso: true };
       } catch {
         window.location.reload();
         return { sucesso: true };
       }
+    }
+  }
+
+  public async executarLimpezaEAtualizacaoCache(): Promise<void> {
+    this.status.progresso = 'Limpando caches antigos e atualizando aplicação...';
+    this.notificar();
+
+    try {
+      // 1. Desregistrar Service Workers antigos
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.unregister().catch(() => {});
+        }
+      }
+
+      // 2. Limpar CacheStorage
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const chs = await caches.keys();
+        await Promise.all(chs.map((c) => caches.delete(c).catch(() => {})));
+      }
+
+      // 3. Atualizar dados centrais (puxar do Supabase)
+      try {
+        const { db } = await import('../db/storage');
+        await db.puxarAtualizacoesServidor().catch(() => {});
+      } catch {}
+
+      // 4. Gravar versão atual instalada
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('solutions_app_version_installed', VERSAO_LOCAL.versao);
+        localStorage.setItem('solutions_app_version_code', String(VERSAO_LOCAL.versaoCodigo));
+      }
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch {
+      window.location.reload();
     }
   }
 }

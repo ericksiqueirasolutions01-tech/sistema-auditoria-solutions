@@ -56,6 +56,28 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+function formatarDataParaExibicaoBR(dataInput: any): string {
+  if (!dataInput) return '';
+  const str = String(dataInput).trim();
+  // Se já for DD/MM/YYYY
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (ddmmyyyyMatch) {
+    return `${ddmmyyyyMatch[1].padStart(2, '0')}/${ddmmyyyyMatch[2].padStart(2, '0')}/${ddmmyyyyMatch[3]}`;
+  }
+  // Se for YYYY-MM-DD
+  const yyyymmddMatch = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (yyyymmddMatch) {
+    return `${yyyymmddMatch[3].padStart(2, '0')}/${yyyymmddMatch[2].padStart(2, '0')}/${yyyymmddMatch[1]}`;
+  }
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('pt-BR');
+    }
+  } catch {}
+  return str;
+}
+
 function obterDadosCentraisLocais() {
   const dataDir = path.resolve(process.cwd(), 'data');
   const dbFile = path.join(dataDir, 'central_database.json');
@@ -219,7 +241,7 @@ export default async function handler(req: any, res: any) {
               observacao: observacaoLimpa,
               usuario_sincronizacao: p.usuario_bipagem,
               usuario_cadastro: p.usuario_bipagem,
-              data_auditoria: p.data_auditoria,
+              data_auditoria: formatarDataParaExibicaoBR(p.data_auditoria),
               data_sincronizacao: p.created_at,
               status_sincronizacao: p.status_sincronizacao,
               origin_invoice: p.origin_invoice || null,

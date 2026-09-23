@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico, calcularClassificacaoProduto, inferirFabricante } from '../db/storage';
+import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico, calcularClassificacaoProduto, inferirFabricante, normalizeDatabaseDate, formatarDataParaExibicaoBR } from '../db/storage';
 import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado, RegionalInventoryReference } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
@@ -437,7 +437,7 @@ export const BipagemRapida: React.FC = () => {
   };
 
   // Main Bipagem Process (Excel Row Enter)
-  const processarBipagemLinha = () => {
+  const processarBipagemLinha = async () => {
     // Trava de concorrência / debounce para leitores de código de barras laser rápidos (Gate 6)
     if (isProcessingScanRef.current) return;
     isProcessingScanRef.current = true;
@@ -447,7 +447,7 @@ export const BipagemRapida: React.FC = () => {
       const eanLimpo = eanAtivo.trim();
       const modeloLimpo = modeloAtivo.trim();
       const caixaLimpa = caixaAtiva.trim();
-      const dataLimpa = dataAtiva.trim() || getDataAtualFormatada();
+      const dataLimpa = normalizeDatabaseDate(dataAtiva.trim() || getDataAtualFormatada());
 
       setErroDuplicado(null);
       setAlertaValidacao(null);
@@ -498,8 +498,26 @@ export const BipagemRapida: React.FC = () => {
         return;
       }
 
-      // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & RESOLUÇÃO DE DADOS
-      const refLookup = db.consultarImeiReferencia(serialLimpo, regBusca) || (referenciaDetectada?.imei_normalized === serialLimpo ? referenciaDetectada : null);
+      // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & RESOLUÇÃO DE DADOS (CORREÇÃO 2 — CENTRAL-FIRST)
+      let refLookup = db.consultarImeiReferencia(serialLimpo, regBusca) || (referenciaDetectada?.imei_normalized === serialLimpo ? referenciaDetectada : null);
+      if (!refLookup) {
+        // NUNCA retornar "Fora da Lista" sem antes consultar a base central compartilhada (Supabase)
+        refLookup = await db.consultarImeiReferenciaOnline(serialLimpo, regBusca);
+        if (refLookup) {
+          setReferenciaDetectada(refLookup);
+          setStatusReferencia('LISTED');
+          setModeloAtivo(refLookup.model_description);
+          setEanAtivo(refLookup.sku);
+          const fabResolvido = inferirFabricante(refLookup.model_description, refLookup.brand, refLookup.sku);
+          setFabricanteAtivo(fabResolvido);
+          const classif = calcularClassificacaoProduto({
+            sourceType: 'LISTED',
+            dealer: refLookup.dealer_normalized,
+            fabricante: fabResolvido,
+          });
+          setClassificacaoAtiva(classif);
+        }
+      }
       const sourceType: 'LISTED' | 'OUT_OF_LIST' = refLookup ? 'LISTED' : 'OUT_OF_LIST';
       const dealerResolvido = refLookup?.dealer_normalized || null;
       const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();
@@ -784,7 +802,7 @@ export const BipagemRapida: React.FC = () => {
       nf_origem: refLookup ? (refLookup.origin_invoice || null) : 'NÃO LOCALIZADA NA BASE',
       serial: editSerial.trim(),
       imei: editSerial.trim(),
-      data_auditoria: editData.trim() || getDataAtualFormatada(),
+      data_auditoria: normalizeDatabaseDate(editData.trim() || getDataAtualFormatada()),
       numero_caixa: cxFinal,
       box_id: cxFinal.toLowerCase().replace(/\s+/g, '-'),
       box_name: cxFinal,

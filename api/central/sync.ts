@@ -56,6 +56,39 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+/**
+ * CORREÇÃO 3 — Normaliza qualquer formato de data (DD/MM/YYYY, ISO, etc.) para o formato DATE do PostgreSQL (YYYY-MM-DD)
+ */
+function normalizeDatabaseDate(dataInput: any): string {
+  if (!dataInput) {
+    return new Date().toISOString().split('T')[0];
+  }
+  const str = String(dataInput).trim();
+  // Formato brasileiro DD/MM/YYYY ou DD-MM-YYYY
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (ddmmyyyyMatch) {
+    const dia = ddmmyyyyMatch[1].padStart(2, '0');
+    const mes = ddmmyyyyMatch[2].padStart(2, '0');
+    const ano = ddmmyyyyMatch[3];
+    return `${ano}-${mes}-${dia}`;
+  }
+  // Formato ISO YYYY-MM-DD ou YYYY/MM/DD
+  const yyyymmddMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (yyyymmddMatch) {
+    const ano = yyyymmddMatch[1];
+    const mes = yyyymmddMatch[2].padStart(2, '0');
+    const dia = yyyymmddMatch[3].padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  }
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  } catch {}
+  return new Date().toISOString().split('T')[0];
+}
+
 function obterCaminhosCentrais() {
   const dataDir = path.resolve(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
@@ -337,14 +370,8 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Mapeamento local em memória de seriais e IMEIs existentes
+    // Mapeamento de seriais e IMEIs existentes (CENTRAL-FIRST: Supabase PostgreSQL é a única fonte oficial)
     const mapExistentes = new Map<string, any>();
-    for (const p of centralData.produtos) {
-      const sn = (p.serial || '').trim().toUpperCase();
-      const im = (p.imei || '').trim().toUpperCase();
-      if (sn) mapExistentes.set(sn, p);
-      if (im) mapExistentes.set(im, p);
-    }
 
     // Se o Supabase estiver conectado, consultar duplicidades direto no PostgreSQL
     if (supabase && Array.isArray(produtos) && produtos.length > 0) {
@@ -379,13 +406,21 @@ export default async function handler(req: any, res: any) {
                 data_cadastro: dp.created_at,
                 usuario_cadastro: dp.usuario_bipagem,
               };
-              if (sn && !mapExistentes.has(sn)) mapExistentes.set(sn, info);
-              if (im && !mapExistentes.has(im)) mapExistentes.set(im, info);
+              if (sn) mapExistentes.set(sn, info);
+              if (im) mapExistentes.set(im, info);
             }
           }
         }
       } catch (errDb) {
         console.warn('[Central] Aviso ao consultar duplicidades no Supabase:', errDb);
+      }
+    } else {
+      // Fallback estrito apenas se Supabase não estiver configurado
+      for (const p of centralData.produtos) {
+        const sn = (p.serial || '').trim().toUpperCase();
+        const im = (p.imei || '').trim().toUpperCase();
+        if (sn) mapExistentes.set(sn, p);
+        if (im) mapExistentes.set(im, p);
       }
     }
 
@@ -516,7 +551,7 @@ export default async function handler(req: any, res: any) {
             observacao: obsFinal || null,
             usuario_bipagem: String(usuarioNormalizado.nome || 'Operador').slice(0, 100),
             status_sincronizacao: 'ENVIADO',
-            data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
+            data_auditoria: normalizeDatabaseDate(item.data_auditoria),
             // Snapshot fields da referência e lote (Seções 4, 5, 16):
             reference_id: item.reference_id ? String(item.reference_id).slice(0, 100) : null,
             import_batch_id: item.import_batch_id || null,

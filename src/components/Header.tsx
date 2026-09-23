@@ -35,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
   const [usuario] = useState(() => db.getUsuarioAtual());
   const [colaboradorAtivo, setColaboradorAtivo] = useState(() => db.obterColaboradorAtivo());
   const [syncLoading, setSyncLoading] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<{ texto: string; sucesso: boolean } | null>(null);
   const [mostrarModalComputador, setMostrarModalComputador] = useState(false);
   const [mostrarModalPendentes, setMostrarModalPendentes] = useState(false);
   const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
@@ -62,18 +62,25 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
       if (res.itensDuplicados && res.itensDuplicados.length > 0) {
         setDuplicadosAlerta(res.itensDuplicados);
         setTotalEnviadosAlerta(res.totalSincronizados);
-        setSyncFeedback(
-          `Bloqueio: ${res.itensDuplicados.length} IMEI(s) já existem no servidor central.`
-        );
+        setSyncFeedback({
+          texto: `Bloqueio: ${res.itensDuplicados.length} IMEI(s) já existem no servidor central.`,
+          sucesso: false,
+        });
       } else {
-        setSyncFeedback(res.mensagem);
+        setSyncFeedback({
+          texto: res.mensagem,
+          sucesso: res.sucesso,
+        });
       }
     } catch {
-      setSyncFeedback('Erro ao conectar com o servidor central.');
+      setSyncFeedback({
+        texto: 'Erro ao conectar com o servidor central.',
+        sucesso: false,
+      });
     } finally {
       setSyncLoading(false);
       setStatusSync(db.obterStatusSincronizacao());
-      setTimeout(() => setSyncFeedback(null), 4000);
+      setTimeout(() => setSyncFeedback(null), 5000);
     }
   };
 
@@ -162,7 +169,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   setSyncLoading(true);
                   await db.puxarAtualizacoesServidor();
                   setSyncLoading(false);
-                  setSyncFeedback('Dados do servidor central atualizados com sucesso.');
+                  setSyncFeedback({ texto: 'Dados do servidor central atualizados com sucesso.', sucesso: true });
                   setTimeout(() => setSyncFeedback(null), 3000);
                 }}
                 disabled={syncLoading}
@@ -352,7 +359,7 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
                   setSyncLoading(true);
                   await db.puxarAtualizacoesServidor();
                   setSyncLoading(false);
-                  setSyncFeedback('Dados do servidor central atualizados.');
+                  setSyncFeedback({ texto: 'Dados do servidor central atualizados.', sucesso: true });
                   setTimeout(() => setSyncFeedback(null), 3000);
                 }}
                 disabled={syncLoading}
@@ -398,9 +405,17 @@ export const Header: React.FC<HeaderProps> = ({ onLogout }) => {
 
       {/* Sync Feedback Toast */}
       {syncFeedback && (
-        <div className="bg-emerald-600 text-white py-1.5 px-4 text-center text-xs font-bold flex items-center justify-center gap-2 shadow-inner transition-all animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{syncFeedback}</span>
+        <div
+          className={`${
+            syncFeedback.sucesso ? 'bg-emerald-600' : 'bg-rose-600'
+          } text-white py-2 px-4 text-center text-xs font-bold flex items-center justify-center gap-2 shadow-inner transition-all animate-fadeIn`}
+        >
+          {syncFeedback.sucesso ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span>{syncFeedback.texto}</span>
         </div>
       )}
 

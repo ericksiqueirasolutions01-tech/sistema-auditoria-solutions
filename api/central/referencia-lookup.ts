@@ -94,14 +94,23 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { data, error } = await supabase
+    const regUpper = regional.trim().toUpperCase();
+    const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+    const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+
+    let query = supabase
       .from('regional_inventory_reference')
       .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active')
-      .eq('regional', regional)
       .eq('imei_normalized', imeiNorm)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle();
+      .eq('is_active', true);
+
+    if (regionaisValidas.length === 1) {
+      query = query.eq('regional', regionaisValidas[0]);
+    } else {
+      query = query.in('regional', regionaisValidas);
+    }
+
+    const { data, error } = await query.limit(1).maybeSingle();
 
     if (error) throw error;
 

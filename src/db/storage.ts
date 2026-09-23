@@ -110,6 +110,62 @@ export function extrairCodigoRegional(regional?: string | null): string {
 }
 
 /**
+ * Normaliza qualquer formato de data (DD/MM/YYYY, ISO, etc.) para o formato DATE do PostgreSQL (YYYY-MM-DD)
+ * CORREÇÃO 3 — REGRA OBRIGATÓRIA: Entrada DD/MM/YYYY -> Saída YYYY-MM-DD
+ */
+export function normalizeDatabaseDate(dataInput: any): string {
+  if (!dataInput) {
+    return new Date().toISOString().split('T')[0];
+  }
+  const str = String(dataInput).trim();
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (ddmmyyyyMatch) {
+    const dia = ddmmyyyyMatch[1].padStart(2, '0');
+    const mes = ddmmyyyyMatch[2].padStart(2, '0');
+    const ano = ddmmyyyyMatch[3];
+    return `${ano}-${mes}-${dia}`;
+  }
+  const yyyymmddMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (yyyymmddMatch) {
+    const ano = yyyymmddMatch[1];
+    const mes = yyyymmddMatch[2].padStart(2, '0');
+    const dia = yyyymmddMatch[3].padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  }
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  } catch {}
+  return new Date().toISOString().split('T')[0];
+}
+export const normalizarDataParaPostgresDate = normalizeDatabaseDate;
+
+/**
+ * Converte data ISO (YYYY-MM-DD) para exibição brasileira (DD/MM/YYYY)
+ */
+export function formatarDataParaExibicaoBR(dataInput: any): string {
+  if (!dataInput) return '';
+  const str = String(dataInput).trim();
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (ddmmyyyyMatch) {
+    return `${ddmmyyyyMatch[1].padStart(2, '0')}/${ddmmyyyyMatch[2].padStart(2, '0')}/${ddmmyyyyMatch[3]}`;
+  }
+  const yyyymmddMatch = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (yyyymmddMatch) {
+    return `${yyyymmddMatch[3].padStart(2, '0')}/${yyyymmddMatch[2].padStart(2, '0')}/${yyyymmddMatch[1]}`;
+  }
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('pt-BR');
+    }
+  } catch {}
+  return str;
+}
+
+/**
  * Catálogo Mestre de SKUs Conhecidos do Sistema
  * Mapeia SKU -> Marca Oficial
  */
@@ -599,6 +655,13 @@ class AuditoriaDatabase {
       executarMigracaoLegadoParaIndexedDB().catch((err) => {
         console.error('Falha na migração automática para o IndexedDB estruturado:', err);
       });
+      // CORREÇÃO 1 — Arquitetura Central-First: inicialização buscando dados da API central / Supabase
+      const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+      if (!isTestEnv) {
+        setTimeout(() => {
+          this.puxarAtualizacoesServidor().catch(() => {});
+        }, 100);
+      }
     }
   }
 
@@ -986,6 +1049,13 @@ class AuditoriaDatabase {
     this.usuarioAtual = u;
     if (u) {
       sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
+      // CORREÇÃO 1 — Sincronização automática após login buscando dados da API central
+      const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+      if (typeof window !== 'undefined' && !isTestEnv) {
+        setTimeout(() => {
+          this.puxarAtualizacoesServidor().catch(() => {});
+        }, 50);
+      }
     } else {
       sessionStorage.removeItem('solutions_auditoria_sessao');
       this.limparColaboradorAtivo();
@@ -2028,8 +2098,12 @@ class AuditoriaDatabase {
         if (filtro.numero_lote && filtro.numero_lote !== 'TODOS' && (p.numero_lote || '01').trim().toUpperCase() !== filtro.numero_lote.trim().toUpperCase()) {
           return false;
         }
-        if (filtro.data && p.data_auditoria !== filtro.data) {
-          return false;
+        if (filtro.data) {
+          const normFiltro = normalizarDataParaPostgresDate(filtro.data);
+          const normProd = normalizarDataParaPostgresDate(p.data_auditoria);
+          if (normFiltro !== normProd && p.data_auditoria !== filtro.data) {
+            return false;
+          }
         }
         if (filtro.produtoLacrado && filtro.produtoLacrado !== 'TODOS' && p.produto_lacrado !== filtro.produtoLacrado) {
           return false;
@@ -3852,6 +3926,8 @@ class AuditoriaDatabase {
   // =========================================================================
   async puxarAtualizacoesServidor(): Promise<boolean> {
     if (this.limpezaEmAndamento || this.sincronizando) return false;
+    const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    if (isTestEnv && !process.env.FORCE_TEST_SERVER_SYNC) return false;
     this.sincronizando = true;
 
     try {
@@ -4010,7 +4086,7 @@ class AuditoriaDatabase {
                   computador_id: p.device_id || 'PC-01',
                   computador_nome: 'Estação',
                   data_alteracao: null,
-                  data_auditoria: p.data_auditoria || new Date().toISOString().split('T')[0],
+                  data_auditoria: formatarDataParaExibicaoBR(p.data_auditoria) || p.data_auditoria || new Date().toLocaleDateString('pt-BR'),
                   data_sincronizacao: p.created_at || new Date().toISOString(),
                   status_sincronizacao: (p.status_sincronizacao as StatusSincronizacaoItem) || 'ENVIADO',
                   origin_invoice: p.origin_invoice || null,
@@ -4481,7 +4557,7 @@ class AuditoriaDatabase {
               observacao: obsFinal || null,
               usuario_bipagem: this.usuarioAtual?.nome || 'Operador',
               status_sincronizacao: 'ENVIADO',
-              data_auditoria: p.data_auditoria || p.data_cadastro || new Date().toISOString().split('T')[0],
+              data_auditoria: normalizarDataParaPostgresDate(p.data_auditoria || p.data_cadastro),
               reference_id: p.reference_id || null,
               import_batch_id: p.import_batch_id || null,
               source_type: p.source_type || 'OUT_OF_LIST',
@@ -5349,6 +5425,9 @@ class AuditoriaDatabase {
     const local = this.consultarImeiReferencia(imei, regional);
     if (local) return local;
 
+    const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    if (isTestEnv && !process.env.FORCE_TEST_SERVER_SYNC) return null;
+
     try {
       const imeiNorm = normalizeImei(imei);
       if (imeiNorm.length !== 15) return null;
@@ -5359,6 +5438,35 @@ class AuditoriaDatabase {
         const data = await res.json().catch(() => null);
         if (data && data.sucesso && data.encontrado && data.item) {
           const itemRef: RegionalInventoryReference = data.item;
+          const jaExiste = this.regionalReferences.some((r) => r.id === itemRef.id);
+          if (!jaExiste) {
+            this.regionalReferences.push(itemRef);
+            this.reconstruirMapaReferencia();
+            salvarIndexedDB(STORAGE_KEY_REGIONAL_REFS, this.regionalReferences).catch(() => {});
+          }
+          return itemRef;
+        }
+      }
+
+      // Fallback direto no Supabase caso a rota API não encontre ou oscile
+      if (isSupabaseConfigured && supabase) {
+        const regUpper = reg.toUpperCase();
+        const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+        const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+
+        let supaQuery = supabase
+          .from('regional_inventory_reference')
+          .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active')
+          .eq('imei_normalized', imeiNorm)
+          .eq('is_active', true);
+
+        if (regionaisValidas.length > 0) {
+          supaQuery = supaQuery.in('regional', regionaisValidas);
+        }
+
+        const { data: supaItem, error: supaErr } = await supaQuery.limit(1).maybeSingle();
+        if (!supaErr && supaItem) {
+          const itemRef = supaItem as RegionalInventoryReference;
           const jaExiste = this.regionalReferences.some((r) => r.id === itemRef.id);
           if (!jaExiste) {
             this.regionalReferences.push(itemRef);
@@ -5725,81 +5833,83 @@ class AuditoriaDatabase {
     let erroOnline: string | null = null;
     const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
 
-    try {
-      const urlImport = obterApiUrl('/api/central/referencia-import');
-      const payloadImport = {
-        regional,
-        fileName,
-        usuario: this.usuarioAtual,
-        itens: validRefs,
-      };
-      const res = await fetch(urlImport, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payloadImport),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.sucesso) {
-        sincronizadoOnline = true;
-        if (data.batch?.version) {
-          newBatch.version = data.batch.version;
-        }
-      } else {
-        erroOnline = data?.erro || `Servidor retornou erro HTTP ${res.status}`;
-      }
-    } catch (errApi: any) {
-      console.warn('[Storage] Falha ao enviar batch via API central:', errApi);
-      erroOnline = errApi?.message || String(errApi);
-    }
-
-    if (!sincronizadoOnline && isSupabaseConfigured && supabase) {
+    if (!isTestEnv || process.env.FORCE_TEST_SERVER_SYNC) {
       try {
-        const supa = supabase;
-        const { error: bErr } = await supa.from('inventory_import_batches').insert({
-          id: newBatch.id,
-          regional: newBatch.regional,
-          file_name: newBatch.file_name,
-          imported_by: newBatch.imported_by,
-          imported_at: newBatch.imported_at,
-          row_count: newBatch.row_count,
-          valid_count: newBatch.valid_count,
-          invalid_count: newBatch.invalid_count,
-          status: newBatch.status,
-          version: newBatch.version,
+        const urlImport = obterApiUrl('/api/central/referencia-import');
+        const payloadImport = {
+          regional,
+          fileName,
+          usuario: this.usuarioAtual,
+          itens: validRefs,
+        };
+        const res = await fetch(urlImport, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadImport),
         });
-        if (bErr) throw bErr;
-
-        // Arquivar anteriores no Supabase
-        await supa
-          .from('regional_inventory_reference')
-          .update({ is_active: false })
-          .eq('regional', regional)
-          .eq('is_active', true);
-
-        // Inserir itens em lotes de 100
-        for (let i = 0; i < validRefs.length; i += 100) {
-          const chunk = validRefs.slice(i, i + 100).map((r) => ({
-            id: r.id,
-            regional: r.regional,
-            import_batch_id: r.import_batch_id,
-            imei_normalized: r.imei_normalized,
-            sku: r.sku,
-            model_description: r.model_description,
-            brand: r.brand,
-            origin_invoice: r.origin_invoice,
-            dealer_raw: r.dealer_raw,
-            dealer_normalized: r.dealer_normalized,
-            source_file_name: r.source_file_name,
-            source_row: r.source_row,
-            is_active: r.is_active,
-            created_at: r.created_at,
-          }));
-          const { error: cErr } = await supa.from('regional_inventory_reference').insert(chunk);
-          if (cErr) throw cErr;
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.sucesso) {
+          sincronizadoOnline = true;
+          if (data.batch?.version) {
+            newBatch.version = data.batch.version;
+          }
+        } else {
+          erroOnline = data?.erro || `Servidor retornou erro HTTP ${res.status}`;
         }
-        sincronizadoOnline = true;
-      } catch (supaErr: any) {
-        console.error('[Storage] Falha no salvamento direto de referências no Supabase:', supaErr);
+      } catch (errApi: any) {
+        console.warn('[Storage] Falha ao enviar batch via API central:', errApi);
+        erroOnline = errApi?.message || String(errApi);
+      }
+
+      if (!sincronizadoOnline && isSupabaseConfigured && supabase) {
+        try {
+          const supa = supabase;
+          const { error: bErr } = await supa.from('inventory_import_batches').insert({
+            id: newBatch.id,
+            regional: newBatch.regional,
+            file_name: newBatch.file_name,
+            imported_by: newBatch.imported_by,
+            imported_at: newBatch.imported_at,
+            row_count: newBatch.row_count,
+            valid_count: newBatch.valid_count,
+            invalid_count: newBatch.invalid_count,
+            status: newBatch.status,
+            version: newBatch.version,
+          });
+          if (bErr) throw bErr;
+
+          // Arquivar anteriores no Supabase
+          await supa
+            .from('regional_inventory_reference')
+            .update({ is_active: false })
+            .eq('regional', regional)
+            .eq('is_active', true);
+
+          // Inserir itens em lotes de 100
+          for (let i = 0; i < validRefs.length; i += 100) {
+            const chunk = validRefs.slice(i, i + 100).map((r) => ({
+              id: r.id,
+              regional: r.regional,
+              import_batch_id: r.import_batch_id,
+              imei_normalized: r.imei_normalized,
+              sku: r.sku,
+              model_description: r.model_description,
+              brand: r.brand,
+              origin_invoice: r.origin_invoice,
+              dealer_raw: r.dealer_raw,
+              dealer_normalized: r.dealer_normalized,
+              source_file_name: r.source_file_name,
+              source_row: r.source_row,
+              is_active: r.is_active,
+              created_at: r.created_at,
+            }));
+            const { error: cErr } = await supa.from('regional_inventory_reference').insert(chunk);
+            if (cErr) throw cErr;
+          }
+          sincronizadoOnline = true;
+        } catch (supaErr: any) {
+          console.error('[Storage] Falha no salvamento direto de referências no Supabase:', supaErr);
+        }
       }
     }
 

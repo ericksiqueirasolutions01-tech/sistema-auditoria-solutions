@@ -117,6 +117,8 @@ export const App: React.FC = () => {
   const handleLoginSucesso = () => {
     const u = db.getUsuarioAtual();
     setUsuario(u);
+    // CORREÇÃO 1 — Sincronização central compulsória após login
+    db.puxarAtualizacoesServidor().catch(() => {});
     if (u?.perfil === 'ADMINISTRADOR') {
       setActiveTab('admin-regionais');
     } else {

@@ -258,7 +258,7 @@ export const PainelAdmin: React.FC = () => {
   const detalhamentoComputadores = useMemo(() => {
     if (regionalAtiva === 'CONSOLIDADO') return [];
     return db.obterDetalhamentoComputadoresRegional(regionalAtiva);
-  }, [regionalAtiva]);
+  }, [regionalAtiva, forcarAtualizacao]);
 
   // Lista de produtos da visão ativa
   const todosProdutosRegional = useMemo(() => {
@@ -266,12 +266,12 @@ export const PainelAdmin: React.FC = () => {
       return db.listarProdutos({ regional: 'TODAS' });
     }
     return db.listarProdutos({ regional: regionalAtiva });
-  }, [regionalAtiva]);
+  }, [regionalAtiva, forcarAtualizacao]);
 
   // Caixas disponíveis para o filtro
   const caixasDisponiveis = useMemo(() => {
     return db.listarCaixas(regionalAtiva === 'CONSOLIDADO' ? undefined : regionalAtiva);
-  }, [regionalAtiva]);
+  }, [regionalAtiva, forcarAtualizacao]);
 
   // Lista de Referência Regional & Lotes Dinâmicos (ADMIN ONLY)
   const batchAtivoRegional = useMemo(() => {

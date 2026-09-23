@@ -3855,6 +3855,7 @@ class AuditoriaDatabase {
     this.sincronizando = true;
 
     try {
+      let alterou = false;
       // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware) com anti-cache
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
@@ -3905,6 +3906,50 @@ class AuditoriaDatabase {
         }
       } catch (errApi) {
         console.warn('[Storage] Falha ao consultar /api/central/produtos:', errApi);
+      }
+
+      // 1.1 Sincronizar bases de referência ativas e lotes de importação do servidor central
+      try {
+        const refParams = new URLSearchParams();
+        refParams.set('_t', String(Date.now()));
+        const regAlvo = this.usuarioAtual?.regional || 'TODAS';
+        if (regAlvo && regAlvo !== 'TODAS') {
+          refParams.set('regional', regAlvo);
+        }
+        refParams.set('ativos', 'true');
+        const urlRef = obterApiUrl(`/api/central/referencia-import?${refParams.toString()}`);
+        const resRef = await fetch(urlRef);
+        if (resRef.ok) {
+          const refData = await resRef.json();
+          if (refData && refData.sucesso) {
+            if (Array.isArray(refData.batches) && refData.batches.length > 0) {
+              const alterouB = this.mesclarBatchesCentral(refData.batches);
+              if (alterouB) alterou = true;
+            }
+            if (Array.isArray(refData.references) && refData.references.length > 0) {
+              const alterouR = this.mesclarReferenciasCentral(refData.references);
+              if (alterouR) alterou = true;
+            }
+          }
+        }
+      } catch (errRefApi) {
+        console.warn('[Storage] Falha ao consultar /api/central/referencia-import:', errRefApi);
+      }
+
+      // 1.2 Fallback direto no Supabase para referências se estiver vazio
+      if (this.regionalReferences.length === 0 && isSupabaseConfigured && supabase) {
+        try {
+          const { data: dbRefs } = await supabase
+            .from('regional_inventory_reference')
+            .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active, source_row, created_at')
+            .eq('is_active', true);
+          if (Array.isArray(dbRefs) && dbRefs.length > 0) {
+            const alterouR = this.mesclarReferenciasCentral(dbRefs as any);
+            if (alterouR) alterou = true;
+          }
+        } catch (errSupaRefs) {
+          console.warn('[Storage] Falha ao consultar referências no Supabase:', errSupaRefs);
+        }
       }
 
       // 2. Fallback Supabase Direto caso a rota /api/central/produtos não responda
@@ -3985,8 +4030,6 @@ class AuditoriaDatabase {
 
       // Se durante o fetch a base foi limpa, não processar respostas antigas defasadas
       if (this.limpezaEmAndamento) return false;
-
-      let alterou = false;
 
       if (produtosRemotos && Array.isArray(produtosRemotos)) {
         if (produtosRemotos.length === 0) {
@@ -4162,12 +4205,73 @@ class AuditoriaDatabase {
     return alterou;
   }
 
+  mesclarBatchesCentral(batchesCentral: InventoryImportBatch[]): boolean {
+    let alterou = false;
+    const map = new Map<string, InventoryImportBatch>();
+    for (const b of this.importBatches) {
+      map.set(b.id, b);
+    }
+    for (const cb of batchesCentral) {
+      if (!map.has(cb.id)) {
+        this.importBatches.push(cb);
+        map.set(cb.id, cb);
+        alterou = true;
+      } else {
+        const local = map.get(cb.id)!;
+        if (local.status !== cb.status || (cb.version && cb.version !== local.version)) {
+          Object.assign(local, cb);
+          alterou = true;
+        }
+      }
+    }
+    if (alterou) {
+      this.importBatches.sort((a, b) => (b.version || 0) - (a.version || 0));
+      salvarIndexedDB(STORAGE_KEY_IMPORT_BATCHES, this.importBatches).catch(() => {});
+      try {
+        localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+      } catch {}
+    }
+    return alterou;
+  }
+
+  mesclarReferenciasCentral(referenciasCentral: RegionalInventoryReference[]): boolean {
+    let alterou = false;
+    const map = new Map<string, RegionalInventoryReference>();
+    for (const r of this.regionalReferences) {
+      map.set(r.id, r);
+    }
+    for (const cr of referenciasCentral) {
+      if (!map.has(cr.id)) {
+        this.regionalReferences.push(cr);
+        map.set(cr.id, cr);
+        alterou = true;
+      } else {
+        const local = map.get(cr.id)!;
+        if (local.is_active !== cr.is_active) {
+          local.is_active = cr.is_active;
+          alterou = true;
+        }
+      }
+    }
+    if (alterou) {
+      this.reconstruirMapaReferencia();
+      salvarIndexedDB(STORAGE_KEY_REGIONAL_REFS, this.regionalReferences).catch(() => {});
+      try {
+        localStorage.setItem(STORAGE_KEY_REGIONAL_REFS, JSON.stringify(this.regionalReferences));
+      } catch {}
+    }
+    return alterou;
+  }
+
   async sincronizarOnline(): Promise<ResultadoSincronizacao> {
     const agora = new Date().toISOString();
     const agoraFormatada = new Date().toLocaleString('pt-BR');
-    const regAlvo = this.usuarioAtual?.regional || (this.produtos.length > 0 && this.produtos[0].regional ? this.produtos[0].regional : undefined);
+    const userReg = (this.usuarioAtual?.regional || '').trim();
+    const regAlvo = userReg && userReg !== 'TODAS'
+      ? userReg
+      : (this.produtos.length > 0 && this.produtos[0].regional ? this.produtos[0].regional : undefined);
     const compAtual = this.obterComputadorAtual(regAlvo);
-    const regionalFinal = this.usuarioAtual?.regional || regAlvo || compAtual.regional || 'VIA VAREJO RJ';
+    const regionalFinal = regAlvo || compAtual.regional || 'VIA VAREJO RJ';
 
     // 1. Filtrar APENAS produtos novos / não sincronizados (PENDENTE ou ERRO_DUPLICADO)
     const pendentes = this.produtos.filter((p) => {
@@ -4176,13 +4280,15 @@ class AuditoriaDatabase {
       }
       const isPendente = p.status_sincronizacao === 'PENDENTE' || p.sync_status === 'PENDENTE' || p.status_sincronizacao === 'ERRO_DUPLICADO';
       if (!isPendente) return false;
-      if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      if (regAlvo && this.usuarioAtual?.perfil === 'OPERADOR') {
+        return (p.regional || 'VIA VAREJO RJ') === regAlvo;
+      }
       return true;
     });
 
     const pendentesFotos = this.fotosGrupos.filter((f) => {
       if (f.status_sincronizacao === 'ENVIADO') return false;
-      if (regAlvo) return f.regional === regAlvo;
+      if (regAlvo && this.usuarioAtual?.perfil === 'OPERADOR') return f.regional === regAlvo;
       return true;
     });
 
@@ -5238,6 +5344,36 @@ class AuditoriaDatabase {
     return this.referenceMap.get(`${regFull}#${imeiNorm}`) || this.referenceMap.get(`${regCod}#${imeiNorm}`) || null;
   }
 
+  async consultarImeiReferenciaOnline(imei: string, regional?: string | null): Promise<RegionalInventoryReference | null> {
+    if (!imei) return null;
+    const local = this.consultarImeiReferencia(imei, regional);
+    if (local) return local;
+
+    try {
+      const imeiNorm = normalizeImei(imei);
+      if (imeiNorm.length !== 15) return null;
+      const reg = (regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ').trim().toUpperCase();
+      const url = obterApiUrl(`/api/central/referencia-lookup?regional=${encodeURIComponent(reg)}&imei=${encodeURIComponent(imeiNorm)}`);
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.sucesso && data.encontrado && data.item) {
+          const itemRef: RegionalInventoryReference = data.item;
+          const jaExiste = this.regionalReferences.some((r) => r.id === itemRef.id);
+          if (!jaExiste) {
+            this.regionalReferences.push(itemRef);
+            this.reconstruirMapaReferencia();
+            salvarIndexedDB(STORAGE_KEY_REGIONAL_REFS, this.regionalReferences).catch(() => {});
+          }
+          return itemRef;
+        }
+      }
+    } catch (err) {
+      console.warn('[Storage] Consulta online de referência falhou:', err);
+    }
+    return null;
+  }
+
   obterListaAtivaReferencia(regional?: string | null): RegionalInventoryReference[] {
     const regFull = (regional || '').trim().toUpperCase();
     const regCod = extrairCodigoRegional(regional);
@@ -5584,55 +5720,91 @@ class AuditoriaDatabase {
       regional
     );
 
-    // 9. Se Supabase configurado, persistir de forma idempotente em background
-    if (isSupabaseConfigured && supabase) {
-      const supa = supabase;
-      (async () => {
-        try {
-          await supa.from('inventory_import_batches').insert({
-            id: newBatch.id,
-            regional: newBatch.regional,
-            file_name: newBatch.file_name,
-            imported_by: newBatch.imported_by,
-            imported_at: newBatch.imported_at,
-            row_count: newBatch.row_count,
-            valid_count: newBatch.valid_count,
-            invalid_count: newBatch.invalid_count,
-            status: newBatch.status,
-            version: newBatch.version,
-          });
+    // 9. Sincronizar na base central compartilhada (API Central e Supabase)
+    let sincronizadoOnline = false;
+    let erroOnline: string | null = null;
+    const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
 
-          // Arquivar anteriores no Supabase
-          await supa
-            .from('regional_inventory_reference')
-            .update({ is_active: false })
-            .eq('regional', regional)
-            .eq('is_active', true);
-
-          // Inserir itens em lotes de 100
-          for (let i = 0; i < validRefs.length; i += 100) {
-            const chunk = validRefs.slice(i, i + 100).map((r) => ({
-              id: r.id,
-              regional: r.regional,
-              import_batch_id: r.import_batch_id,
-              imei_normalized: r.imei_normalized,
-              sku: r.sku,
-              model_description: r.model_description,
-              brand: r.brand,
-              origin_invoice: r.origin_invoice,
-              dealer_raw: r.dealer_raw,
-              dealer_normalized: r.dealer_normalized,
-              source_file_name: r.source_file_name,
-              source_row: r.source_row,
-              is_active: r.is_active,
-              created_at: r.created_at,
-            }));
-            await supa.from('regional_inventory_reference').insert(chunk);
-          }
-        } catch (supaErr) {
-          console.warn('Sincronização em segundo plano do batch para o Supabase agendada para outbox:', supaErr);
+    try {
+      const urlImport = obterApiUrl('/api/central/referencia-import');
+      const payloadImport = {
+        regional,
+        fileName,
+        usuario: this.usuarioAtual,
+        itens: validRefs,
+      };
+      const res = await fetch(urlImport, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadImport),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.sucesso) {
+        sincronizadoOnline = true;
+        if (data.batch?.version) {
+          newBatch.version = data.batch.version;
         }
-      })().catch(() => {});
+      } else {
+        erroOnline = data?.erro || `Servidor retornou erro HTTP ${res.status}`;
+      }
+    } catch (errApi: any) {
+      console.warn('[Storage] Falha ao enviar batch via API central:', errApi);
+      erroOnline = errApi?.message || String(errApi);
+    }
+
+    if (!sincronizadoOnline && isSupabaseConfigured && supabase) {
+      try {
+        const supa = supabase;
+        const { error: bErr } = await supa.from('inventory_import_batches').insert({
+          id: newBatch.id,
+          regional: newBatch.regional,
+          file_name: newBatch.file_name,
+          imported_by: newBatch.imported_by,
+          imported_at: newBatch.imported_at,
+          row_count: newBatch.row_count,
+          valid_count: newBatch.valid_count,
+          invalid_count: newBatch.invalid_count,
+          status: newBatch.status,
+          version: newBatch.version,
+        });
+        if (bErr) throw bErr;
+
+        // Arquivar anteriores no Supabase
+        await supa
+          .from('regional_inventory_reference')
+          .update({ is_active: false })
+          .eq('regional', regional)
+          .eq('is_active', true);
+
+        // Inserir itens em lotes de 100
+        for (let i = 0; i < validRefs.length; i += 100) {
+          const chunk = validRefs.slice(i, i + 100).map((r) => ({
+            id: r.id,
+            regional: r.regional,
+            import_batch_id: r.import_batch_id,
+            imei_normalized: r.imei_normalized,
+            sku: r.sku,
+            model_description: r.model_description,
+            brand: r.brand,
+            origin_invoice: r.origin_invoice,
+            dealer_raw: r.dealer_raw,
+            dealer_normalized: r.dealer_normalized,
+            source_file_name: r.source_file_name,
+            source_row: r.source_row,
+            is_active: r.is_active,
+            created_at: r.created_at,
+          }));
+          const { error: cErr } = await supa.from('regional_inventory_reference').insert(chunk);
+          if (cErr) throw cErr;
+        }
+        sincronizadoOnline = true;
+      } catch (supaErr: any) {
+        console.error('[Storage] Falha no salvamento direto de referências no Supabase:', supaErr);
+      }
+    }
+
+    if (!sincronizadoOnline && !isTestEnv && !isDesktopApp()) {
+      throw new Error(`Falha ao gravar na base compartilhada do servidor central: ${erroOnline || 'Servidor inacessível'}. A lista não foi ativada para evitar inconsistências entre computadores. Por favor, tente novamente.`);
     }
 
     const metricas: MetricasValidacaoPlanilha = {

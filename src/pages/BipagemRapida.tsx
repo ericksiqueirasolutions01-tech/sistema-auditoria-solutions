@@ -144,6 +144,7 @@ export const BipagemRapida: React.FC = () => {
 
   // Consulta automática de IMEI em tempo real ao bipar ou colar 15 dígitos
   useEffect(() => {
+    let cancelado = false;
     const imeiLimpo = normalizeImei(serialInput);
     if (imeiLimpo.length === 15) {
       const ref = db.consultarImeiReferencia(imeiLimpo, regBusca);
@@ -161,21 +162,42 @@ export const BipagemRapida: React.FC = () => {
         });
         setClassificacaoAtiva(classif);
       } else {
-        setReferenciaDetectada(null);
-        setStatusReferencia('OUT_OF_LIST');
-        const fabResolvido = inferirFabricante(modeloAtivo, null, eanAtivo);
-        setFabricanteAtivo(fabResolvido);
-        const classif = calcularClassificacaoProduto({
-          sourceType: 'OUT_OF_LIST',
-          fabricante: fabResolvido,
+        // Fallback assíncrono para buscar na base central compartilhada online
+        db.consultarImeiReferenciaOnline(imeiLimpo, regBusca).then((refOnline) => {
+          if (cancelado) return;
+          if (refOnline) {
+            setReferenciaDetectada(refOnline);
+            setStatusReferencia('LISTED');
+            setModeloAtivo(refOnline.model_description);
+            setEanAtivo(refOnline.sku);
+            const fabResolvido = inferirFabricante(refOnline.model_description, refOnline.brand, refOnline.sku);
+            setFabricanteAtivo(fabResolvido);
+            const classif = calcularClassificacaoProduto({
+              sourceType: 'LISTED',
+              dealer: refOnline.dealer_normalized,
+              fabricante: fabResolvido,
+            });
+            setClassificacaoAtiva(classif);
+          } else {
+            setReferenciaDetectada(null);
+            setStatusReferencia('OUT_OF_LIST');
+            const fabResolvido = inferirFabricante(modeloAtivo, null, eanAtivo);
+            setFabricanteAtivo(fabResolvido);
+            const classif = calcularClassificacaoProduto({
+              sourceType: 'OUT_OF_LIST',
+              fabricante: fabResolvido,
+            });
+            setClassificacaoAtiva(classif);
+          }
         });
-        setClassificacaoAtiva(classif);
       }
     } else {
       setReferenciaDetectada(null);
       setStatusReferencia('IDLE');
-      setClassificacaoAtiva('');
     }
+    return () => {
+      cancelado = true;
+    };
   }, [serialInput, regBusca]);
 
   const isLoteAtualFinalizado = Boolean(loteAtivo.trim()) && db.isLoteFinalizado(loteAtivo.trim(), regBusca);
@@ -477,7 +499,7 @@ export const BipagemRapida: React.FC = () => {
       }
 
       // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & RESOLUÇÃO DE DADOS
-      const refLookup = db.consultarImeiReferencia(serialLimpo, regBusca);
+      const refLookup = db.consultarImeiReferencia(serialLimpo, regBusca) || (referenciaDetectada?.imei_normalized === serialLimpo ? referenciaDetectada : null);
       const sourceType: 'LISTED' | 'OUT_OF_LIST' = refLookup ? 'LISTED' : 'OUT_OF_LIST';
       const dealerResolvido = refLookup?.dealer_normalized || null;
       const modeloResolvido = (refLookup?.model_description || modeloLimpo).trim();

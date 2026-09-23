@@ -465,74 +465,81 @@ export default async function handler(req: any, res: any) {
     // Persistência no banco Supabase se configurado
     if (supabase && novosParaDb.length > 0) {
       try {
-        // Obter regional_id de forma robusta
-        let regionalId: string | null = null;
+        // Obter mapeamento de regiões de forma robusta
         const { data: allRegions, error: regErr } = await supabase.from('regions').select('id, codigo, nome');
         if (regErr) {
           debugDb.regErr = regErr;
         }
-        if (Array.isArray(allRegions)) {
-          const regLimpa = regionalNome.toUpperCase().replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+
+        const resolverIdRegiao = (nomeReg: string): string | null => {
+          if (!nomeReg || !Array.isArray(allRegions)) return null;
+          const regUpper = nomeReg.trim().toUpperCase();
+          const regLimpa = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
           const found = allRegions.find((r: any) =>
             (r.codigo && r.codigo.toUpperCase() === regLimpa) ||
-            (r.nome && r.nome.toUpperCase() === regionalNome.toUpperCase()) ||
-            (r.codigo && regionalNome.toUpperCase().includes(r.codigo.toUpperCase())) ||
+            (r.nome && r.nome.toUpperCase() === regUpper) ||
+            (r.codigo && regUpper.includes(r.codigo.toUpperCase())) ||
             (r.nome && r.nome.toUpperCase().includes(regLimpa))
           );
-          if (found) regionalId = found.id;
-        }
+          return found ? found.id : null;
+        };
 
-        debugDb.regionalId = regionalId;
+        const defaultRegionalId = resolverIdRegiao(regionalNome) || (Array.isArray(allRegions) && allRegions.length > 0 ? allRegions[0].id : null);
+        debugDb.regionalId = defaultRegionalId;
 
-        if (regionalId) {
-          const rowsToInsert = novosParaDb.map((item) => {
-            const cx = item.numero_caixa || item.caixa || 'Caixa 01';
-            const lacre = (item.lacre_seguranca || (body.lacres_caixas && body.lacres_caixas[cx]) || '').trim();
-            const obsOriginal = (item.observacao || '').trim();
-            let obsFinal = obsOriginal;
-            if (lacre && !obsOriginal.includes('[LACRE:')) {
-              obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
-            }
-
-            const isLacrado = item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM';
-
-            return {
-              id_local: String(item.id || `LOC-${Date.now()}`),
-              serial: String(item.serial || '').trim().slice(0, 50),
-              imei: String(item.imei || item.serial || '').trim().slice(0, 20),
-              ean: String(item.ean || item.sku || '').trim().slice(0, 20),
-              modelo: String(item.modelo_produto || item.modelo || 'Modelo Desconhecido').trim().slice(0, 120),
-              fabricante: String(item.fabricante || item.brand || 'OUTRA MARCA').trim().slice(0, 50),
-              numero_lote: String(item.numero_lote || item.lote || '01').trim().slice(0, 50),
-              numero_caixa: String(cx).trim().slice(0, 50),
-              regional_id: regionalId,
-              produto_lacrado: isLacrado,
-              kit_completo: isLacrado === 'SIM' ? null : (item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM'),
-              aparelho_marcas_uso: isLacrado === 'SIM' ? null : (item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO'),
-              observacao: obsFinal || null,
-              usuario_bipagem: String(usuarioNormalizado.nome || 'Operador').slice(0, 100),
-              status_sincronizacao: 'ENVIADO',
-              data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
-              // Snapshot fields da referência e lote (Seções 4, 5, 16):
-              reference_id: item.reference_id ? String(item.reference_id).slice(0, 100) : null,
-              import_batch_id: item.import_batch_id || null,
-              source_type: item.source_type || 'OUT_OF_LIST',
-              dealer: item.dealer ? String(item.dealer).slice(0, 255) : null,
-              origin_invoice: (item.origin_invoice || item.nf_origem || item.numero_nf) ? String(item.origin_invoice || item.nf_origem || item.numero_nf).slice(0, 50) : null,
-              sku: item.sku ? String(item.sku).slice(0, 50) : null,
-              brand: item.brand ? String(item.brand).slice(0, 50) : (item.fabricante ? String(item.fabricante).slice(0, 50) : 'OUTRA MARCA'),
-              misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
-            };
-          });
-
-          const { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
-          if (upsertErr) {
-            debugDb.upsertError = upsertErr;
-            console.error('[Central] Erro ao persistir audit_products no Supabase:', upsertErr);
-          } else {
-            debugDb.upsertSuccess = true;
+        const rowsToInsert = novosParaDb.map((item) => {
+          const cx = item.numero_caixa || item.caixa || 'Caixa 01';
+          const lacre = (item.lacre_seguranca || (body.lacres_caixas && body.lacres_caixas[cx]) || '').trim();
+          const obsOriginal = (item.observacao || '').trim();
+          let obsFinal = obsOriginal;
+          if (lacre && !obsOriginal.includes('[LACRE:')) {
+            obsFinal = obsOriginal ? `[LACRE:${lacre}] ${obsOriginal}` : `[LACRE:${lacre}]`;
           }
+
+          const isLacrado = item.produto_lacrado === 'NÃO' ? 'NÃO' : 'SIM';
+          const itemReg = item.regional || regional || regionalNome;
+          const itemRegionalId = resolverIdRegiao(itemReg) || defaultRegionalId;
+
+          return {
+            id_local: String(item.id || `LOC-${Date.now()}`),
+            serial: String(item.serial || '').trim().slice(0, 50),
+            imei: String(item.imei || item.serial || '').trim().slice(0, 20),
+            ean: String(item.ean || item.sku || '').trim().slice(0, 20),
+            modelo: String(item.modelo_produto || item.modelo || 'Modelo Desconhecido').trim().slice(0, 120),
+            fabricante: String(item.fabricante || item.brand || 'OUTRA MARCA').trim().slice(0, 50),
+            numero_lote: String(item.numero_lote || item.lote || '01').trim().slice(0, 50),
+            numero_caixa: String(cx).trim().slice(0, 50),
+            regional_id: itemRegionalId,
+            produto_lacrado: isLacrado,
+            kit_completo: isLacrado === 'SIM' ? null : (item.kit_completo === 'NÃO' ? 'NÃO' : 'SIM'),
+            aparelho_marcas_uso: isLacrado === 'SIM' ? null : (item.aparelho_marcas_uso === 'SIM' ? 'SIM' : 'NÃO'),
+            observacao: obsFinal || null,
+            usuario_bipagem: String(usuarioNormalizado.nome || 'Operador').slice(0, 100),
+            status_sincronizacao: 'ENVIADO',
+            data_auditoria: item.data_auditoria || new Date().toISOString().split('T')[0],
+            // Snapshot fields da referência e lote (Seções 4, 5, 16):
+            reference_id: item.reference_id ? String(item.reference_id).slice(0, 100) : null,
+            import_batch_id: item.import_batch_id || null,
+            source_type: item.source_type || 'OUT_OF_LIST',
+            dealer: item.dealer ? String(item.dealer).slice(0, 255) : null,
+            origin_invoice: (item.origin_invoice || item.nf_origem || item.numero_nf) ? String(item.origin_invoice || item.nf_origem || item.numero_nf).slice(0, 50) : null,
+            sku: item.sku ? String(item.sku).slice(0, 50) : null,
+            brand: item.brand ? String(item.brand).slice(0, 50) : (item.fabricante ? String(item.fabricante).slice(0, 50) : 'OUTRA MARCA'),
+            misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
+          };
+        });
+
+        const { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
+        if (upsertErr) {
+          debugDb.upsertError = upsertErr;
+          console.error('[Central] Erro ao persistir audit_products no Supabase:', upsertErr);
+          return res.status(500).json({
+            sucesso: false,
+            erro: `Falha ao persistir produtos no banco central: ${upsertErr.message || String(upsertErr)}`,
+            debug_db: debugDb,
+          });
         }
+        debugDb.upsertSuccess = true;
 
         // Trilha imutável em audit_log
         await supabase.from('audit_log').insert({
@@ -546,7 +553,12 @@ export default async function handler(req: any, res: any) {
         });
       } catch (errDbSync: any) {
         debugDb.errDbSync = errDbSync?.message || String(errDbSync);
-        console.warn('[Central] Aviso na sincronização do Supabase:', errDbSync);
+        console.error('[Central] Exceção crítica na sincronização do Supabase:', errDbSync);
+        return res.status(500).json({
+          sucesso: false,
+          erro: `Falha de conexão ao gravar no banco central: ${errDbSync?.message || String(errDbSync)}`,
+          debug_db: debugDb,
+        });
       }
     }
 

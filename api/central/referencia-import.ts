@@ -209,21 +209,37 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // GET: listar histórico de versões da regional
+  // GET: listar histórico de versões da regional e carregar referências ativas
   if (req.method === 'GET') {
     const regional = req.query?.regional ? String(req.query.regional).trim().toUpperCase() : '';
     const supabase = getSupabaseServerAdmin();
     if (!supabase) {
-      return res.status(200).json({ sucesso: true, batches: [] });
+      return res.status(200).json({ sucesso: true, batches: [], references: [] });
     }
     try {
       let query = supabase.from('inventory_import_batches').select('*').order('version', { ascending: false });
-      if (regional) {
+      if (regional && regional !== 'TODAS') {
         query = query.eq('regional', regional);
       }
       const { data, error } = await query;
       if (error) throw error;
-      return res.status(200).json({ sucesso: true, batches: data || [] });
+
+      let references: any[] = [];
+      if (req.query?.ativos === 'true' || req.query?.incluir_itens === 'true') {
+        let refQuery = supabase
+          .from('regional_inventory_reference')
+          .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active')
+          .eq('is_active', true);
+        if (regional && regional !== 'TODAS') {
+          refQuery = refQuery.eq('regional', regional);
+        }
+        const { data: refData, error: refErr } = await refQuery;
+        if (!refErr && Array.isArray(refData)) {
+          references = refData;
+        }
+      }
+
+      return res.status(200).json({ sucesso: true, batches: data || [], references });
     } catch (err: any) {
       return res.status(500).json({ sucesso: false, erro: err.message });
     }
@@ -382,12 +398,14 @@ export default async function handler(req: any, res: any) {
         version: proximaVersao,
       };
 
-      await supabase.from('inventory_import_batches').insert(newBatchData);
+      const { error: batchErr } = await supabase.from('inventory_import_batches').insert(newBatchData);
+      if (batchErr) throw batchErr;
 
       // Inserir referências em chunks de 100
       for (let i = 0; i < validRefs.length; i += 100) {
         const chunk = validRefs.slice(i, i + 100);
-        await supabase.from('regional_inventory_reference').insert(chunk);
+        const { error: chunkErr } = await supabase.from('regional_inventory_reference').insert(chunk);
+        if (chunkErr) throw chunkErr;
       }
 
       // Inserir trilha append-only no audit_log

@@ -50,6 +50,15 @@ function isCaixaZero(caixa?: string | null): boolean {
 }
 
 function isSupabaseServerConfigured(): boolean {
+  if (
+    typeof process !== 'undefined' &&
+    (process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.VITEST) ||
+      Boolean(process.env.CI) ||
+      Boolean(process.env.GITHUB_ACTIONS))
+  ) {
+    return false;
+  }
   return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
 }
 

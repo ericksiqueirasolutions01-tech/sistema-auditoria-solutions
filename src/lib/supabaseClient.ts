@@ -7,7 +7,14 @@ const DEFAULT_SUPABASE_ANON = 'sb_publishable_F-Lc83bJD87AokRbHPmltg_hp2q6Ghj';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON;
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+const isTestOrCI =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' ||
+    Boolean(process.env.VITEST) ||
+    Boolean(process.env.CI) ||
+    Boolean(process.env.GITHUB_ACTIONS));
+
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey && !isTestOrCI);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {

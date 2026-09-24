@@ -466,9 +466,42 @@ import {
 } from '../domain';
 
 async function prepararFotoLeveParaSync(dataUri: string): Promise<string> {
-  if (!dataUri) return '';
-  // Em conformidade com o Gate 1: Não substitui evidências reais por SVG falso e não usa chave externa no client
-  return dataUri;
+  if (!dataUri || dataUri.length < 50) return '';
+  if (typeof window === 'undefined' || typeof document === 'undefined') return dataUri;
+  // Se já for bem leve (< 80KB), preserva
+  if (dataUri.length < 80000) return dataUri;
+
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 960;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUri);
+        ctx.drawImage(img, 0, 0, w, h);
+        const comp = canvas.toDataURL('image/jpeg', 0.72);
+        resolve(comp);
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    } catch {
+      resolve(dataUri);
+    }
+  });
 }
 
 // IndexedDB Database & Store Configuration for High-Reliability Zero-Data-Loss
@@ -3539,6 +3572,28 @@ class AuditoriaDatabase {
         reg.fotos[1].rotulo = 'Foto dos produtos 2';
       }
     }
+
+    // Reconciliação imediata com fotosGrupos: sincronizar fotos existentes na memória/central
+    const fotosGrupo = this.fotosGrupos.filter(
+      (f) => f.caixa === caixa && (regAlvo === 'TODAS' || f.regional === regAlvo) && !!f.fotoDataUri
+    );
+    for (const fg of fotosGrupo) {
+      const num = fg.grupoNumero || 1;
+      const slot = reg.fotos.find((item) => item.indice === num);
+      if (slot) {
+        if (!slot.fotoDataUri && fg.fotoDataUri) {
+          slot.fotoDataUri = fg.fotoDataUri;
+        }
+      } else if (fg.fotoDataUri) {
+        reg.fotos.push({
+          indice: num,
+          rotulo: fg.grupoRotulo || `Foto dos produtos ${num}`,
+          descricao: '',
+          fotoDataUri: fg.fotoDataUri,
+        });
+      }
+    }
+
     return reg;
   }
 
@@ -4072,6 +4127,7 @@ class AuditoriaDatabase {
       // 1. Tentar endpoint da API Central (Vercel serverless ou Vite dev middleware) com anti-cache
       let produtosRemotos: ProdutoAuditoria[] | null = null;
       let fotosRemotas: FotoGrupoAuditoria[] | null = null;
+      let registros10Remotos: Registro10FotosCaixa[] | null = null;
       let historicoRemoto: RegistroSincronizacaoEnvio[] | null = null;
       let tentativasRemotas: LogTentativaDuplicado[] | null = null;
       let lotesRemotos: RegistroLoteFinalizado[] | null = null;
@@ -4102,6 +4158,9 @@ class AuditoriaDatabase {
             }
             if (data && Array.isArray(data.fotos)) {
               fotosRemotas = data.fotos;
+            }
+            if (data && Array.isArray(data.registros_10_fotos)) {
+              registros10Remotos = data.registros_10_fotos;
             }
             if (data && Array.isArray(data.historico_envios)) {
               historicoRemoto = data.historico_envios;
@@ -4175,9 +4234,79 @@ class AuditoriaDatabase {
             .order('created_at', { ascending: false });
 
           if (Array.isArray(dbProducts) && dbProducts.length > 0) {
-            produtosRemotos = dbProducts.map((p: any, idx: number): ProdutoAuditoria => {
+            // Extrair evidências fotográficas das caixas gravadas no Supabase
+            const fotosExtraidasMap = new Map<string, FotoGrupoAuditoria>();
+            const registros10ExtraidosMap = new Map<string, Registro10FotosCaixa>();
+
+            for (const dp of dbProducts) {
+              if (dp.observacao && dp.observacao.includes('[EVIDENCIAS_CAIXA:')) {
+                try {
+                  const mFoto = dp.observacao.match(/\[EVIDENCIAS_CAIXA:(.*?)\](?:\s|$)/);
+                  if (mFoto && mFoto[1]) {
+                    const parsed = JSON.parse(mFoto[1]);
+                    const regEvid = dp.regions?.nome || dp.regions?.codigo || parsed.regional || 'VIA VAREJO RJ';
+                    const cxEvid = dp.numero_caixa || parsed.caixa || 'Caixa 01';
+                    const chaveCx = `${regEvid}:::${cxEvid}`;
+                    if (!registros10ExtraidosMap.has(chaveCx)) {
+                      registros10ExtraidosMap.set(chaveCx, {
+                        id: `FOTOS-${regEvid.replace(/[^A-Z0-9]/g, '')}-${cxEvid.replace(/[^A-Z0-9]/g, '')}`,
+                        regional: regEvid,
+                        caixa: cxEvid,
+                        dataCriacao: dp.data_auditoria || dp.created_at || new Date().toISOString(),
+                        computador_id: dp.device_id || 'PC-01',
+                        usuario: dp.usuario_bipagem || 'Operador',
+                        fotos: parsed.fotos || [],
+                        status_sincronizacao: 'ENVIADO',
+                      });
+                    }
+                    if (Array.isArray(parsed.fotos)) {
+                      for (const itemFoto of parsed.fotos) {
+                        if (itemFoto && itemFoto.fotoDataUri) {
+                          const idFoto = `FOTO-${regEvid.replace(/[^A-Z0-9]/g, '')}-${cxEvid.replace(/[^A-Z0-9]/g, '')}-${itemFoto.indice}`;
+                          if (!fotosExtraidasMap.has(idFoto)) {
+                            fotosExtraidasMap.set(idFoto, {
+                              id: idFoto,
+                              regional: regEvid,
+                              caixa: cxEvid,
+                              grupoNumero: itemFoto.indice,
+                              grupoRotulo: itemFoto.rotulo,
+                              rangeInicio: 1,
+                              rangeFim: parsed.fotos.length,
+                              totalNoGrupo: parsed.fotos.length,
+                              seriais: [],
+                              fotoDataUri: itemFoto.fotoDataUri,
+                              dataCriacao: dp.data_auditoria || dp.created_at || new Date().toISOString(),
+                              computador_id: dp.device_id || 'PC-01',
+                              usuario: dp.usuario_bipagem || 'Operador',
+                              status_sincronizacao: 'ENVIADO',
+                              data_sincronizacao: dp.created_at || new Date().toISOString(),
+                            });
+                          }
+                        }
+                      }
+                    }
+                  }
+                } catch {}
+              }
+            }
+
+            if (fotosExtraidasMap.size > 0 && !fotosRemotas) {
+              fotosRemotas = Array.from(fotosExtraidasMap.values());
+            }
+            if (registros10ExtraidosMap.size > 0 && !registros10Remotos) {
+              registros10Remotos = Array.from(registros10ExtraidosMap.values());
+            }
+
+            const dbProductsReais = dbProducts.filter((p: any) =>
+              !p.serial?.startsWith('EVIDENCIA_FOTOS_') && p.modelo !== 'EVIDENCIA FOTOGRAFICA'
+            );
+
+            produtosRemotos = dbProductsReais.map((p: any, idx: number): ProdutoAuditoria => {
               let lacreSeguranca = p.lacre_seguranca || null;
               let obsLimpa = p.observacao || '';
+              if (obsLimpa.includes('[EVIDENCIAS_CAIXA:')) {
+                obsLimpa = obsLimpa.replace(/\[EVIDENCIAS_CAIXA:.*?\]\s*/g, '').trim();
+              }
               if (p.observacao && p.observacao.includes('[LACRE:')) {
                 const m = p.observacao.match(/\[LACRE:(.*?)\]/);
                 if (m && m[1]) {
@@ -4275,6 +4404,11 @@ class AuditoriaDatabase {
           const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
           if (alterouFotos) alterou = true;
         }
+      }
+
+      if (registros10Remotos && Array.isArray(registros10Remotos) && registros10Remotos.length > 0) {
+        const alterou10 = this.mesclarRegistros10FotosCentral(registros10Remotos);
+        if (alterou10) alterou = true;
       }
 
       if (historicoRemoto && historicoRemoto.length > 0) {
@@ -4392,6 +4526,92 @@ class AuditoriaDatabase {
       } else if (this.fotosGrupos[idx].status_sincronizacao !== 'ENVIADO') {
         this.fotosGrupos[idx].status_sincronizacao = 'ENVIADO';
         alterou = true;
+      }
+
+      // Sincronizar também no registros10Fotos da caixa correspondente
+      if (cf.caixa && cf.fotoDataUri) {
+        const reg10 = this.obter10FotosCaixa(cf.caixa, cf.regional);
+        const num = cf.grupoNumero || 1;
+        const slot = reg10.fotos.find((item) => item.indice === num);
+        if (slot) {
+          if (slot.fotoDataUri !== cf.fotoDataUri) {
+            slot.fotoDataUri = cf.fotoDataUri;
+            if (cf.grupoRotulo) slot.rotulo = cf.grupoRotulo;
+            alterou = true;
+          }
+        } else {
+          reg10.fotos.push({
+            indice: num,
+            rotulo: cf.grupoRotulo || `Foto dos produtos ${num}`,
+            descricao: '',
+            fotoDataUri: cf.fotoDataUri,
+          });
+          alterou = true;
+        }
+        reg10.status_sincronizacao = 'ENVIADO';
+      }
+    }
+    return alterou;
+  }
+
+  mesclarRegistros10FotosCentral(registrosCentral: Registro10FotosCaixa[]): boolean {
+    if (!Array.isArray(registrosCentral) || registrosCentral.length === 0) return false;
+    let alterou = false;
+    for (const rc of registrosCentral) {
+      if (!rc || !rc.caixa) continue;
+      const regAlvo = rc.regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ';
+      const regLocal = this.obter10FotosCaixa(rc.caixa, regAlvo);
+      regLocal.status_sincronizacao = 'ENVIADO';
+      if (Array.isArray(rc.fotos)) {
+        for (const f of rc.fotos) {
+          if (!f || !f.fotoDataUri) continue;
+          const slot = regLocal.fotos.find((item) => item.indice === f.indice);
+          if (slot) {
+            if (slot.fotoDataUri !== f.fotoDataUri) {
+              slot.fotoDataUri = f.fotoDataUri;
+              if (f.rotulo) slot.rotulo = f.rotulo;
+              if (f.descricao !== undefined) slot.descricao = f.descricao;
+              alterou = true;
+            }
+          } else {
+            regLocal.fotos.push({
+              indice: f.indice,
+              rotulo: f.rotulo || `Foto dos produtos ${f.indice}`,
+              descricao: f.descricao || '',
+              fotoDataUri: f.fotoDataUri,
+            });
+            alterou = true;
+          }
+
+          // Manter fotosGrupos alinhado
+          const idxG = this.fotosGrupos.findIndex(
+            (fg) => fg.caixa === rc.caixa && fg.grupoNumero === f.indice && (regAlvo === 'TODAS' || fg.regional === regAlvo)
+          );
+          if (idxG === -1) {
+            this.fotosGrupos.push({
+              id: `FOTO-${regAlvo.replace(/[^A-Z0-9]/g, '')}-${rc.caixa.replace(/[^A-Z0-9]/g, '')}-${f.indice}-${Date.now()}`,
+              regional: regAlvo,
+              caixa: rc.caixa,
+              grupoNumero: f.indice,
+              grupoRotulo: f.rotulo || `Foto dos produtos ${f.indice}`,
+              rangeInicio: 1,
+              rangeFim: regLocal.fotos.length,
+              totalNoGrupo: regLocal.fotos.length,
+              seriais: [],
+              fotoDataUri: f.fotoDataUri,
+              dataCriacao: rc.dataCriacao || new Date().toISOString(),
+              computador_id: rc.computador_id || 'PC-01',
+              usuario: rc.usuario || 'Operador',
+              status_sincronizacao: 'ENVIADO',
+              data_sincronizacao: new Date().toISOString(),
+            });
+            alterou = true;
+          } else if (this.fotosGrupos[idxG].fotoDataUri !== f.fotoDataUri) {
+            this.fotosGrupos[idxG].fotoDataUri = f.fotoDataUri;
+            this.fotosGrupos[idxG].status_sincronizacao = 'ENVIADO';
+            alterou = true;
+          }
+        }
       }
     }
     return alterou;
@@ -4561,13 +4781,51 @@ class AuditoriaDatabase {
       return true;
     });
 
+    // Assegurar que todas as fotos registradas em registros10Fotos estejam refletidas em fotosGrupos
+    for (const r10 of this.registros10Fotos) {
+      if (r10.fotos && Array.isArray(r10.fotos)) {
+        for (const f of r10.fotos) {
+          if (f.fotoDataUri && f.fotoDataUri.length > 50) {
+            const jaTem = this.fotosGrupos.some(
+              (fg) => fg.caixa === r10.caixa && (fg.grupoNumero || 1) === f.indice && (regAlvo ? fg.regional === regAlvo : true)
+            );
+            if (!jaTem) {
+              this.fotosGrupos.push({
+                id: `FOTO-${(r10.regional || regionalFinal).replace(/[^A-Z0-9]/g, '')}-${r10.caixa.replace(/[^A-Z0-9]/g, '')}-${f.indice}-${Date.now()}`,
+                regional: r10.regional || regionalFinal,
+                caixa: r10.caixa,
+                grupoNumero: f.indice,
+                grupoRotulo: f.rotulo || `Foto dos produtos ${f.indice}`,
+                rangeInicio: 1,
+                rangeFim: r10.fotos.length,
+                totalNoGrupo: r10.fotos.length,
+                seriais: [],
+                fotoDataUri: f.fotoDataUri,
+                dataCriacao: r10.dataCriacao || agora,
+                computador_id: compAtual.id,
+                usuario: r10.usuario || this.usuarioAtual?.nome || 'Operador',
+                status_sincronizacao: r10.status_sincronizacao || 'PENDENTE',
+                data_sincronizacao: null,
+              });
+            }
+          }
+        }
+      }
+    }
+
     const pendentesFotos = this.fotosGrupos.filter((f) => {
       if (f.status_sincronizacao === 'ENVIADO') return false;
       if (regAlvo && this.usuarioAtual?.perfil === 'OPERADOR') return f.regional === regAlvo;
       return true;
     });
 
-    if (pendentes.length === 0 && pendentesFotos.length === 0) {
+    const pendentesRegistros10 = this.registros10Fotos.filter((r) => {
+      if (r.status_sincronizacao === 'ENVIADO') return false;
+      if (regAlvo && this.usuarioAtual?.perfil === 'OPERADOR') return r.regional === regAlvo;
+      return r.fotos && r.fotos.some((f) => !!f.fotoDataUri && f.fotoDataUri.length > 50);
+    });
+
+    if (pendentes.length === 0 && pendentesFotos.length === 0 && pendentesRegistros10.length === 0) {
       await this.puxarAtualizacoesServidor();
       return {
         sucesso: true,
@@ -4584,6 +4842,18 @@ class AuditoriaDatabase {
       pendentesFotos.map(async (f) => ({
         ...f,
         fotoDataUri: await prepararFotoLeveParaSync(f.fotoDataUri),
+      }))
+    );
+
+    const pendentesRegistros10Sync = await Promise.all(
+      pendentesRegistros10.map(async (r) => ({
+        ...r,
+        fotos: await Promise.all(
+          (r.fotos || []).map(async (f) => ({
+            ...f,
+            fotoDataUri: await prepararFotoLeveParaSync(f.fotoDataUri),
+          }))
+        ),
       }))
     );
 
@@ -4649,6 +4919,7 @@ class AuditoriaDatabase {
             produtos: pendentesComLacre,
             lacres_caixas: lacresCaixasMap,
             fotos: pendentesFotosSync,
+            registros_10_fotos: pendentesRegistros10Sync,
             lotes_finalizados: this.lotesFinalizados,
             computador: compAtual,
             usuario: usuarioPayload,
@@ -4779,6 +5050,80 @@ class AuditoriaDatabase {
           sincronizouComSucesso = true;
         }
 
+        // Persistir fotos de evidência no Supabase diretamente
+        if (regionalId && (pendentesFotosSync.length > 0 || pendentesRegistros10Sync.length > 0)) {
+          try {
+            const fotosPorCaixaMap = new Map<string, any[]>();
+            for (const f of pendentesFotosSync) {
+              if (!f || !f.fotoDataUri || f.fotoDataUri.length < 50) continue;
+              const cx = (f.caixa || 'Caixa 01').trim();
+              const reg = (f.regional || regNome).trim();
+              const chave = `${reg}:::${cx}`;
+              if (!fotosPorCaixaMap.has(chave)) fotosPorCaixaMap.set(chave, []);
+              const lista = fotosPorCaixaMap.get(chave)!;
+              const num = f.grupoNumero || 1;
+              if (!lista.some((it) => (it.grupoNumero || it.indice) === num)) {
+                lista.push(f);
+              }
+            }
+            for (const r of pendentesRegistros10Sync) {
+              const cx = (r.caixa || 'Caixa 01').trim();
+              const reg = (r.regional || regNome).trim();
+              const chave = `${reg}:::${cx}`;
+              if (!fotosPorCaixaMap.has(chave)) fotosPorCaixaMap.set(chave, []);
+              const lista = fotosPorCaixaMap.get(chave)!;
+              for (const f of (r.fotos || [])) {
+                if (!f || !f.fotoDataUri || f.fotoDataUri.length < 50) continue;
+                if (!lista.some((it) => (it.grupoNumero || it.indice) === f.indice)) {
+                  lista.push({
+                    caixa: cx,
+                    regional: reg,
+                    grupoNumero: f.indice,
+                    grupoRotulo: f.rotulo,
+                    fotoDataUri: f.fotoDataUri,
+                  });
+                }
+              }
+            }
+
+            for (const [chave, listaFotos] of fotosPorCaixaMap.entries()) {
+              const [regFoto, cxFoto] = chave.split(':::');
+              const regCod = regFoto.replace(/[^A-Z0-9]/g, '').slice(0, 10);
+              const cxCod = cxFoto.replace(/[^A-Z0-9]/g, '').slice(0, 20);
+              const serialEvidencia = `EVIDENCIA_FOTOS_${regCod}_${cxCod}`;
+              const payloadFotosJson = JSON.stringify({
+                caixa: cxFoto,
+                regional: regFoto,
+                fotos: listaFotos.map((item) => ({
+                  indice: item.grupoNumero || item.indice || 1,
+                  rotulo: item.grupoRotulo || item.rotulo || `Foto dos produtos ${item.grupoNumero || 1}`,
+                  fotoDataUri: item.fotoDataUri,
+                })),
+              });
+
+              await supabase.from('audit_products').upsert({
+                id_local: serialEvidencia,
+                serial: serialEvidencia,
+                imei: serialEvidencia.slice(0, 20),
+                ean: '0000000000000',
+                modelo: 'EVIDENCIA FOTOGRAFICA',
+                fabricante: 'SAMSUNG',
+                numero_caixa: cxFoto,
+                numero_lote: '01',
+                regional_id: regionalId,
+                produto_lacrado: 'SIM',
+                usuario_bipagem: this.usuarioAtual?.nome || 'Operador',
+                data_auditoria: normalizarDataParaPostgresDate(new Date().toISOString()),
+                status_sincronizacao: 'ENVIADO',
+                observacao: `[EVIDENCIAS_CAIXA:${payloadFotosJson}]`,
+              }, { onConflict: 'serial,regional_id' });
+            }
+            sincronizouComSucesso = true;
+          } catch (errFotoSupa) {
+            console.warn('[Storage] Falha ao persistir fotos diretamente no Supabase:', errFotoSupa);
+          }
+        }
+
         if (sincronizouComSucesso) {
           dataResposta = {
             sucesso: true,
@@ -4864,9 +5209,14 @@ class AuditoriaDatabase {
 
       // 3. Marcar fotos enviadas
       for (const f of this.fotosGrupos) {
-        if (pendentesFotos.some((pf) => pf.id === f.id)) {
+        if (pendentesFotos.some((pf) => pf.id === f.id || (pf.caixa === f.caixa && pf.grupoNumero === f.grupoNumero))) {
           f.status_sincronizacao = 'ENVIADO';
           f.data_sincronizacao = agora;
+        }
+      }
+      for (const r of this.registros10Fotos) {
+        if (pendentesRegistros10.some((pr) => pr.caixa === r.caixa && (pr.regional === r.regional || (!pr.regional && !r.regional)))) {
+          r.status_sincronizacao = 'ENVIADO';
         }
       }
 
@@ -4876,6 +5226,9 @@ class AuditoriaDatabase {
       }
       if (Array.isArray(dataResposta.fotosCentral)) {
         this.mesclarFotosCentral(dataResposta.fotosCentral);
+      }
+      if (Array.isArray(dataResposta.registros_10_fotos)) {
+        this.mesclarRegistros10FotosCentral(dataResposta.registros_10_fotos);
       }
 
       this.salvarTudo();

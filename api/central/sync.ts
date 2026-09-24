@@ -225,7 +225,7 @@ export default async function handler(req: any, res: any) {
         body = JSON.parse(body);
       } catch {}
     }
-    const { produtos, computador, usuario, regional, fotos } = body || {};
+    const { produtos, computador, usuario, regional, fotos, registros_10_fotos } = body || {};
 
     // 1. Verificação e Normalização de Autenticação Server-Side
     if (!usuario) {
@@ -567,15 +567,90 @@ export default async function handler(req: any, res: any) {
         debugDb.upsertSuccess = true;
 
         // Trilha imutável em audit_log
-        await supabase.from('audit_log').insert({
-          actor_user_id: usuarioNormalizado.login || usuarioNormalizado.nome || 'Operador',
-          device_id: computador?.id || 'PC-001',
-          action: 'SYNC_PRODUTOS',
-          entity_type: 'PRODUTO',
-          entity_id: `LOTE-${novosParaDb[0]?.numero_lote || 'GERAL'}`,
-          regional: regionalNome,
-          detalhes: `${novosCount} produtos sincronizados online (${duplicadosList.length} duplicados bloqueados)`,
-        });
+        try {
+          await supabase.from('audit_log').insert({
+            actor_user_id: usuarioNormalizado.login || usuarioNormalizado.nome || 'Operador',
+            device_id: computador?.id || 'PC-001',
+            action: 'SYNC_PRODUTOS',
+            entity_type: 'PRODUTO',
+            entity_id: `LOTE-${novosParaDb[0]?.numero_lote || 'GERAL'}`,
+            regional: regionalNome,
+            detalhes: `${novosCount} produtos sincronizados online (${duplicadosList.length} duplicados bloqueados)`,
+          });
+        } catch {}
+
+        // Persistência Central de Evidências Fotográficas no Supabase
+        try {
+          const todasFotosParaDb: any[] = [];
+          if (Array.isArray(fotos)) todasFotosParaDb.push(...fotos);
+          if (Array.isArray(registros_10_fotos)) {
+            for (const r of registros_10_fotos) {
+              for (const f of (r.fotos || [])) {
+                if (f && f.fotoDataUri) {
+                  todasFotosParaDb.push({
+                    caixa: r.caixa,
+                    regional: r.regional || regionalNome,
+                    grupoNumero: f.indice,
+                    grupoRotulo: f.rotulo,
+                    fotoDataUri: f.fotoDataUri,
+                  });
+                }
+              }
+            }
+          }
+
+          const fotosPorCaixaMap = new Map<string, any[]>();
+          for (const f of todasFotosParaDb) {
+            if (!f || !f.fotoDataUri || f.fotoDataUri.length < 50) continue;
+            const cx = (f.caixa || 'Caixa 01').trim();
+            const reg = (f.regional || regionalNome).trim();
+            const chave = `${reg}:::${cx}`;
+            if (!fotosPorCaixaMap.has(chave)) fotosPorCaixaMap.set(chave, []);
+            const lista = fotosPorCaixaMap.get(chave)!;
+            const num = f.grupoNumero || f.indice || 1;
+            const existe = lista.some((item) => (item.grupoNumero || item.indice) === num);
+            if (!existe) lista.push(f);
+          }
+
+          if (fotosPorCaixaMap.size > 0) {
+            for (const [chave, listaFotos] of fotosPorCaixaMap.entries()) {
+              const [regFoto, cxFoto] = chave.split(':::');
+              const regFotoId = resolverIdRegiao(regFoto) || defaultRegionalId;
+              if (!regFotoId) continue;
+              const regCod = regFoto.replace(/[^A-Z0-9]/g, '').slice(0, 10);
+              const cxCod = cxFoto.replace(/[^A-Z0-9]/g, '').slice(0, 20);
+              const serialEvidencia = `EVIDENCIA_FOTOS_${regCod}_${cxCod}`;
+              const payloadFotosJson = JSON.stringify({
+                caixa: cxFoto,
+                regional: regFoto,
+                fotos: listaFotos.map((item) => ({
+                  indice: item.grupoNumero || item.indice || 1,
+                  rotulo: item.grupoRotulo || item.rotulo || `Foto ${item.grupoNumero || 1}`,
+                  fotoDataUri: item.fotoDataUri,
+                })),
+              });
+
+              await supabase.from('audit_products').upsert({
+                id_local: serialEvidencia,
+                serial: serialEvidencia,
+                imei: serialEvidencia.slice(0, 20),
+                ean: '0000000000000',
+                modelo: 'EVIDENCIA FOTOGRAFICA',
+                fabricante: 'SAMSUNG',
+                numero_caixa: cxFoto,
+                numero_lote: '01',
+                regional_id: regFotoId,
+                produto_lacrado: 'SIM',
+                usuario_bipagem: usuarioNormalizado.nome || 'Operador',
+                data_auditoria: normalizeDatabaseDate(new Date().toISOString()),
+                status_sincronizacao: 'ENVIADO',
+                observacao: `[EVIDENCIAS_CAIXA:${payloadFotosJson}]`,
+              }, { onConflict: 'serial,regional_id' });
+            }
+          }
+        } catch (errFotoSupabase) {
+          console.warn('[Central] Aviso ao gravar fotos de evidência no Supabase:', errFotoSupabase);
+        }
       } catch (errDbSync: any) {
         debugDb.errDbSync = errDbSync?.message || String(errDbSync);
         console.error('[Central] Exceção crítica na sincronização do Supabase:', errDbSync);

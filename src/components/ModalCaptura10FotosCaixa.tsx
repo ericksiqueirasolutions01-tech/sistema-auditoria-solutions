@@ -129,14 +129,14 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
     setCameraAtiva(false);
   };
 
-  // Comprimir imagem em canvas (max 1280px)
+  // Comprimir imagem em canvas com qualidade balanceada para sincronização online leve
   const comprimirImagem = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          const maxDim = 1280;
+          const maxDim = 960;
           let w = img.width;
           let h = img.height;
           if (w > maxDim || h > maxDim) {
@@ -154,7 +154,7 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
           const ctx = canvas.getContext('2d');
           if (!ctx) return reject(new Error('Canvas indisponível'));
           ctx.drawImage(img, 0, 0, w, h);
-          const dataUri = canvas.toDataURL('image/jpeg', 0.82);
+          const dataUri = canvas.toDataURL('image/jpeg', 0.75);
           resolve(dataUri);
         };
         img.onerror = () => reject(new Error('Erro ao carregar imagem'));
@@ -170,12 +170,24 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
     if (!videoRef.current) return;
     const video = videoRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    const maxDim = 960;
+    let w = video.videoWidth || 960;
+    let h = video.videoHeight || 540;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUri = canvas.toDataURL('image/jpeg', 0.82);
+    ctx.drawImage(video, 0, 0, w, h);
+    const dataUri = canvas.toDataURL('image/jpeg', 0.75);
     aplicarFotoNoIndice(indiceAtual, dataUri);
   };
 
@@ -197,19 +209,22 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
   };
 
   const aplicarFotoNoIndice = (indice: number, dataUri: string) => {
-    setFotos((prev) =>
-      prev.map((f) => (f.indice === indice ? { ...f, fotoDataUri: dataUri } : f))
-    );
-    setMensagemSucesso(`Foto ${indice} registrada com sucesso!`);
+    const novas = fotos.map((f) => (f.indice === indice ? { ...f, fotoDataUri: dataUri } : f));
+    setFotos(novas);
+    // Auto-save imediato no storage para que as fotos fiquem salvas mesmo se fechar o modal
+    try {
+      db.salvar10FotosCaixa(caixa, novas, regional);
+    } catch (e) {
+      console.warn('Erro ao auto-salvar foto da caixa:', e);
+    }
+    setMensagemSucesso(`Foto ${indice} registrada e gravada com sucesso!`);
     setTimeout(() => setMensagemSucesso(null), 2500);
 
     // Se acabou de tirar a foto 1 e a foto 2 estiver vazia, avança para a foto 2
-    if (dataUri) {
-      if (indice === 1) {
-        const foto2 = fotos.find((f) => f.indice === 2);
-        if (!foto2?.fotoDataUri) {
-          setIndiceAtual(2);
-        }
+    if (dataUri && indice === 1) {
+      const foto2 = novas.find((f) => f.indice === 2);
+      if (!foto2?.fotoDataUri) {
+        setIndiceAtual(2);
       }
     }
   };
@@ -231,6 +246,14 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
     } catch (err: any) {
       alert('Erro ao salvar fotos: ' + (err.message || 'Erro desconhecido'));
     }
+  };
+
+  const handleFecharModal = () => {
+    try {
+      db.salvar10FotosCaixa(caixa, fotos, regional);
+    } catch {}
+    pararCamera();
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -264,7 +287,7 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleFecharModal}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             title="Fechar"
           >
@@ -529,7 +552,7 @@ export const ModalCaptura10FotosCaixa: React.FC<ModalCaptura10FotosCaixaProps> =
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleFecharModal}
               className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-200 border border-slate-300 uppercase transition-colors cursor-pointer"
             >
               Fechar

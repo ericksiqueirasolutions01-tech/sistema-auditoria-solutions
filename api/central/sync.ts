@@ -23,6 +23,32 @@ function getSupabaseServiceKey(): string {
   return key.trim();
 }
 
+function isCaixaZero(caixa?: string | null): boolean {
+  if (!caixa) return false;
+  const c = caixa.trim().toUpperCase();
+  if (
+    c === '0' ||
+    c === '00' ||
+    c === 'CAIXA 0' ||
+    c === 'CAIXA 00' ||
+    c === 'CAIXA-0' ||
+    c === 'CAIXA-00' ||
+    c === 'CX 0' ||
+    c === 'CX 00' ||
+    c === 'CX-0' ||
+    c === 'CX-00'
+  ) {
+    return true;
+  }
+  if (/^(CAIXA|CX)[\s\-_]*0{1,2}(?!\d)/i.test(c)) {
+    return true;
+  }
+  if (c.includes('NÃO DEVOLVER') || c.includes('NAO DEVOLVER')) {
+    return true;
+  }
+  return false;
+}
+
 function isSupabaseServerConfigured(): boolean {
   return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
 }
@@ -297,75 +323,39 @@ export default async function handler(req: any, res: any) {
     let novosCount = 0;
     const duplicadosList: any[] = [];
 
-    // 3.1. Validação de Caixa Homogênea no Sync Central (Gate 4)
+    // 3.1. Validação de Caixa Homogênea no Sync Central (Gate 4):
+    // Regra: se o produto estiver aberto ele deve ir para a Caixa 0 e classificar como NÃO DEVOLVER.
+    // Todas as travas que impediam misturar produtos de diferente classificação na mesma caixa foram removidas.
     if (Array.isArray(produtos) && produtos.length > 0) {
-      const caixasVistas = new Map<string, { classif: string; sealed: string; imei: string }>();
-
       for (const p of produtos) {
         const cx = (p.numero_caixa || '').trim().toUpperCase();
         if (!cx) continue;
-        const reg = (p.regional || regional || regionalNome).trim().toUpperCase();
-        const chave = `${reg}:::${cx}`;
-        const pClassif = (p.box_classification || p.classificacao_produto || p.product_classification || '').trim().toUpperCase();
-        const pSealed = (p.box_sealed_status === 'SEALED' || p.produto_lacrado === 'SIM') ? 'LACRADO' : 'ABERTO';
+        const ehCaixaZero = isCaixaZero(cx);
+        const ehAberto = p.produto_lacrado === 'NÃO' || p.box_sealed_status === 'OPEN';
 
-        // 1. Checar contra produtos já existentes no banco central
-        const primeiroCentral = centralData.produtos.find((cp: any) => {
-          const cpCx = (cp.numero_caixa || '').trim().toUpperCase();
-          const cpReg = (cp.regional || 'VIA VAREJO RJ').trim().toUpperCase();
-          return cpCx === cx && cpReg === reg;
-        });
-
-        if (primeiroCentral) {
-          let caixaClassif = (primeiroCentral.box_classification || primeiroCentral.classificacao_produto || primeiroCentral.product_classification || '').trim().toUpperCase();
-          if (!caixaClassif) {
-            const isSamsung = (primeiroCentral.fabricante || primeiroCentral.brand || '').toUpperCase().includes('SAMSUNG');
-            const dNorm = (primeiroCentral.dealer || '').toUpperCase();
-            if (primeiroCentral.source_type === 'OUT_OF_LIST') {
-              caixaClassif = isSamsung ? 'FORA DA LISTA - SAMSUNG' : 'FORA DA LISTA - OUTRA MARCA';
-            } else {
-              if (dNorm.includes('SIRI')) caixaClassif = 'PRODUTO NA LISTA - SIRI COMERCIO E SERVICOS LTDA';
-              else if (!isSamsung || dNorm.includes('OUTRA MARCA')) caixaClassif = 'PRODUTO NA LISTA - OUTRA MARCA';
-              else caixaClassif = 'PRODUTO NA LISTA - SAMSUNG';
-            }
-          }
-          const caixaSealed = (primeiroCentral.box_sealed_status === 'SEALED' || primeiroCentral.produto_lacrado === 'SIM') ? 'LACRADO' : 'ABERTO';
-
-          if (caixaClassif && pClassif && caixaClassif !== pClassif) {
-            return res.status(409).json({
-              sucesso: false,
-              codigo: 'BOX_CLASSIFICATION_MISMATCH',
-              erro: `BOX_CLASSIFICATION_MISMATCH: A ${cx} já possui produtos com classificação "${caixaClassif}". O produto ${p.imei || p.serial} possui classificação "${pClassif}". Uma caixa não pode misturar classificações de produto.`,
-            });
-          }
-          if (caixaSealed !== pSealed) {
-            return res.status(409).json({
-              sucesso: false,
-              codigo: 'BOX_SEALED_MISMATCH',
-              erro: `BOX_SEALED_MISMATCH: A ${cx} já possui produtos na condição "${caixaSealed}". O produto ${p.imei || p.serial} está "${pSealed}". Uma caixa não pode misturar produtos lacrados e abertos.`,
-            });
-          }
+        // 1. Produto aberto fora da Caixa 0
+        if (ehAberto && !ehCaixaZero) {
+          return res.status(409).json({
+            sucesso: false,
+            codigo: 'PRODUTO_ABERTO_CAIXA_ZERO',
+            erro: `PRODUTO_ABERTO_CAIXA_ZERO: O produto ${p.imei || p.serial} está ABERTO (não lacrado) e deve ir obrigatoriamente para a Caixa 0 com a classificação NÃO DEVOLVER. A ${cx} aceita apenas produtos lacrados.`,
+          });
         }
 
-        // 2. Checar contra produtos do mesmo lote sincronizado
-        if (caixasVistas.has(chave)) {
-          const refItem = caixasVistas.get(chave)!;
-          if (refItem.classif && pClassif && refItem.classif !== pClassif) {
-            return res.status(409).json({
-              sucesso: false,
-              codigo: 'BOX_CLASSIFICATION_MISMATCH',
-              erro: `BOX_CLASSIFICATION_MISMATCH: Conflito no lote enviado. A ${cx} contém produto com classificação "${refItem.classif}" e outro com "${pClassif}".`,
-            });
-          }
-          if (refItem.sealed !== pSealed) {
-            return res.status(409).json({
-              sucesso: false,
-              codigo: 'BOX_SEALED_MISMATCH',
-              erro: `BOX_SEALED_MISMATCH: Conflito no lote enviado. A ${cx} contém produto "${refItem.sealed}" e outro "${pSealed}".`,
-            });
-          }
-        } else {
-          caixasVistas.set(chave, { classif: pClassif, sealed: pSealed, imei: p.imei || p.serial });
+        // 2. Produto lacrado na Caixa 0
+        if (!ehAberto && ehCaixaZero) {
+          return res.status(409).json({
+            sucesso: false,
+            codigo: 'CAIXA_ZERO_APENAS_ABERTOS',
+            erro: `CAIXA_ZERO_APENAS_ABERTOS: A ${cx} é destinada exclusivamente a produtos ABERTOS (NÃO DEVOLVER). O produto ${p.imei || p.serial} está lacrado e deve ir para uma caixa operacional normal.`,
+          });
+        }
+
+        // Se for aberto e estiver na Caixa 0, assegurar classificação NÃO DEVOLVER
+        if (ehAberto) {
+          p.classificacao_produto = 'NÃO DEVOLVER';
+          p.product_classification = 'NÃO DEVOLVER';
+          p.box_classification = 'NÃO DEVOLVER';
         }
       }
     }

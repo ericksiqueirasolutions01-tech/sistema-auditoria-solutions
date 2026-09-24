@@ -172,7 +172,7 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
       expect(res2.produto?.box_sealed_status).toBe('SEALED');
     });
 
-    it('deve BLOQUEAR produto com condição de lacre divergente na mesma caixa (LACRADO vs ABERTO)', () => {
+    it('deve BLOQUEAR produto ABERTO em caixa operacional normal (ex: Caixa 10)', () => {
       db.setUsuarioAtual(operadorRJ);
 
       db.inserirProduto({
@@ -186,7 +186,7 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       });
 
-      // Tentativa de bipar produto aberto (NÃO lacrado)
+      // Tentativa de bipar produto aberto (NÃO lacrado) fora da Caixa 0
       const resIncompativel = db.inserirProduto({
         serial: '357847400200003',
         imei: '357847400200003',
@@ -201,10 +201,10 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
       });
 
       expect(resIncompativel.sucesso).toBe(false);
-      expect(resIncompativel.erro).toContain('BOX_SEALED_MISMATCH');
+      expect(resIncompativel.erro).toContain('PRODUTO_ABERTO_CAIXA_ZERO');
     });
 
-    it('deve BLOQUEAR produto com classificação divergente na mesma caixa (ex: SAMSUNG vs OUTRA MARCA)', () => {
+    it('deve PERMITIR produtos com classificações diferentes na mesma caixa (trava de mistura removida)', () => {
       db.setUsuarioAtual(operadorRJ);
 
       db.inserirProduto({
@@ -218,8 +218,8 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       });
 
-      // Tentativa de bipar produto de outra marca na mesma caixa
-      const resIncompativel = db.inserirProduto({
+      // Bipar produto de outra marca na mesma caixa (deve aceitar com sucesso)
+      const resMistura = db.inserirProduto({
         serial: '357847400200004',
         imei: '357847400200004',
         modelo_produto: 'Moto G54 5G',
@@ -230,11 +230,11 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       });
 
-      expect(resIncompativel.sucesso).toBe(false);
-      expect(resIncompativel.erro).toContain('BOX_CLASSIFICATION_MISMATCH');
+      expect(resMistura.sucesso).toBe(true);
+      expect(resMistura.produto?.fabricante).toBe('MOTOROLA');
     });
 
-    it('deve bloquear alteração via atualizarProduto que fira a homogeneidade da caixa destino', () => {
+    it('deve bloquear alteração via atualizarProduto de produto aberto para caixa normal', () => {
       db.setUsuarioAtual(adminUser);
 
       // Caixa 01: LACRADO
@@ -249,13 +249,13 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       }).produto!;
 
-      // Caixa 02: ABERTO
+      // Caixa 0: ABERTO
       const p2 = db.inserirProduto({
         serial: '357847400300002',
         imei: '357847400300002',
         modelo_produto: 'Galaxy S24',
         sku: 'SM-S928B',
-        numero_caixa: 'Caixa 02',
+        numero_caixa: 'Caixa 0',
         numero_lote: 'LOTE 1',
         produto_lacrado: 'NÃO',
         kit_completo: 'SIM',
@@ -263,18 +263,20 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       }).produto!;
 
-      // Tentar mover p2 (ABERTO) para Caixa 01 (LACRADO)
+      expect(p2.classificacao_produto).toBe('NÃO DEVOLVER');
+
+      // Tentar mover p2 (ABERTO) para Caixa 01 (LACRADO) -> Bloqueado
       const resUpdate = db.atualizarProduto(p2.id, {
         numero_caixa: 'Caixa 01',
       });
 
       expect(resUpdate.sucesso).toBe(false);
-      expect(resUpdate.erro).toContain('BOX_SEALED_MISMATCH');
+      expect(resUpdate.erro).toContain('PRODUTO_ABERTO_CAIXA_ZERO');
     });
   });
 
   describe('4. Central Sync Endpoint (Gate 4): Rejeição HTTP 409 em Caixas Heterogêneas', () => {
-    it('deve responder com HTTP 409 BOX_CLASSIFICATION_MISMATCH se o lote contiver produtos com classificações misturadas na mesma caixa', async () => {
+    it('deve ACEITAR no Central Sync produtos com classificações misturadas na mesma caixa (trava de mistura removida)', async () => {
       const mockReq = {
         method: 'POST',
         headers: {},
@@ -303,7 +305,7 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
               sku: '5370760',
               numero_caixa: 'Caixa 99', // mesma caixa!
               produto_lacrado: 'SIM',
-              box_classification: 'FORA DA LISTA - OUTRA MARCA', // divergente!
+              box_classification: 'FORA DA LISTA - OUTRA MARCA', // divergente, agora aceita!
               box_sealed_status: 'SEALED',
               regional: 'VIA VAREJO RJ',
             },
@@ -328,12 +330,11 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
 
       await syncHandler(mockReq, mockRes);
 
-      expect(statusCode).toBe(409);
-      expect(responseBody.codigo).toBe('BOX_CLASSIFICATION_MISMATCH');
-      expect(responseBody.erro).toContain('BOX_CLASSIFICATION_MISMATCH');
+      expect(statusCode).toBe(200);
+      expect(responseBody.sucesso).toBe(true);
     });
 
-    it('deve responder com HTTP 409 BOX_SEALED_MISMATCH se o lote contiver produtos com lacres misturados na mesma caixa', async () => {
+    it('deve responder com HTTP 409 PRODUTO_ABERTO_CAIXA_ZERO se o lote contiver produto aberto fora da Caixa 0', async () => {
       const mockReq = {
         method: 'POST',
         headers: {},
@@ -360,8 +361,8 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
               imei: '357847400500002',
               modelo_produto: 'Galaxy S24',
               sku: 'SM-S928B',
-              numero_caixa: 'Caixa 88', // mesma caixa!
-              produto_lacrado: 'NÃO', // lacre divergente!
+              numero_caixa: 'Caixa 88', // caixa normal com produto aberto!
+              produto_lacrado: 'NÃO',
               box_classification: 'FORA DA LISTA - SAMSUNG',
               box_sealed_status: 'OPEN',
               regional: 'VIA VAREJO RJ',
@@ -388,8 +389,8 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
       await syncHandler(mockReq, mockRes);
 
       expect(statusCode).toBe(409);
-      expect(responseBody.codigo).toBe('BOX_SEALED_MISMATCH');
-      expect(responseBody.erro).toContain('BOX_SEALED_MISMATCH');
+      expect(responseBody.codigo).toBe('PRODUTO_ABERTO_CAIXA_ZERO');
+      expect(responseBody.erro).toContain('PRODUTO_ABERTO_CAIXA_ZERO');
     });
   });
 
@@ -447,7 +448,7 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
 
       // --- TESTE B ---
       // CAIXA 01 = LISTA / OUTRA MARCA + LACRADO
-      // novo item = LISTA / SAMSUNG + LACRADO -> BLOQUEADO
+      // novo item = LISTA / SAMSUNG + LACRADO -> ACEITO (mistura de classificações permitida)
       const resB = db.inserirProduto({
         serial: '357847400900002',
         imei: '357847400900002',
@@ -463,12 +464,11 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       });
 
-      expect(resB.sucesso).toBe(false);
-      expect(resB.erro).toContain('BOX_CLASSIFICATION_MISMATCH');
+      expect(resB.sucesso).toBe(true);
 
       // --- TESTE C ---
       // CAIXA 01 = LISTA / OUTRA MARCA + LACRADO
-      // novo item = LISTA / SIRI + LACRADO -> BLOQUEADO
+      // novo item = LISTA / SIRI + LACRADO -> ACEITO (mistura de classificações permitida)
       const resC = db.inserirProduto({
         serial: '357847400900003',
         imei: '357847400900003',
@@ -484,12 +484,11 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
         regional: 'VIA VAREJO RJ',
       });
 
-      expect(resC.sucesso).toBe(false);
-      expect(resC.erro).toContain('BOX_CLASSIFICATION_MISMATCH');
+      expect(resC.sucesso).toBe(true);
 
       // --- TESTE D ---
-      // CAIXA 01 = LISTA / OUTRA MARCA + LACRADO
-      // novo item = LISTA / OUTRA MARCA + ABERTO -> BLOQUEADO
+      // CAIXA 01 = normal
+      // novo item = ABERTO -> BLOQUEADO (produto aberto deve ir para a Caixa 0)
       const resD = db.inserirProduto({
         serial: '357847400900004',
         imei: '357847400900004',
@@ -508,7 +507,45 @@ describe('PROMPT FINAL: Fabricante Correto + Caixa Homogênea + Coluna SKU + Lot
       });
 
       expect(resD.sucesso).toBe(false);
-      expect(resD.erro).toContain('BOX_SEALED_MISMATCH');
+      expect(resD.erro).toContain('PRODUTO_ABERTO_CAIXA_ZERO');
+
+      // --- TESTE E ---
+      // CAIXA 0: produto aberto deve ser aceito e classificado como "NÃO DEVOLVER"
+      const resE = db.inserirProduto({
+        serial: '357847400900005',
+        imei: '357847400900005',
+        modelo_produto: 'CEL MOTOROLA EDGE 70 8 256 XT2601 3 CINZA',
+        sku: '5370760',
+        numero_caixa: 'CAIXA 0',
+        numero_lote: 'LOTE 1',
+        source_type: 'LISTED',
+        dealer: 'MOTOROLA MOBILITY COMERCIO DE PRODUTOS ELETRONICOS LTDA',
+        fabricante: 'MOTOROLA',
+        produto_lacrado: 'NÃO',
+        kit_completo: 'SIM',
+        aparelho_marcas_uso: 'NÃO',
+        regional: 'VIA VAREJO RJ',
+      });
+
+      expect(resE.sucesso).toBe(true);
+      expect(resE.produto?.classificacao_produto).toBe('NÃO DEVOLVER');
+      expect(resE.produto?.box_classification).toBe('NÃO DEVOLVER');
+
+      // --- TESTE F ---
+      // CAIXA 0: produto LACRADO deve ser BLOQUEADO (Caixa 0 é exclusiva para abertos)
+      const resF = db.inserirProduto({
+        serial: '357847400900006',
+        imei: '357847400900006',
+        modelo_produto: 'Galaxy S24',
+        sku: 'SM-S928B',
+        numero_caixa: 'CAIXA 0',
+        numero_lote: 'LOTE 1',
+        produto_lacrado: 'SIM',
+        regional: 'VIA VAREJO RJ',
+      });
+
+      expect(resF.sucesso).toBe(false);
+      expect(resF.erro).toContain('CAIXA_ZERO_APENAS_ABERTOS');
     });
   });
 });

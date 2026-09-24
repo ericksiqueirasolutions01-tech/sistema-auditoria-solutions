@@ -303,11 +303,45 @@ export function inferirFabricante(
  *   - Se fabricante for SAMSUNG: FORA DA LISTA - SAMSUNG
  *   - Se fabricante != SAMSUNG: FORA DA LISTA - OUTRA MARCA
  */
+/**
+ * Identifica se uma caixa é a Caixa 0 (destinada exclusivamente a produtos abertos / NÃO DEVOLVER)
+ */
+export function isCaixaZero(caixa?: string | null): boolean {
+  if (!caixa) return false;
+  const c = caixa.trim().toUpperCase();
+  if (
+    c === '0' ||
+    c === '00' ||
+    c === 'CAIXA 0' ||
+    c === 'CAIXA 00' ||
+    c === 'CAIXA-0' ||
+    c === 'CAIXA-00' ||
+    c === 'CX 0' ||
+    c === 'CX 00' ||
+    c === 'CX-0' ||
+    c === 'CX-00'
+  ) {
+    return true;
+  }
+  if (/^(CAIXA|CX)[\s\-_]*0{1,2}(?!\d)/i.test(c)) {
+    return true;
+  }
+  if (c.includes('NÃO DEVOLVER') || c.includes('NAO DEVOLVER')) {
+    return true;
+  }
+  return false;
+}
+
 export function calcularClassificacaoProduto(params: {
   sourceType: 'LISTED' | 'OUT_OF_LIST';
   dealer?: string | null;
   fabricante?: string | null;
+  produto_lacrado?: string | null;
+  condicao?: string | null;
 }): string {
+  if (params.produto_lacrado === 'NÃO' || params.condicao === 'ABERTO') {
+    return 'NÃO DEVOLVER';
+  }
   const fab = (params.fabricante || '').trim().toUpperCase();
   const isSamsung = fab === 'SAMSUNG' || fab.includes('SAMSUNG');
 
@@ -1624,15 +1658,18 @@ class AuditoriaDatabase {
     // Nova Regra de Lote: informado pelo colaborador (ex: LOTE 1). Não gera "BA - LISTA - SAMSUNG"
     let loteNorm = (item.numero_lote?.trim() || this.obterUltimoLote() || 'LOTE 1').toUpperCase();
 
-    // Classificação Automática do Produto (separada do lote manual):
+    // Classificação Automática do Produto (se o produto for ABERTO, deve classificar como NÃO DEVOLVER):
     const classificacaoCalculada =
-      item.classificacao_produto ||
-      item.product_classification ||
-      calcularClassificacaoProduto({
-        sourceType: resolvedSourceType,
-        dealer: resolvedDealer,
-        fabricante: resolvedFabricante,
-      });
+      item.produto_lacrado === 'NÃO'
+        ? 'NÃO DEVOLVER'
+        : (item.classificacao_produto ||
+           item.product_classification ||
+           calcularClassificacaoProduto({
+             sourceType: resolvedSourceType,
+             dealer: resolvedDealer,
+             fabricante: resolvedFabricante,
+             produto_lacrado: item.produto_lacrado,
+           }));
 
     // NF de Origem Automática como texto de referência:
     const resolvedOriginInvoice =
@@ -1745,12 +1782,10 @@ class AuditoriaDatabase {
 
     const compAtual = this.obterComputadorAtual(regionalFinal);
     const idLocal = Date.now();
-    const boxClassification = validacaoCaixa.configCaixa?.vazia
-      ? classificacaoCalculada
-      : (validacaoCaixa.configCaixa?.classificacao || classificacaoCalculada);
-    const boxSealedStatus: 'SEALED' | 'OPEN' = validacaoCaixa.configCaixa?.vazia
-      ? (item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN')
-      : (validacaoCaixa.configCaixa?.condicaoLacre === 'LACRADO' ? 'SEALED' : 'OPEN');
+    const boxClassification = isCaixaZero(caixaAlvo)
+      ? 'NÃO DEVOLVER'
+      : classificacaoCalculada;
+    const boxSealedStatus: 'SEALED' | 'OPEN' = item.produto_lacrado === 'SIM' ? 'SEALED' : 'OPEN';
 
     const lacreSegurancaValor =
       item.lacre_seguranca !== undefined && item.lacre_seguranca !== null && String(item.lacre_seguranca).trim() !== ''
@@ -1954,27 +1989,32 @@ class AuditoriaDatabase {
       (dados.modelo_produto && dados.modelo_produto.trim() !== anterior.modelo_produto.trim())
     );
 
-    const classificacaoAtualizada =
-      dados.classificacao_produto ||
-      dados.product_classification ||
-      (mudouFabricanteOuModelo
-        ? calcularClassificacaoProduto({
-            sourceType: resolvedSourceType,
-            dealer: dealerAtualizado,
-            fabricante: fabricanteAtualizado,
-          })
-        : (anterior.classificacao_produto ||
-           anterior.product_classification ||
-           calcularClassificacaoProduto({
-             sourceType: resolvedSourceType,
-             dealer: dealerAtualizado,
-             fabricante: fabricanteAtualizado,
-           })));
+    const lacradoFinal = (dados.produto_lacrado !== undefined ? dados.produto_lacrado : anterior.produto_lacrado) as SimNao;
 
-    // Validação de Caixa Homogênea ao atualizar
+    const classificacaoAtualizada =
+      lacradoFinal === 'NÃO'
+        ? 'NÃO DEVOLVER'
+        : (dados.classificacao_produto ||
+           dados.product_classification ||
+           (mudouFabricanteOuModelo
+             ? calcularClassificacaoProduto({
+                 sourceType: resolvedSourceType,
+                 dealer: dealerAtualizado,
+                 fabricante: fabricanteAtualizado,
+                 produto_lacrado: lacradoFinal,
+               })
+             : (anterior.classificacao_produto ||
+                anterior.product_classification ||
+                calcularClassificacaoProduto({
+                  sourceType: resolvedSourceType,
+                  dealer: dealerAtualizado,
+                  fabricante: fabricanteAtualizado,
+                  produto_lacrado: lacradoFinal,
+                }))));
+
+    // Validação de Caixa ao atualizar
     const caixaFinal = (dados.numero_caixa || anterior.numero_caixa).trim().toUpperCase();
     const regionalFinal = dados.regional || anterior.regional;
-    const lacradoFinal = (dados.produto_lacrado !== undefined ? dados.produto_lacrado : anterior.produto_lacrado) as SimNao;
     const validacaoCaixa = this.validarCompatibilidadeCaixa({
       caixa: caixaFinal,
       classificacao: classificacaoAtualizada,
@@ -1989,12 +2029,10 @@ class AuditoriaDatabase {
       };
     }
 
-    const boxClassification = validacaoCaixa.configCaixa?.vazia
-      ? classificacaoAtualizada
-      : (validacaoCaixa.configCaixa?.classificacao || classificacaoAtualizada);
-    const boxSealedStatus: 'SEALED' | 'OPEN' = validacaoCaixa.configCaixa?.vazia
-      ? (lacradoFinal === 'SIM' ? 'SEALED' : 'OPEN')
-      : (validacaoCaixa.configCaixa?.condicaoLacre === 'LACRADO' ? 'SEALED' : 'OPEN');
+    const boxClassification = isCaixaZero(caixaFinal)
+      ? 'NÃO DEVOLVER'
+      : classificacaoAtualizada;
+    const boxSealedStatus: 'SEALED' | 'OPEN' = lacradoFinal === 'SIM' ? 'SEALED' : 'OPEN';
 
     const atualizado: ProdutoAuditoria = {
       ...anterior,
@@ -3004,6 +3042,19 @@ class AuditoriaDatabase {
       }
     }
 
+    if (isCaixaZero(numeroCaixa)) {
+      return {
+        caixa: numeroCaixa,
+        regional: regAlvo || 'TODAS',
+        totalProdutos: total,
+        vazia: total === 0,
+        classificacao: 'NÃO DEVOLVER',
+        condicaoLacre: 'ABERTO',
+        produto_lacrado: 'NÃO',
+        lacre_seguranca: this.obterLacreCaixa(numeroCaixa, regAlvo || undefined) || null,
+      };
+    }
+
     if (!primeiroProduto || total === 0) {
       return {
         caixa: numeroCaixa,
@@ -3017,15 +3068,37 @@ class AuditoriaDatabase {
       };
     }
 
+    // Verificar se a caixa contém múltiplas classificações (mistura permitida)
+    const classifsUnicas = new Set<string>();
+    for (let i = 0; i < this.produtos.length; i++) {
+      const p = this.produtos[i];
+      if (p.numero_caixa.toUpperCase() !== caixaNorm) continue;
+      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+      const c =
+        p.box_classification ||
+        p.classificacao_produto ||
+        p.product_classification ||
+        calcularClassificacaoProduto({
+          sourceType: p.source_type || 'LISTED',
+          dealer: p.dealer,
+          fabricante: p.fabricante || p.brand,
+          produto_lacrado: p.produto_lacrado,
+        });
+      if (c) classifsUnicas.add(c);
+    }
+
     const classificacao =
-      primeiroProduto.box_classification ||
-      primeiroProduto.classificacao_produto ||
-      primeiroProduto.product_classification ||
-      calcularClassificacaoProduto({
-        sourceType: primeiroProduto.source_type || 'LISTED',
-        dealer: primeiroProduto.dealer,
-        fabricante: primeiroProduto.fabricante || primeiroProduto.brand,
-      });
+      classifsUnicas.size > 1
+        ? 'MISTA'
+        : (primeiroProduto.box_classification ||
+           primeiroProduto.classificacao_produto ||
+           primeiroProduto.product_classification ||
+           calcularClassificacaoProduto({
+             sourceType: primeiroProduto.source_type || 'LISTED',
+             dealer: primeiroProduto.dealer,
+             fabricante: primeiroProduto.fabricante || primeiroProduto.brand,
+             produto_lacrado: primeiroProduto.produto_lacrado,
+           }));
 
     const condicaoLacre: BoxSealedStatus =
       primeiroProduto.box_sealed_status === 'SEALED' || primeiroProduto.produto_lacrado === 'SIM'
@@ -3076,66 +3149,52 @@ class AuditoriaDatabase {
       }
     }
 
-    if (!primeiroProduto || total === 0) {
+    const ehCaixaZero = isCaixaZero(caixa);
+
+    // 1. REGRA MANDATÓRIA ÚNICA: Produto ABERTO (não lacrado) deve ir para a Caixa 0 e classificar como NÃO DEVOLVER
+    if (produto_lacrado === 'NÃO') {
+      if (!ehCaixaZero) {
+        return {
+          compativel: false,
+          erro: `PRODUTO_ABERTO_CAIXA_ZERO: O produto está ABERTO (não lacrado) e deve ir obrigatoriamente para a Caixa 0 com a classificação NÃO DEVOLVER. A ${caixa} aceita apenas produtos lacrados.`,
+          configCaixa: this.obterConfiguracaoCaixa(caixa, regAlvo || undefined),
+        };
+      }
       return {
         compativel: true,
         configCaixa: {
           caixa,
           regional: regAlvo || 'TODAS',
-          totalProdutos: 0,
-          vazia: true,
-          classificacao: null,
-          condicaoLacre: null,
-          produto_lacrado: null,
+          totalProdutos: total,
+          vazia: total === 0,
+          classificacao: 'NÃO DEVOLVER',
+          condicaoLacre: 'ABERTO',
+          produto_lacrado: 'NÃO',
         },
       };
     }
 
-    const classifCaixa =
-      primeiroProduto.box_classification ||
-      primeiroProduto.classificacao_produto ||
-      primeiroProduto.product_classification ||
-      calcularClassificacaoProduto({
-        sourceType: primeiroProduto.source_type || 'LISTED',
-        dealer: primeiroProduto.dealer,
-        fabricante: primeiroProduto.fabricante || primeiroProduto.brand,
-      });
-
-    const condicaoCaixa: BoxSealedStatus =
-      primeiroProduto.box_sealed_status === 'SEALED' || primeiroProduto.produto_lacrado === 'SIM'
-        ? 'LACRADO'
-        : 'ABERTO';
-
-    const condicaoItem: BoxSealedStatus = produto_lacrado === 'SIM' ? 'LACRADO' : 'ABERTO';
-
-    const configCaixa: ConfiguracaoCaixa = {
-      caixa,
-      regional: regAlvo || primeiroProduto.regional,
-      totalProdutos: total,
-      vazia: false,
-      classificacao: classifCaixa,
-      condicaoLacre: condicaoCaixa,
-      produto_lacrado: primeiroProduto.produto_lacrado,
-    };
-
-    // 1. Chave 1: Classificação Homogênea
-    if (classifCaixa && classificacao && classifCaixa.trim().toUpperCase() !== classificacao.trim().toUpperCase()) {
+    // 2. REGRA MANDATÓRIA: Caixa 0 aceita EXCLUSIVAMENTE produtos abertos (não lacrados)
+    if (ehCaixaZero && produto_lacrado === 'SIM') {
       return {
         compativel: false,
-        erro: `BOX_CLASSIFICATION_MISMATCH: A ${caixa} está travada na classificação "${classifCaixa}". O produto possui classificação "${classificacao}". Uma caixa não pode misturar classificações de produto.`,
-        configCaixa,
+        erro: `CAIXA_ZERO_APENAS_ABERTOS: A ${caixa} é destinada exclusivamente a produtos ABERTOS (NÃO DEVOLVER). Produtos lacrados devem ser alocados em caixas operacionais normais (ex: Caixa 01).`,
+        configCaixa: {
+          caixa,
+          regional: regAlvo || 'TODAS',
+          totalProdutos: total,
+          vazia: total === 0,
+          classificacao: 'NÃO DEVOLVER',
+          condicaoLacre: 'ABERTO',
+          produto_lacrado: 'NÃO',
+        },
       };
     }
 
-    // 2. Chave 2: Condição de Lacre Homogênea
-    if (condicaoCaixa !== condicaoItem) {
-      return {
-        compativel: false,
-        erro: `BOX_SEALED_MISMATCH: A ${caixa} aceita apenas produtos na condição "${condicaoCaixa}". O produto está "${condicaoItem}". Uma caixa não pode misturar produtos lacrados e abertos.`,
-        configCaixa,
-      };
-    }
-
+    // 3. REGRA OPERACIONAL: Caixas normais com produto lacrado.
+    // Todas as travas que impediam misturar produtos de diferente classificação foram removidas.
+    // Qualquer classificação é permitida na mesma caixa.
+    const configCaixa = this.obterConfiguracaoCaixa(caixa, regAlvo || undefined);
     return { compativel: true, configCaixa };
   }
 
@@ -4128,15 +4187,17 @@ class AuditoriaDatabase {
               }
 
                 const classifCalculada =
-                  p.product_classification ||
-                  p.box_classification ||
-                  (p.source_type === 'LISTED'
-                    ? (p.dealer && p.dealer.toUpperCase() !== 'SAMSUNG'
-                        ? `PRODUTO NA LISTA - ${p.dealer.toUpperCase()}`
-                        : `PRODUTO NA LISTA - SAMSUNG`)
-                    : ((p.fabricante || p.brand || 'SAMSUNG').toUpperCase() === 'SAMSUNG'
-                        ? 'FORA DA LISTA - SAMSUNG'
-                        : `FORA DA LISTA - ${(p.fabricante || p.brand || 'OUTRA MARCA').toUpperCase()}`));
+                  p.produto_lacrado === 'NÃO' || isCaixaZero(p.numero_caixa)
+                    ? 'NÃO DEVOLVER'
+                    : (p.product_classification ||
+                       p.box_classification ||
+                       (p.source_type === 'LISTED'
+                         ? (p.dealer && p.dealer.toUpperCase() !== 'SAMSUNG'
+                             ? `PRODUTO NA LISTA - ${p.dealer.toUpperCase()}`
+                             : `PRODUTO NA LISTA - SAMSUNG`)
+                         : ((p.fabricante || p.brand || 'SAMSUNG').toUpperCase() === 'SAMSUNG'
+                             ? 'FORA DA LISTA - SAMSUNG'
+                             : `FORA DA LISTA - ${(p.fabricante || p.brand || 'OUTRA MARCA').toUpperCase()}`)));
 
                 return {
                   id: typeof p.id_local === 'number' ? p.id_local : Date.now() + idx,

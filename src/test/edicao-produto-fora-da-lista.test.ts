@@ -176,15 +176,20 @@ describe('Edição de Fabricante e Modelo para Produtos Fora da Lista', () => {
       });
       expect(res2.sucesso).toBe(true);
 
-      // 3. Tentar alterar o 2º item para MOTOROLA na mesma Caixa 20
-      const updateBloqueado = db.atualizarProduto(res2.produto!.id, {
+      // 3. Alterar o 2º item para MOTOROLA na mesma Caixa 20 é permitido (trava de mistura de classificação removida)
+      const updatePermitido = db.atualizarProduto(res2.produto!.id, {
         fabricante: 'MOTOROLA',
         brand: 'MOTOROLA',
         modelo_produto: 'Moto G84',
       });
+      expect(updatePermitido.sucesso).toBe(true);
 
-      expect(updateBloqueado.sucesso).toBe(false);
-      expect(updateBloqueado.erro).toContain('BOX_CLASSIFICATION_MISMATCH');
+      // 4. Porém tentar alterar para produto ABERTO (não lacrado) mantendo na Caixa 20 é bloqueado (deve ir para Caixa 0)
+      const updateAbertoBloqueado = db.atualizarProduto(res2.produto!.id, {
+        produto_lacrado: 'NÃO',
+      });
+      expect(updateAbertoBloqueado.sucesso).toBe(false);
+      expect(updateAbertoBloqueado.erro).toContain('PRODUTO_ABERTO_CAIXA_ZERO');
     });
   });
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico, calcularClassificacaoProduto, inferirFabricante, normalizeDatabaseDate, formatarDataParaExibicaoBR } from '../db/storage';
+import { db, SAMSUNG_MODELOS_PRESET, normalizeImei, normalizeDealer, calcularLoteAutomatico, calcularClassificacaoProduto, inferirFabricante, normalizeDatabaseDate, formatarDataParaExibicaoBR, isCaixaZero } from '../db/storage';
 import { ProdutoAuditoria, SimNao, GrupoFotosInfo, ROTULOS_10_FOTOS_CAIXA, ROTULOS_2_FOTOS_CAIXA, DetalheImeiDuplicado, RegistroLoteFinalizado, RegionalInventoryReference } from '../types';
 import { sounds } from '../utils/audio';
 import { SamsungLogo } from '../components/SamsungLogo';
@@ -538,12 +538,15 @@ export const BipagemRapida: React.FC = () => {
       // Lote informado pelo colaborador (mantido fielmente)
       const loteResolvido = (loteAtivo || 'LOTE 1').trim().toUpperCase();
 
-      // Classificação calculada automaticamente
-      const classificacaoResolvida = calcularClassificacaoProduto({
-        sourceType,
-        dealer: dealerResolvido,
-        fabricante: fabricanteResolvido,
-      });
+      // Classificação calculada automaticamente (produto ABERTO = NÃO DEVOLVER)
+      const classificacaoResolvida = lacreAtivo === 'NÃO'
+        ? 'NÃO DEVOLVER'
+        : calcularClassificacaoProduto({
+            sourceType,
+            dealer: dealerResolvido,
+            fabricante: fabricanteResolvido,
+            produto_lacrado: lacreAtivo,
+          });
 
       if (!modeloResolvido) {
         setAlertaValidacao('Preencha o modelo do produto.');
@@ -592,7 +595,7 @@ export const BipagemRapida: React.FC = () => {
         }
       }
 
-      // 3.1. VALIDAÇÃO DE CAIXA HOMOGÊNEA (Chave Dupla: Classificação + Condição de Lacre)
+      // 3.1. VALIDAÇÃO DE CAIXA (Regra: Produto Aberto -> Caixa 0 / NÃO DEVOLVER)
       const validacaoCaixa = db.validarCompatibilidadeCaixa({
         caixa: caixaLimpa,
         classificacao: classificacaoResolvida,
@@ -603,21 +606,13 @@ export const BipagemRapida: React.FC = () => {
       if (!validacaoCaixa.compativel) {
         sounds.playError();
         const cfg = validacaoCaixa.configCaixa;
-        const motivo =
-          cfg?.classificacao && cfg.classificacao.toUpperCase() !== classificacaoResolvida.toUpperCase() &&
-          cfg?.condicaoLacre && cfg.condicaoLacre !== (lacreAtivo === 'SIM' ? 'LACRADO' : 'ABERTO')
-            ? 'AMBOS'
-            : cfg?.classificacao && cfg.classificacao.toUpperCase() !== classificacaoResolvida.toUpperCase()
-            ? 'CLASSIFICACAO'
-            : 'CONDICAO';
-
         setIncompatibilidadeCaixa({
           caixa: caixaLimpa,
           classificacaoCaixa: cfg?.classificacao || '-',
           condicaoCaixa: cfg?.condicaoLacre || '-',
           classificacaoProduto: classificacaoResolvida,
           condicaoProduto: lacreAtivo === 'SIM' ? 'LACRADO' : 'ABERTO',
-          motivo,
+          motivo: 'CONDICAO',
           detalhes: validacaoCaixa.erro || 'A caixa ativa não é compatível com este produto.',
         });
         return;
@@ -781,11 +776,14 @@ export const BipagemRapida: React.FC = () => {
               ? editFabricante.trim().toUpperCase()
               : inferirFabricante(editModelo.trim(), null, editEan.trim())));
 
-    const classifResolvida = calcularClassificacaoProduto({
-      sourceType: isItemFora ? 'OUT_OF_LIST' : (refLookup ? 'LISTED' : 'OUT_OF_LIST'),
-      dealer: refLookup?.dealer_normalized || null,
-      fabricante: fabResolvido,
-    });
+    const classifResolvida = editLacre === 'NÃO'
+      ? 'NÃO DEVOLVER'
+      : calcularClassificacaoProduto({
+          sourceType: isItemFora ? 'OUT_OF_LIST' : (refLookup ? 'LISTED' : 'OUT_OF_LIST'),
+          dealer: refLookup?.dealer_normalized || null,
+          fabricante: fabResolvido,
+          produto_lacrado: editLacre,
+        });
 
     const cxFinal = editCaixa.trim() || caixaAtiva;
 
@@ -2495,6 +2493,9 @@ export const BipagemRapida: React.FC = () => {
                         setLacreAtivo('SIM');
                         setKitAtivo('');
                         setMarcasAtivo('');
+                        if (isCaixaZero(caixaAtiva)) {
+                          setCaixaAtiva('Caixa 01');
+                        }
                         focarInputSerial();
                       }}
                       className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -2510,6 +2511,10 @@ export const BipagemRapida: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setLacreAtivo('NÃO');
+                        if (!isCaixaZero(caixaAtiva)) {
+                          setCaixaAtiva('Caixa 0');
+                        }
+                        setClassificacaoAtiva('NÃO DEVOLVER');
                       }}
                       className={`py-2.5 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                         lacreAtivo === 'NÃO'
@@ -2927,6 +2932,9 @@ export const BipagemRapida: React.FC = () => {
                   setLacreAtivo('SIM');
                   setKitAtivo('');
                   setMarcasAtivo('');
+                  if (isCaixaZero(caixaAtiva)) {
+                    setCaixaAtiva('Caixa 01');
+                  }
                   serialInputRef.current?.focus();
                 }}
                 className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
@@ -2942,6 +2950,10 @@ export const BipagemRapida: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setLacreAtivo('NÃO');
+                  if (!isCaixaZero(caixaAtiva)) {
+                    setCaixaAtiva('Caixa 0');
+                  }
+                  setClassificacaoAtiva('NÃO DEVOLVER');
                   serialInputRef.current?.focus();
                 }}
                 className={`px-2.5 py-1 rounded-lg font-black text-[11px] uppercase transition-all cursor-pointer ${
@@ -4225,6 +4237,35 @@ export const BipagemRapida: React.FC = () => {
               >
                 Cancelar
               </button>
+              {incompatibilidadeCaixa.condicaoProduto === 'ABERTO' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIncompatibilidadeCaixa(null);
+                    setCaixaAtiva('Caixa 0');
+                    setClassificacaoAtiva('NÃO DEVOLVER');
+                    focarInputSerial();
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition-colors cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Mudar para Caixa 0 (NÃO DEVOLVER)
+                </button>
+              )}
+              {incompatibilidadeCaixa.condicaoProduto === 'LACRADO' && isCaixaZero(incompatibilidadeCaixa.caixa) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIncompatibilidadeCaixa(null);
+                    setCaixaAtiva('Caixa 01');
+                    focarInputSerial();
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Mudar para Caixa 01
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

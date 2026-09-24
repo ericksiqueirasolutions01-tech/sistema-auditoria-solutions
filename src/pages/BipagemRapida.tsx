@@ -48,6 +48,8 @@ import {
   Eye,
   PackageCheck,
   Layers,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -260,6 +262,7 @@ export const BipagemRapida: React.FC = () => {
   // Estados para as 10 Fotos Obrigatórias da Caixa (Requisitos 4 e 5)
   const [modal10FotosAberto, setModal10FotosAberto] = useState(false);
   const [caixaPara10Fotos, setCaixaPara10Fotos] = useState(caixaAtiva);
+  const [fotosRecolhidas, setFotosRecolhidas] = useState(false);
   const [acaoApos10Fotos, setAcaoApos10Fotos] = useState<{
     tipo: 'mudar_caixa' | 'nova_caixa';
     caixaDestino?: string;
@@ -1797,15 +1800,32 @@ export const BipagemRapida: React.FC = () => {
         {sucessoNotif || erroDuplicado || alertaValidacao || ''}
       </div>
 
-      {/* Alertas globais (visíveis em ambos os modos) */}
+      {/* Alertas globais Flutuantes e Fixos (Sempre visíveis no topo da janela, mesmo com a tela rolada) */}
       {erroDuplicado && (
         <div
           role="alert"
           aria-live="assertive"
-          className="bg-rose-100 border-2 border-rose-500 text-rose-900 rounded-xl p-3.5 flex items-center gap-3 shadow-md animate-bounce"
+          className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-2xl w-[92%] sm:w-auto bg-rose-600 text-white rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xl border-2 border-white ring-4 ring-rose-500/50 animate-bounce"
         >
-          <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
-          <span className="text-xs font-black">{erroDuplicado}</span>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-200 block">
+                Bloqueio de Duplicidade • Não é possível bipar novamente
+              </span>
+              <span className="text-xs sm:text-sm font-black text-white">{erroDuplicado}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErroDuplicado(null)}
+            className="bg-white/20 hover:bg-white/30 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+            title="Fechar aviso"
+          >
+            Fechar (✕)
+          </button>
         </div>
       )}
 
@@ -1813,10 +1833,22 @@ export const BipagemRapida: React.FC = () => {
         <div
           role="alert"
           aria-live="assertive"
-          className="bg-amber-100 border border-amber-500 text-amber-900 rounded-xl p-3 flex items-center gap-2 shadow-xs"
+          className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-2xl w-[92%] sm:w-auto bg-amber-500 text-slate-950 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between gap-4 shadow-2xl border-2 border-white ring-4 ring-amber-500/40 animate-in fade-in slide-in-from-top-4"
         >
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span className="text-xs font-bold">{alertaValidacao}</span>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-slate-950/20 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-slate-950" />
+            </div>
+            <span className="text-xs sm:text-sm font-black">{alertaValidacao}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAlertaValidacao(null)}
+            className="bg-slate-950/20 hover:bg-slate-950/30 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+            title="Fechar alerta"
+          >
+            Fechar (✕)
+          </button>
         </div>
       )}
 
@@ -1824,9 +1856,9 @@ export const BipagemRapida: React.FC = () => {
         <div
           role="status"
           aria-live="polite"
-          className="bg-emerald-100 border border-emerald-500 text-emerald-900 rounded-xl p-2.5 flex items-center gap-2 animate-in fade-in"
+          className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white rounded-xl px-4 py-2.5 flex items-center gap-2 shadow-2xl border border-white/40 animate-in fade-in slide-in-from-top-4"
         >
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
           <span className="text-xs font-bold">{sucessoNotif}</span>
         </div>
       )}
@@ -2387,7 +2419,10 @@ export const BipagemRapida: React.FC = () => {
                 maxLength={15}
                 disabled={isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'}
                 value={serialInput}
-                onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                onChange={(e) => {
+                  if (erroDuplicado) setErroDuplicado(null);
+                  setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15));
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
@@ -2403,7 +2438,9 @@ export const BipagemRapida: React.FC = () => {
                 autoCorrect="off"
                 spellCheck="false"
                 className={`w-full font-mono font-black text-xl sm:text-2xl text-slate-950 border-3 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 placeholder:text-slate-300 uppercase shadow-inner ${
-                  isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                  erroDuplicado
+                    ? 'bg-rose-50 border-rose-600 ring-4 ring-rose-500/50 text-rose-950 animate-pulse'
+                    : isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
                     ? 'bg-rose-50 border-rose-400 cursor-not-allowed text-rose-800 placeholder:text-rose-400'
                     : 'bg-white border-blue-600 focus:ring-blue-300'
                 }`}
@@ -2413,6 +2450,7 @@ export const BipagemRapida: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSerialInput('');
+                    if (erroDuplicado) setErroDuplicado(null);
                     focarInputSerial();
                   }}
                   aria-label="Limpar campo de IMEI"
@@ -2422,6 +2460,23 @@ export const BipagemRapida: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* Aviso de Duplicidade Mobile */}
+            {erroDuplicado && (
+              <div className="p-3 bg-rose-600 text-white rounded-xl text-xs font-black flex items-center justify-between gap-3 shadow-lg border-2 border-white animate-bounce">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-rose-200 shrink-0" />
+                  <span>{erroDuplicado}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setErroDuplicado(null)}
+                  className="bg-white text-rose-800 font-black text-[10px] uppercase px-2.5 py-1 rounded shadow-xs cursor-pointer shrink-0"
+                >
+                  OK (✕)
+                </button>
+              </div>
+            )}
 
             {/* Indicador de Status da Lista de Referência (Mobile) */}
             {statusReferencia === 'LISTED' && referenciaDetectada && (
@@ -3100,6 +3155,15 @@ export const BipagemRapida: React.FC = () => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
+                onClick={() => setFotosRecolhidas(!fotosRecolhidas)}
+                className="bg-slate-700 hover:bg-slate-600 text-slate-200 font-black text-xs uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title={fotosRecolhidas ? 'Expandir painel de fotos' : 'Recolher fotos para aumentar área da planilha'}
+              >
+                {fotosRecolhidas ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                {fotosRecolhidas ? 'Expandir Fotos' : 'Recolher Fotos'}
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
                   recarregarDados(filtroCaixa);
@@ -3122,92 +3186,110 @@ export const BipagemRapida: React.FC = () => {
                 }`}
               >
                 <Camera className="w-3.5 h-3.5" />
-                {totalFotos10CaixaAtiva > 0 ? 'Visualizar / Gerenciar Fotos' : 'Capturar Fotos'}
+                {totalFotos10CaixaAtiva > 0 ? 'Gerenciar Fotos' : 'Capturar Fotos'}
               </button>
             </div>
           </div>
 
+          {fotosRecolhidas && (
+            <div className="flex items-center justify-between text-xs text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+              <span className="flex items-center gap-2 font-medium">
+                <Camera className="w-3.5 h-3.5 text-amber-300" />
+                Painel recolhido para priorizar espaço da tabela ({totalFotos10CaixaAtiva} foto{totalFotos10CaixaAtiva !== 1 ? 's' : ''} vinculada{totalFotos10CaixaAtiva !== 1 ? 's' : ''}).
+              </span>
+              <button
+                type="button"
+                onClick={() => setFotosRecolhidas(false)}
+                className="text-amber-300 hover:text-amber-200 font-black uppercase text-[10px] cursor-pointer"
+              >
+                Expandir Fotos (▼)
+              </button>
+            </div>
+          )}
+
           {/* Slots Dinâmicos das Fotos da Caixa Ativa */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-            {(registro10Atual?.fotos || []).map((fItem) => {
-              const temF = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
+          {!fotosRecolhidas && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+              {(registro10Atual?.fotos || []).map((fItem) => {
+                const temF = !!fItem?.fotoDataUri && fItem.fotoDataUri.length > 50;
 
-              return (
-                <div
-                  key={fItem.indice}
-                  onClick={() => abrir10FotosCaixaAtiva(fItem.indice)}
-                  className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer relative group ${
-                    temF
-                      ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/50'
-                      : 'bg-slate-800/80 border-dashed border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-400'
-                  }`}
-                  title={`${fItem.rotulo} - ${temF ? 'Foto Registrada' : 'Espaço limpo - clique para fotografar'}`}
-                >
-                  {temF ? (
-                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 shrink-0 border border-emerald-500/40">
-                      <img src={fItem?.fotoDataUri} alt={fItem.rotulo} className="w-full h-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-600 bg-slate-900/50 flex flex-col items-center justify-center text-slate-400 shrink-0">
-                      <Camera className="w-5 h-5 text-slate-400" />
-                      <span className="text-[9px] font-mono mt-0.5">#{fItem.indice}</span>
-                    </div>
-                  )}
+                return (
+                  <div
+                    key={fItem.indice}
+                    onClick={() => abrir10FotosCaixaAtiva(fItem.indice)}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer relative group ${
+                      temF
+                        ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-100 hover:bg-emerald-900/50'
+                        : 'bg-slate-800/80 border-dashed border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-400'
+                    }`}
+                    title={`${fItem.rotulo} - ${temF ? 'Foto Registrada' : 'Espaço limpo - clique para fotografar'}`}
+                  >
+                    {temF ? (
+                      <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 shrink-0 border border-emerald-500/40">
+                        <img src={fItem?.fotoDataUri} alt={fItem.rotulo} className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-600 bg-slate-900/50 flex flex-col items-center justify-center text-slate-400 shrink-0">
+                        <Camera className="w-5 h-5 text-slate-400" />
+                        <span className="text-[9px] font-mono mt-0.5">#{fItem.indice}</span>
+                      </div>
+                    )}
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="text-xs font-black uppercase text-white truncate">
-                        {fItem.rotulo || `Foto dos produtos ${fItem.indice}`}
-                      </span>
-                      {fItem.indice > 2 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            db.removerSlotFotoCaixa(caixaAtiva, fItem.indice, regionalAtiva);
-                            recarregarDados(filtroCaixa);
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-400 rounded cursor-pointer"
-                          title="Remover foto adicional"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {temF ? (
-                        <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                          <Check className="w-3 h-3" /> OK
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <span className="text-xs font-black uppercase text-white truncate">
+                          {fItem.rotulo || `Foto dos produtos ${fItem.indice}`}
                         </span>
-                      ) : (
-                        <span className="text-[9px] font-black uppercase bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full shrink-0">
-                          Espaço Limpo
-                        </span>
-                      )}
-                      <p className="text-[11px] text-slate-400 font-medium truncate">
-                        {temF ? 'Foto salva' : fItem.descricao || 'Clique para anexar'}
-                      </p>
+                        {fItem.indice > 2 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              db.removerSlotFotoCaixa(caixaAtiva, fItem.indice, regionalAtiva);
+                              recarregarDados(filtroCaixa);
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-400 rounded cursor-pointer"
+                            title="Remover foto adicional"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {temF ? (
+                          <span className="text-[9px] font-black uppercase bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                            <Check className="w-3 h-3" /> OK
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black uppercase bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full shrink-0">
+                            Espaço Limpo
+                          </span>
+                        )}
+                        <p className="text-[11px] text-slate-400 font-medium truncate">
+                          {temF ? 'Foto salva' : fItem.descricao || 'Clique para anexar'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
 
-            {/* Card para Adicionar Mais Fotos */}
-            <button
-              type="button"
-              onClick={() => {
-                db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
-                recarregarDados(filtroCaixa);
-                setSucessoNotif('Novo slot de foto adicionado!');
-                setTimeout(() => setSucessoNotif(null), 2000);
-              }}
-              className="p-3 rounded-xl border-2 border-dashed border-blue-500/50 hover:border-blue-400 bg-blue-950/20 hover:bg-blue-900/30 text-blue-300 flex items-center justify-center gap-2 font-black text-xs uppercase transition-all cursor-pointer min-h-[76px]"
-            >
-              <Plus className="w-5 h-5 text-blue-400" />
-              Adicionar Mais Fotos (+)
-            </button>
-          </div>
+              {/* Card para Adicionar Mais Fotos */}
+              <button
+                type="button"
+                onClick={() => {
+                  db.adicionarSlotFotoCaixa(caixaAtiva, regionalAtiva);
+                  recarregarDados(filtroCaixa);
+                  setSucessoNotif('Novo slot de foto adicionado!');
+                  setTimeout(() => setSucessoNotif(null), 2000);
+                }}
+                className="p-3 rounded-xl border-2 border-dashed border-blue-500/50 hover:border-blue-400 bg-blue-950/20 hover:bg-blue-900/30 text-blue-300 flex items-center justify-center gap-2 font-black text-xs uppercase transition-all cursor-pointer min-h-[76px]"
+              >
+                <Plus className="w-5 h-5 text-blue-400" />
+                Adicionar Mais Fotos (+)
+              </button>
+            </div>
+          )}
         </div>
 
 
@@ -3763,6 +3845,32 @@ export const BipagemRapida: React.FC = () => {
                 </tr>
               )}
 
+              {/* ALERTA DE DUPLICIDADE DENTRO DA TABELA JUNTO À LINHA DE ENTRADA */}
+              {erroDuplicado && (
+                <tr className="bg-rose-600 text-white border-t-2 border-b-2 border-white shadow-2xl animate-pulse">
+                  <td colSpan={18} className="py-2.5 px-3 text-center">
+                    <div className="flex items-center justify-between gap-4 max-w-5xl mx-auto">
+                      <div className="flex items-center gap-2.5 text-left">
+                        <ShieldAlert className="w-5 h-5 text-rose-200 shrink-0 animate-bounce" />
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-rose-200 block">
+                            ⚠️ BLOQUEIO DE DUPLICIDADE • PRODUTO NÃO INSERIDO:
+                          </span>
+                          <span className="text-xs font-black text-white">{erroDuplicado}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setErroDuplicado(null)}
+                        className="bg-white text-rose-800 hover:bg-rose-100 text-xs font-black uppercase px-3 py-1 rounded-md shadow-xs transition-colors cursor-pointer shrink-0"
+                      >
+                        Entendido (Fechar ✕)
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+
               {/* LINHA ATIVA DE ENTRADA / BIPAGEM CONTÍNUA */}
               <tr className="bg-emerald-50/80 border-t-2 border-b-2 border-emerald-600 ring-2 ring-emerald-500/50 sticky bottom-0 z-20 shadow-lg">
                 <td className="py-2 px-1 text-center font-mono font-black text-emerald-900 bg-emerald-200 border-r border-emerald-300 sticky left-0 z-20 w-[34px] min-w-[34px] max-w-[34px]">
@@ -3850,7 +3958,10 @@ export const BipagemRapida: React.FC = () => {
                     maxLength={15}
                     disabled={isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'}
                     value={serialInput}
-                    onChange={(e) => setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                    onChange={(e) => {
+                      if (erroDuplicado) setErroDuplicado(null);
+                      setSerialInput(e.target.value.replace(/\D/g, '').slice(0, 15));
+                    }}
                     onKeyDown={handleKeyDown}
                     placeholder={
                       isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
@@ -3858,7 +3969,9 @@ export const BipagemRapida: React.FC = () => {
                         : 'Bipe o IMEI (15 dígitos)...'
                     }
                     className={`w-full font-mono font-black text-sm text-slate-950 border-2 rounded px-2.5 py-1.5 focus:outline-none tracking-wider placeholder:text-slate-400 ${
-                      isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
+                      erroDuplicado
+                        ? 'bg-rose-50 border-rose-600 ring-4 ring-rose-500/60 text-rose-950 animate-pulse'
+                        : isLoteAtualFinalizado && usuarioAtual?.perfil !== 'ADMINISTRADOR'
                         ? 'bg-rose-50 border-rose-400 cursor-not-allowed text-rose-800 placeholder:text-rose-400'
                         : 'bg-blue-50/50 border-blue-600'
                     }`}
@@ -3869,6 +3982,11 @@ export const BipagemRapida: React.FC = () => {
                         : 'Posicione o cursor aqui e bipe o IMEI (15 dígitos)'
                     }
                   />
+                  {erroDuplicado && (
+                    <div className="mt-1 p-1 bg-rose-600 text-white rounded text-[10px] font-black leading-tight animate-bounce text-center">
+                      ⚠️ IMEI DUPLICADO!
+                    </div>
+                  )}
                   {statusReferencia === 'LISTED' && referenciaDetectada && (
                     <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-800">
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300">

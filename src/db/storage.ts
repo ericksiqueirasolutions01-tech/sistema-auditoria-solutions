@@ -717,6 +717,7 @@ class AuditoriaDatabase {
   private regionalReferences: RegionalInventoryReference[] = [];
   private auditLots: AuditLot[] = [];
   private referenceMap: Map<string, RegionalInventoryReference> = new Map();
+  private imeiToRefMap: Map<string, RegionalInventoryReference> = new Map();
   private deviceActivation: DeviceActivation | null = null;
 
   constructor() {
@@ -753,6 +754,7 @@ class AuditoriaDatabase {
     this.importBatches = [];
     this.regionalReferences = [];
     this.referenceMap.clear();
+    this.imeiToRefMap.clear();
     this.auditLots = [];
   }
 
@@ -948,6 +950,7 @@ class AuditoriaDatabase {
 
   private reconstruirMapaReferencia() {
     this.referenceMap.clear();
+    this.imeiToRefMap.clear();
     for (const ref of this.regionalReferences) {
       if (ref.is_active) {
         const imeiNorm = normalizeImei(ref.imei_normalized);
@@ -955,6 +958,7 @@ class AuditoriaDatabase {
         const regCod = extrairCodigoRegional(ref.regional);
         this.referenceMap.set(`${regFull}#${imeiNorm}`, ref);
         this.referenceMap.set(`${regCod}#${imeiNorm}`, ref);
+        this.imeiToRefMap.set(imeiNorm, ref);
       }
     }
   }
@@ -1634,6 +1638,7 @@ class AuditoriaDatabase {
     source_type?: 'LISTED' | 'OUT_OF_LIST' | null;
     dealer?: string | null;
     origin_invoice?: string | null;
+    nf_origem_samsung?: string | null;
     brand?: string | null;
     misuse?: boolean | null;
     reference_id?: string | null;
@@ -1669,13 +1674,18 @@ class AuditoriaDatabase {
     }
 
     const serialNorm = (item.serial || item.imei || '').trim().toUpperCase();
-    const regionalFinal =
-      this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
-        ? this.usuarioAtual.regional
-        : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ'));
 
     // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8, 16)
-    const refLookup = this.consultarImeiReferencia(serialNorm, regionalFinal);
+    const refLookup = this.consultarImeiReferencia(serialNorm, item.regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined));
+
+    // A regional nunca deve ser digitada manualmente. Ela vem da base oficial de referência se encontrada.
+    const regionalFinal =
+      refLookup?.regional
+        ? refLookup.regional.trim().toUpperCase()
+        : (this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
+          ? this.usuarioAtual.regional
+          : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ')));
+
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
     const fabExplicit = (item.fabricante || item.brand || '').trim().toUpperCase();
@@ -1711,6 +1721,13 @@ class AuditoriaDatabase {
         : refLookup
         ? (refLookup.origin_invoice || null)
         : (item.numero_nf && item.numero_nf.trim() ? item.numero_nf.trim() : 'NÃO LOCALIZADA NA BASE');
+
+    const resolvedNfOrigemSamsung =
+      item.nf_origem_samsung !== undefined && item.nf_origem_samsung !== null
+        ? String(item.nf_origem_samsung).trim()
+        : refLookup
+        ? (refLookup.nf_origem_samsung || refLookup.origin_invoice || null)
+        : (resolvedOriginInvoice && resolvedOriginInvoice !== 'NÃO LOCALIZADA NA BASE' ? resolvedOriginInvoice : null);
 
     // Assegurar existência do AuditLot correspondente no catálogo
     this.obterOuCriarLoteAutomatico({
@@ -1791,12 +1808,13 @@ class AuditoriaDatabase {
       };
     }
 
-    // 4.1. REGRA DE CAIXA HOMOGÊNEA (Chave Dupla: Classificação + Condição de Lacre)
+    // 4.1. REGRA DE CAIXA HOMOGÊNEA (NFOrigem Samsung + Condição de Lacre)
     const validacaoCaixa = this.validarCompatibilidadeCaixa({
       caixa: caixaAlvo,
       classificacao: classificacaoCalculada,
       produto_lacrado: item.produto_lacrado,
       regional: regionalFinal,
+      nf_origem_samsung: resolvedNfOrigemSamsung,
     });
     if (!validacaoCaixa.compativel) {
       return {
@@ -1868,6 +1886,7 @@ class AuditoriaDatabase {
       dealer: resolvedDealer,
       origin_invoice: resolvedOriginInvoice,
       nf_origem: resolvedOriginInvoice,
+      nf_origem_samsung: resolvedNfOrigemSamsung,
       sku: item.sku !== undefined ? item.sku : (refLookup?.sku || finalSku || eanFinal),
       brand: item.brand !== undefined ? item.brand : resolvedFabricante,
       misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
@@ -2048,12 +2067,17 @@ class AuditoriaDatabase {
     // Validação de Caixa ao atualizar
     const caixaFinal = (dados.numero_caixa || anterior.numero_caixa).trim().toUpperCase();
     const regionalFinal = dados.regional || anterior.regional;
+    const nfOrigemAtualizada =
+      dados.nf_origem_samsung !== undefined
+        ? dados.nf_origem_samsung
+        : (anterior.nf_origem_samsung || anterior.origin_invoice || anterior.numero_nf || null);
     const validacaoCaixa = this.validarCompatibilidadeCaixa({
       caixa: caixaFinal,
       classificacao: classificacaoAtualizada,
       produto_lacrado: lacradoFinal,
       regional: regionalFinal,
       produtoIdIgnorar: id,
+      nf_origem_samsung: nfOrigemAtualizada,
     });
     if (!validacaoCaixa.compativel) {
       return {
@@ -2223,7 +2247,7 @@ class AuditoriaDatabase {
         if (filtro.serial && !p.serial.includes(filtro.serial.trim().toUpperCase())) {
           return false;
         }
-        if (filtro.caixa && filtro.caixa !== 'TODOS' && p.numero_caixa !== filtro.caixa) {
+        if (filtro.caixa && filtro.caixa.toUpperCase() !== 'TODOS' && filtro.caixa.toUpperCase() !== 'TODAS' && p.numero_caixa.trim().toUpperCase() !== filtro.caixa.trim().toUpperCase()) {
           return false;
         }
         if (filtro.numero_lote && filtro.numero_lote !== 'TODOS' && (p.numero_lote || '01').trim().toUpperCase() !== filtro.numero_lote.trim().toUpperCase()) {
@@ -3161,8 +3185,9 @@ class AuditoriaDatabase {
     produto_lacrado: SimNao;
     regional?: string;
     produtoIdIgnorar?: number;
+    nf_origem_samsung?: string | null;
   }): { compativel: boolean; erro?: string; configCaixa?: ConfiguracaoCaixa } {
-    const { caixa, classificacao, produto_lacrado, regional, produtoIdIgnorar } = params;
+    const { caixa, classificacao, produto_lacrado, regional, produtoIdIgnorar, nf_origem_samsung } = params;
     const caixaNorm = caixa.trim().toUpperCase();
     const regAlvo =
       regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
@@ -3224,7 +3249,20 @@ class AuditoriaDatabase {
       };
     }
 
-    // 3. REGRA OPERACIONAL: Caixas normais com produto lacrado.
+    // 3. REGRA MANDATÓRIA DE NF ORIGEM SAMSUNG: Uma caixa só pode conter produtos da mesma NFOrigem Samsung
+    if (!ehCaixaZero && primeiroProduto) {
+      const nfExistente = (primeiroProduto.nf_origem_samsung || primeiroProduto.origin_invoice || primeiroProduto.numero_nf || primeiroProduto.nf_origem || '').trim().toUpperCase();
+      const nfNovo = (nf_origem_samsung || '').trim().toUpperCase();
+      if (nfExistente !== nfNovo) {
+        return {
+          compativel: false,
+          erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
+          configCaixa: this.obterConfiguracaoCaixa(caixa, regAlvo || undefined),
+        };
+      }
+    }
+
+    // 4. REGRA OPERACIONAL: Caixas normais com produto lacrado.
     // Todas as travas que impediam misturar produtos de diferente classificação foram removidas.
     // Qualquer classificação é permitida na mesma caixa.
     const configCaixa = this.obterConfiguracaoCaixa(caixa, regAlvo || undefined);
@@ -3893,6 +3931,7 @@ class AuditoriaDatabase {
     this.regionalReferences = [];
     this.auditLots = [];
     this.referenceMap.clear();
+    this.imeiToRefMap.clear();
     this.salvarUltimoLote('01');
 
     // 4. Limpar completamente o LocalStorage
@@ -3986,6 +4025,7 @@ class AuditoriaDatabase {
     this.regionalReferences = [];
     this.auditLots = [];
     this.referenceMap.clear();
+    this.imeiToRefMap.clear();
     this.salvarUltimoLote('01');
 
     this.salvarTudo();
@@ -5033,6 +5073,8 @@ class AuditoriaDatabase {
               source_type: p.source_type || 'OUT_OF_LIST',
               dealer: p.dealer || null,
               origin_invoice: p.origin_invoice || p.nf_origem || p.numero_nf || null,
+              nf_origem_samsung: p.nf_origem_samsung || p.origin_invoice || p.nf_origem || p.numero_nf || null,
+              regional: p.regional || regNome,
               sku: p.sku || p.ean || null,
               brand: p.brand || p.fabricante || 'SAMSUNG',
               misuse: p.misuse !== undefined ? p.misuse : (p.aparelho_marcas_uso === 'SIM'),
@@ -6153,9 +6195,13 @@ class AuditoriaDatabase {
   consultarImeiReferencia(imei: string, regional?: string | null): RegionalInventoryReference | null {
     if (!imei) return null;
     const imeiNorm = normalizeImei(imei);
-    const regFull = (regional || '').trim().toUpperCase();
-    const regCod = extrairCodigoRegional(regional);
-    return this.referenceMap.get(`${regFull}#${imeiNorm}`) || this.referenceMap.get(`${regCod}#${imeiNorm}`) || null;
+    if (regional) {
+      const regFull = (regional || '').trim().toUpperCase();
+      const regCod = extrairCodigoRegional(regional);
+      const refReg = this.referenceMap.get(`${regFull}#${imeiNorm}`) || this.referenceMap.get(`${regCod}#${imeiNorm}`);
+      if (refReg) return refReg;
+    }
+    return this.imeiToRefMap.get(imeiNorm) || null;
   }
 
   async consultarImeiReferenciaOnline(imei: string, regional?: string | null): Promise<RegionalInventoryReference | null> {
@@ -6169,8 +6215,10 @@ class AuditoriaDatabase {
     try {
       const imeiNorm = normalizeImei(imei);
       if (imeiNorm.length !== 15) return null;
-      const reg = (regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ').trim().toUpperCase();
-      const url = obterApiUrl(`/api/central/referencia-lookup?regional=${encodeURIComponent(reg)}&imei=${encodeURIComponent(imeiNorm)}`);
+      const reg = (regional || this.usuarioAtual?.regional || '').trim().toUpperCase();
+      const url = reg && reg !== 'TODAS'
+        ? obterApiUrl(`/api/central/referencia-lookup?regional=${encodeURIComponent(reg)}&imei=${encodeURIComponent(imeiNorm)}`)
+        : obterApiUrl(`/api/central/referencia-lookup?imei=${encodeURIComponent(imeiNorm)}`);
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json().catch(() => null);
@@ -6188,18 +6236,18 @@ class AuditoriaDatabase {
 
       // Fallback direto no Supabase caso a rota API não encontre ou oscile
       if (isSupabaseConfigured && supabase) {
-        const regUpper = reg.toUpperCase();
-        const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
-        const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
-
         let supaQuery = supabase
           .from('regional_inventory_reference')
-          .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active')
+          .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, nf_origem_samsung, dealer_raw, dealer_normalized, source_file_name, is_active')
           .eq('imei_normalized', imeiNorm)
           .eq('is_active', true);
 
-        if (regionaisValidas.length > 0) {
-          supaQuery = supaQuery.in('regional', regionaisValidas);
+        if (reg && reg !== 'TODAS') {
+          const regClean = reg.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+          const regionaisValidas = Array.from(new Set([reg, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+          if (regionaisValidas.length > 0) {
+            supaQuery = supaQuery.in('regional', regionaisValidas);
+          }
         }
 
         const { data: supaItem, error: supaErr } = await supaQuery.limit(1).maybeSingle();
@@ -6335,6 +6383,7 @@ class AuditoriaDatabase {
       this.regionalReferences = [];
       this.auditLots = [];
       this.referenceMap.clear();
+      this.imeiToRefMap.clear();
       try {
         localStorage.removeItem(STORAGE_KEY_IMPORT_BATCHES);
         localStorage.removeItem(STORAGE_KEY_REGIONAL_REFS);
@@ -6457,6 +6506,8 @@ class AuditoriaDatabase {
       model_description: string;
       brand?: string;
       origin_invoice?: string | number | null;
+      nf_origem_samsung?: string | number | null;
+      regional?: string | null;
       dealer?: string | null;
       dealer_raw?: string | null;
       source_file_name?: string;
@@ -6541,20 +6592,31 @@ class AuditoriaDatabase {
       if (!dealerRaw) linhasDealerVazio++;
       const dealerNorm = normalizeDealer(dealerRaw);
 
-      // Coluna H preservada; Coluna I estritamente omitida e jamais armazenada
-      const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
+      // Coluna H / NFOrigem Samsung; Coluna I estritamente omitida e jamais armazenada; Coluna J Regional
+      const itemRegional = (item.regional ? String(item.regional) : '').trim().toUpperCase() || regional;
+      const originInvoice =
+        item.origin_invoice !== undefined && item.origin_invoice !== null
+          ? String(item.origin_invoice).trim()
+          : item.nf_origem_samsung !== undefined && item.nf_origem_samsung !== null
+          ? String(item.nf_origem_samsung).trim()
+          : null;
+      const nfOrigemSamsung =
+        item.nf_origem_samsung !== undefined && item.nf_origem_samsung !== null
+          ? String(item.nf_origem_samsung).trim()
+          : originInvoice;
       const brand = inferirFabricante(modelDesc, item.brand, sku);
 
       imeisValidos++;
       validRefs.push({
         id: gerarUUID(),
-        regional,
+        regional: itemRegional,
         import_batch_id: batchId,
         imei_normalized: imeiNorm,
         sku: sku || 'SEM SKU',
         model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
         brand,
         origin_invoice: originInvoice,
+        nf_origem_samsung: nfOrigemSamsung,
         dealer_raw: dealerRaw || null,
         dealer_normalized: dealerNorm,
         source_file_name: fileName,
@@ -6569,19 +6631,23 @@ class AuditoriaDatabase {
     }
 
     // 4. Arquivar versão anterior da regional (preservando o histórico e lotes anteriores)
-    for (const b of this.importBatches) {
-      if (b.regional.toUpperCase() === regional || extrairCodigoRegional(b.regional) === regCod) {
-        if (b.status === 'ATIVA') {
-          b.status = 'HISTORICA';
-          b.updated_at = new Date().toISOString();
+    const todasRegionais = Array.from(new Set([regional, ...validRefs.map((r) => r.regional)]));
+    for (const regUnica of todasRegionais) {
+      const regCodUnica = extrairCodigoRegional(regUnica);
+      for (const b of this.importBatches) {
+        if (b.regional.toUpperCase() === regUnica || extrairCodigoRegional(b.regional) === regCodUnica) {
+          if (b.status === 'ATIVA' && b.id !== batchId) {
+            b.status = 'HISTORICA';
+            b.updated_at = new Date().toISOString();
+          }
         }
       }
-    }
-    for (const r of this.regionalReferences) {
-      if (r.regional.toUpperCase() === regional || extrairCodigoRegional(r.regional) === regCod) {
-        if (r.is_active) {
-          r.is_active = false;
-          r.updated_at = new Date().toISOString();
+      for (const r of this.regionalReferences) {
+        if (r.regional.toUpperCase() === regUnica || extrairCodigoRegional(r.regional) === regCodUnica) {
+          if (r.is_active && r.import_batch_id !== batchId) {
+            r.is_active = false;
+            r.updated_at = new Date().toISOString();
+          }
         }
       }
     }
@@ -6601,30 +6667,28 @@ class AuditoriaDatabase {
       created_at: new Date().toISOString(),
     };
 
-    // 6. Cadastrar os Lotes Dinâmicos automaticamente para os dealers desta regional
-    const dealersUnicos = new Set<string>();
+    // 6. Cadastrar os Lotes Dinâmicos automaticamente para os dealers das regionais
     validRefs.forEach((r) => {
-      if (r.dealer_normalized) dealersUnicos.add(r.dealer_normalized);
+      if (r.dealer_normalized) {
+        this.obterOuCriarLoteAutomatico({
+          regional: r.regional,
+          sourceType: 'LISTED',
+          dealer: r.dealer_normalized,
+        });
+      }
     });
 
-    dealersUnicos.forEach((dealer) => {
+    todasRegionais.forEach((reg) => {
       this.obterOuCriarLoteAutomatico({
-        regional,
-        sourceType: 'LISTED',
-        dealer,
+        regional: reg,
+        sourceType: 'OUT_OF_LIST',
+        fabricante: 'SAMSUNG',
       });
-    });
-
-    // Assegurar também lotes para itens fora da lista
-    this.obterOuCriarLoteAutomatico({
-      regional,
-      sourceType: 'OUT_OF_LIST',
-      fabricante: 'SAMSUNG',
-    });
-    this.obterOuCriarLoteAutomatico({
-      regional,
-      sourceType: 'OUT_OF_LIST',
-      fabricante: 'OUTRA MARCA',
+      this.obterOuCriarLoteAutomatico({
+        regional: reg,
+        sourceType: 'OUT_OF_LIST',
+        fabricante: 'OUTRA MARCA',
+      });
     });
 
     // 7. Atualizar o estado em memória e persistir com zero perda de dados
@@ -6691,12 +6755,14 @@ class AuditoriaDatabase {
           });
           if (bErr) throw bErr;
 
-          // Arquivar anteriores no Supabase
-          await supa
-            .from('regional_inventory_reference')
-            .update({ is_active: false })
-            .eq('regional', regional)
-            .eq('is_active', true);
+          // Arquivar anteriores no Supabase para todas as regionais importadas
+          for (const reg of todasRegionais) {
+            await supa
+              .from('regional_inventory_reference')
+              .update({ is_active: false })
+              .eq('regional', reg)
+              .eq('is_active', true);
+          }
 
           // Inserir itens em lotes de 100
           for (let i = 0; i < validRefs.length; i += 100) {
@@ -6709,6 +6775,7 @@ class AuditoriaDatabase {
               model_description: r.model_description,
               brand: r.brand,
               origin_invoice: r.origin_invoice,
+              nf_origem_samsung: r.nf_origem_samsung || r.origin_invoice,
               dealer_raw: r.dealer_raw,
               dealer_normalized: r.dealer_normalized,
               source_file_name: r.source_file_name,

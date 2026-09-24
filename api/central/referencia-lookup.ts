@@ -81,10 +81,10 @@ export default async function handler(req: any, res: any) {
   const rawImei = String(req.query?.imei || req.body?.imei || '');
   const imeiNorm = normalizeImei(rawImei);
 
-  if (!regional || !imeiNorm) {
+  if (!imeiNorm) {
     return res.status(400).json({
       sucesso: false,
-      erro: 'Regional e IMEI de 15 dígitos são obrigatórios para a consulta.',
+      erro: 'IMEI de 15 dígitos é obrigatório para a consulta.',
     });
   }
 
@@ -94,20 +94,21 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const regUpper = regional.trim().toUpperCase();
-    const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
-    const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
-
     let query = supabase
       .from('regional_inventory_reference')
-      .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active')
+      .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, nf_origem_samsung, dealer_raw, dealer_normalized, source_file_name, is_active')
       .eq('imei_normalized', imeiNorm)
       .eq('is_active', true);
 
-    if (regionaisValidas.length === 1) {
-      query = query.eq('regional', regionaisValidas[0]);
-    } else {
-      query = query.in('regional', regionaisValidas);
+    if (regional && regional !== 'TODAS') {
+      const regUpper = regional.trim().toUpperCase();
+      const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+      const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+      if (regionaisValidas.length === 1) {
+        query = query.eq('regional', regionaisValidas[0]);
+      } else if (regionaisValidas.length > 1) {
+        query = query.in('regional', regionaisValidas);
+      }
     }
 
     const { data, error } = await query.limit(1).maybeSingle();
@@ -121,7 +122,10 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       sucesso: true,
       encontrado: true,
-      item: data,
+      item: {
+        ...data,
+        nf_origem_samsung: data.nf_origem_samsung || data.origin_invoice || null,
+      },
     });
   } catch (err: any) {
     console.error('[ReferenciaLookupAPI] Erro ao consultar:', err);

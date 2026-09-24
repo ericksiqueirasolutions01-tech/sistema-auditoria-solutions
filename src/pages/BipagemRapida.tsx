@@ -149,7 +149,7 @@ export const BipagemRapida: React.FC = () => {
     let cancelado = false;
     const imeiLimpo = normalizeImei(serialInput);
     if (imeiLimpo.length === 15) {
-      const ref = db.consultarImeiReferencia(imeiLimpo, regBusca);
+      const ref = db.consultarImeiReferencia(imeiLimpo, regBusca) || db.consultarImeiReferencia(imeiLimpo);
       if (ref) {
         setReferenciaDetectada(ref);
         setStatusReferencia('LISTED');
@@ -502,7 +502,7 @@ export const BipagemRapida: React.FC = () => {
       }
 
       // 2. CONSULTA DE REFERÊNCIA REGIONAL ATIVA & RESOLUÇÃO DE DADOS (CORREÇÃO 2 — CENTRAL-FIRST)
-      let refLookup = db.consultarImeiReferencia(serialLimpo, regBusca) || (referenciaDetectada?.imei_normalized === serialLimpo ? referenciaDetectada : null);
+      let refLookup = db.consultarImeiReferencia(serialLimpo, regBusca) || db.consultarImeiReferencia(serialLimpo) || (referenciaDetectada?.imei_normalized === serialLimpo ? referenciaDetectada : null);
       if (!refLookup) {
         // NUNCA retornar "Fora da Lista" sem antes consultar a base central compartilhada (Supabase)
         refLookup = await db.consultarImeiReferenciaOnline(serialLimpo, regBusca);
@@ -537,6 +537,12 @@ export const BipagemRapida: React.FC = () => {
       const originInvoiceResolvido = refLookup
         ? (refLookup.origin_invoice || null)
         : 'NÃO LOCALIZADA NA BASE';
+      const nfOrigemSamsungResolvido = refLookup
+        ? (refLookup.nf_origem_samsung || refLookup.origin_invoice || null)
+        : null;
+
+      // A regional nunca deve ser digitada manualmente. Ela vem da base oficial:
+      const regionalResolvida = refLookup?.regional ? refLookup.regional.trim().toUpperCase() : regBusca;
 
       // Lote informado pelo colaborador (mantido fielmente)
       const loteResolvido = (loteAtivo || 'LOTE 1').trim().toUpperCase();
@@ -598,17 +604,19 @@ export const BipagemRapida: React.FC = () => {
         }
       }
 
-      // 3.1. VALIDAÇÃO DE CAIXA (Regra: Produto Aberto -> Caixa 0 / NÃO DEVOLVER)
+      // 3.1. VALIDAÇÃO DE CAIXA (Regra: NFOrigem Samsung Homogênea + Produto Aberto -> Caixa 0)
       const validacaoCaixa = db.validarCompatibilidadeCaixa({
         caixa: caixaLimpa,
         classificacao: classificacaoResolvida,
         produto_lacrado: lacreAtivo,
-        regional: regBusca,
+        regional: regionalResolvida,
+        nf_origem_samsung: nfOrigemSamsungResolvido,
       });
 
       if (!validacaoCaixa.compativel) {
         sounds.playError();
         const cfg = validacaoCaixa.configCaixa;
+        setAlertaValidacao(validacaoCaixa.erro || 'A caixa ativa não é compatível com este produto.');
         setIncompatibilidadeCaixa({
           caixa: caixaLimpa,
           classificacaoCaixa: cfg?.classificacao || '-',
@@ -638,12 +646,13 @@ export const BipagemRapida: React.FC = () => {
         numero_nf: originInvoiceResolvido || '',
         nf_origem: originInvoiceResolvido,
         origin_invoice: originInvoiceResolvido,
+        nf_origem_samsung: nfOrigemSamsungResolvido,
         produto_lacrado: lacreAtivo,
         lacre_seguranca: lacreSegurancaAtivo.trim() || undefined,
         kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
         aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
         observacao: obsAtivo.trim(),
-        regional: regBusca,
+        regional: regionalResolvida,
         fabricante: fabricanteResolvido,
         source_type: sourceType,
         dealer: dealerResolvido,
@@ -2480,14 +2489,19 @@ export const BipagemRapida: React.FC = () => {
 
             {/* Indicador de Status da Lista de Referência (Mobile) */}
             {statusReferencia === 'LISTED' && referenciaDetectada && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-900 shadow-xs">
-                <div className="flex items-center gap-1.5 font-bold">
+              <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl flex flex-wrap items-center justify-between gap-1.5 text-xs text-emerald-900 shadow-xs">
+                <div className="flex flex-wrap items-center gap-1.5 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>{formatarBadgeLista(referenciaDetectada.dealer_normalized, referenciaDetectada.brand || fabricanteAtivo)}</span>
+                  {referenciaDetectada.regional && (
+                    <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">
+                      REGIONAL: {referenciaDetectada.regional}
+                    </span>
+                  )}
                 </div>
-                {referenciaDetectada.origin_invoice && (
+                {(referenciaDetectada.nf_origem_samsung || referenciaDetectada.origin_invoice) && (
                   <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
-                    NF {referenciaDetectada.origin_invoice}
+                    NF Origem: {referenciaDetectada.nf_origem_samsung || referenciaDetectada.origin_invoice}
                   </span>
                 )}
               </div>
@@ -3988,14 +4002,19 @@ export const BipagemRapida: React.FC = () => {
                     </div>
                   )}
                   {statusReferencia === 'LISTED' && referenciaDetectada && (
-                    <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-800">
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-bold text-emerald-800">
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300">
                         <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                         {formatarBadgeLista(referenciaDetectada.dealer_normalized, referenciaDetectada.brand || fabricanteAtivo)}
                       </span>
-                      {referenciaDetectada.origin_invoice && (
+                      {referenciaDetectada.regional && (
+                        <span className="px-1.5 py-0.5 font-bold text-[9px] rounded bg-blue-100 text-blue-800 border border-blue-200">
+                          {referenciaDetectada.regional}
+                        </span>
+                      )}
+                      {(referenciaDetectada.nf_origem_samsung || referenciaDetectada.origin_invoice) && (
                         <span className="px-1 py-0.5 font-mono text-[9px] rounded bg-slate-100 text-slate-600 border border-slate-300">
-                          NF {referenciaDetectada.origin_invoice}
+                          NF {referenciaDetectada.nf_origem_samsung || referenciaDetectada.origin_invoice}
                         </span>
                       )}
                     </div>
@@ -4013,7 +4032,7 @@ export const BipagemRapida: React.FC = () => {
                 {/* NF ORIGEM */}
                 <td className="py-1 px-1 text-center border-r border-emerald-300 font-mono text-[10px] text-slate-700 whitespace-nowrap bg-emerald-50/50 select-none w-[75px] min-w-[75px]">
                   {statusReferencia === 'LISTED'
-                    ? (referenciaDetectada?.origin_invoice || '-')
+                    ? (referenciaDetectada?.nf_origem_samsung || referenciaDetectada?.origin_invoice || '-')
                     : statusReferencia === 'OUT_OF_LIST'
                     ? 'N/D'
                     : '-'}
@@ -4329,16 +4348,29 @@ export const BipagemRapida: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-base font-black uppercase tracking-wide">
-                  Produto Não Compatível com esta Caixa
+                  {incompatibilidadeCaixa.detalhes?.includes('CAIXA BLOQUEADA')
+                    ? 'CAIXA BLOQUEADA: NFOrigem Samsung Divergente'
+                    : 'Produto Não Compatível com esta Caixa'}
                 </h3>
                 <p className="text-xs text-rose-100 font-medium">
-                  Regra de Caixa Homogênea estrita ativa
+                  {incompatibilidadeCaixa.detalhes?.includes('CAIXA BLOQUEADA')
+                    ? 'Uma caixa só pode conter produtos da mesma NFOrigem Samsung'
+                    : 'Regra de Caixa Homogênea estrita ativa'}
                 </p>
               </div>
             </div>
 
             {/* Body */}
             <div className="p-6 space-y-4 text-sm">
+              {incompatibilidadeCaixa.detalhes?.includes('CAIXA BLOQUEADA') && (
+                <div className="p-3.5 bg-rose-50 border-2 border-rose-300 rounded-xl text-rose-950 font-black text-xs leading-relaxed flex items-start gap-2 shadow-xs">
+                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-rose-700 font-mono text-[11px] uppercase tracking-wider mb-0.5">BLOQUEIO OBRIGATÓRIO</div>
+                    {incompatibilidadeCaixa.detalhes}
+                  </div>
+                </div>
+              )}
               <p className="text-slate-700 leading-relaxed">
                 A <strong>{incompatibilidadeCaixa.caixa}</strong> já possui produtos com características definidas e não permite a inclusão deste item divergente:
               </p>

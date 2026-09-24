@@ -382,20 +382,31 @@ export default async function handler(req: any, res: any) {
     if (!dealerRaw) linhasDealerVazio++;
     const dealerNorm = normalizeDealer(dealerRaw);
 
-    // Coluna H preservada; Coluna I (Data da NF) estritamente omitida e jamais persistida
-    const originInvoice = item.origin_invoice !== undefined && item.origin_invoice !== null ? String(item.origin_invoice).trim() : null;
+    // Coluna H / NFOrigem Samsung; Coluna I (Data da NF) omitida; Coluna J (Regional)
+    const itemRegional = (item.regional ? String(item.regional).trim().toUpperCase() : '') || regional;
+    const originInvoice =
+      item.origin_invoice !== undefined && item.origin_invoice !== null
+        ? String(item.origin_invoice).trim()
+        : item.nf_origem_samsung !== undefined && item.nf_origem_samsung !== null
+        ? String(item.nf_origem_samsung).trim()
+        : null;
+    const nfOrigemSamsung =
+      item.nf_origem_samsung !== undefined && item.nf_origem_samsung !== null
+        ? String(item.nf_origem_samsung).trim()
+        : originInvoice;
     const brand = inferirFabricante(modelDesc, item.brand, sku);
 
     imeisValidos++;
     validRefs.push({
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ref-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
-      regional,
+      regional: itemRegional,
       import_batch_id: batchId,
       imei_normalized: imeiNorm,
       sku: sku || 'SEM SKU',
       model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
       brand,
       origin_invoice: originInvoice,
+      nf_origem_samsung: nfOrigemSamsung,
       dealer_raw: dealerRaw || null,
       dealer_normalized: dealerNorm,
       source_file_name: fileName,
@@ -433,11 +444,14 @@ export default async function handler(req: any, res: any) {
         .eq('regional', regional)
         .eq('status', 'ATIVA');
 
-      await supabase
-        .from('regional_inventory_reference')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('regional', regional)
-        .eq('is_active', true);
+      const todasRegionais = Array.from(new Set([regional, ...validRefs.map((r: any) => r.regional)]));
+      for (const reg of todasRegionais) {
+        await supabase
+          .from('regional_inventory_reference')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('regional', reg)
+          .eq('is_active', true);
+      }
 
       // Inserir novo batch
       const newBatchData = {
@@ -459,7 +473,12 @@ export default async function handler(req: any, res: any) {
       // Inserir referências em chunks de 100
       for (let i = 0; i < validRefs.length; i += 100) {
         const chunk = validRefs.slice(i, i + 100);
-        const { error: chunkErr } = await supabase.from('regional_inventory_reference').insert(chunk);
+        let { error: chunkErr } = await supabase.from('regional_inventory_reference').insert(chunk);
+        if (chunkErr && (chunkErr.message?.includes('nf_origem_samsung') || chunkErr.code === 'PGRST204')) {
+          const fallbackChunk = chunk.map(({ nf_origem_samsung, ...rest }: any) => rest);
+          const retry = await supabase.from('regional_inventory_reference').insert(fallbackChunk);
+          chunkErr = retry.error;
+        }
         if (chunkErr) throw chunkErr;
       }
 

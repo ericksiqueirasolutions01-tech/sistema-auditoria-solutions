@@ -358,6 +358,27 @@ export default async function handler(req: any, res: any) {
           p.box_classification = 'NÃO DEVOLVER';
         }
       }
+
+      // 3.2. Validação da regra de NFOrigem Samsung por Caixa:
+      // Uma caixa só pode conter produtos da mesma NFOrigem Samsung.
+      const nfPorCaixa = new Map<string, string>();
+      for (const p of produtos) {
+        const cx = (p.numero_caixa || '').trim().toUpperCase();
+        if (!cx || isCaixaZero(cx)) continue;
+        const nfP = (p.nf_origem_samsung || p.origin_invoice || p.numero_nf || p.nf_origem || '').trim().toUpperCase();
+        if (nfPorCaixa.has(cx)) {
+          const nfExistente = nfPorCaixa.get(cx)!;
+          if (nfP !== nfExistente) {
+            return res.status(409).json({
+              sucesso: false,
+              codigo: 'CAIXA_BLOQUEADA_NF_DIVERGENTE',
+              erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
+            });
+          }
+        } else {
+          nfPorCaixa.set(cx, nfP);
+        }
+      }
     }
 
     // Mapeamento de seriais e IMEIs existentes (CENTRAL-FIRST: Supabase PostgreSQL é a única fonte oficial)
@@ -548,13 +569,20 @@ export default async function handler(req: any, res: any) {
             source_type: item.source_type || 'OUT_OF_LIST',
             dealer: item.dealer ? String(item.dealer).slice(0, 255) : null,
             origin_invoice: (item.origin_invoice || item.nf_origem || item.numero_nf) ? String(item.origin_invoice || item.nf_origem || item.numero_nf).slice(0, 50) : null,
+            nf_origem_samsung: (item.nf_origem_samsung || item.origin_invoice || item.nf_origem || item.numero_nf) ? String(item.nf_origem_samsung || item.origin_invoice || item.nf_origem || item.numero_nf).slice(0, 100) : null,
+            regional: itemReg,
             sku: item.sku ? String(item.sku).slice(0, 50) : null,
             brand: item.brand ? String(item.brand).slice(0, 50) : (item.fabricante ? String(item.fabricante).slice(0, 50) : 'OUTRA MARCA'),
             misuse: item.misuse !== undefined ? item.misuse : (item.aparelho_marcas_uso === 'SIM'),
           };
         });
 
-        const { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
+        let { error: upsertErr } = await supabase.from('audit_products').upsert(rowsToInsert, { onConflict: 'serial,regional_id' });
+        if (upsertErr && (upsertErr.message?.includes('nf_origem_samsung') || upsertErr.message?.includes('regional') || upsertErr.code === 'PGRST204')) {
+          const fallbackRows = rowsToInsert.map(({ nf_origem_samsung, regional, ...rest }: any) => rest);
+          const retry = await supabase.from('audit_products').upsert(fallbackRows, { onConflict: 'serial,regional_id' });
+          upsertErr = retry.error;
+        }
         if (upsertErr) {
           debugDb.upsertError = upsertErr;
           console.error('[Central] Erro ao persistir audit_products no Supabase:', upsertErr);

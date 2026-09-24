@@ -146,6 +146,7 @@ export interface ProdutoAuditoria {
   dealer?: string | null;
   origin_invoice?: string | null;
   nf_origem?: string | null;
+  nf_origem_samsung?: string | null;
   sku?: string | null;
   brand?: string | null;
   misuse?: boolean | null;
@@ -417,6 +418,7 @@ export interface RegistroLoteFinalizado {
   id: string;
   numero_lote: string;
   regional: string; // Cliente (ex: 'VIA VAREJO SP')
+  nf_origem_samsung?: string | null;
   status: StatusLote;
   colaborador_fechamento: string; // Nome completo do colaborador responsável
   data_fechamento: string; // Data ISO ou formatada
@@ -525,6 +527,7 @@ export interface RegionalInventoryReference {
   model_description: string;
   brand: string; // Ex: 'SAMSUNG' ou marca detectada
   origin_invoice?: string | null; // Coluna H: NFOrigem Samsung (preservar valor original)
+  nf_origem_samsung?: string | null; // NFOrigem Samsung oficial
   dealer_raw?: string | null; // Coluna J original
   dealer_normalized?: string | null; // Coluna J normalizada
   source_file_name: string;
@@ -538,6 +541,7 @@ export interface AuditLot {
   id: string; // UUID
   regional_id?: string;
   regional: string;
+  nf_origem_samsung?: string | null;
   source_type: 'LISTED' | 'OUT_OF_LIST';
   dealer_normalized?: string | null;
   out_of_list_brand_group?: 'SAMSUNG' | 'OUTRA_MARCA' | null;

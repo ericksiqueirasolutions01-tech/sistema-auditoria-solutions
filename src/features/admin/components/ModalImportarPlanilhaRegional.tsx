@@ -29,7 +29,9 @@ interface ItemTriagemPlanilha {
   model_description: string;
   brand?: string;
   origin_invoice?: string | null;
+  nf_origem_samsung?: string | null;
   dealer?: string | null;
+  regional?: string;
   source_row: number;
 }
 
@@ -162,24 +164,43 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
 
       const headers = (rawData[headerRowIndex] || []).map((h: any) => String(h).trim().toUpperCase());
 
-      // Mapeamento de Colunas por Nome ou Posição (Col C=2, Col D=3, Col E=4, Col H=7, Col J=9)
-      // REGRA CRÍTICA: Col I (Data da NF) JAMAIS é mapeada ou lida!
+      // Mapeamento de Colunas por Nome ou Posição (Requisito 1: IMEI, SKU, DESCRIÇÃO, NFOrigem Samsung, Data da NFO, DO, CD, Planta de retorno, Vendido para outro dealer, REGIONAL)
       let idxImei = headers.findIndex((h) => h === 'IMEI' || h.startsWith('IMEI'));
       let idxSku = headers.findIndex((h) => h === 'SKU' || h === 'CÓDIGO' || h === 'CODIGO');
       let idxModelo = headers.findIndex((h) => h.includes('MODELO') || h.includes('DESCRIÇÃO') || h.includes('DESCRICAO'));
       let idxNfOrigem = headers.findIndex(
         (h) => (h.includes('NF') || h.includes('NFO') || h.includes('NOTA')) && h.includes('ORIGEM')
       );
+      if (idxNfOrigem === -1) {
+        idxNfOrigem = headers.findIndex((h) => h.includes('NFORIGEM') || h === 'NFO' || h.startsWith('NF ORIGEM'));
+      }
       let idxDealer = headers.findIndex(
         (h) => h.includes('DEALER') || h.includes('VENDIDO PARA OUTRO') || h.includes('QUAL ?')
       );
+      let idxRegional = headers.findIndex(
+        (h) => h.includes('REGIONAL') || h === 'REGIAO' || h === 'REGIÃO'
+      );
+
+      // Se a coluna REGIONAL não foi identificada por nome e a planilha possui pelo menos 10 colunas,
+      // a coluna J (índice 9) é a REGIONAL (Requisito 1: "Ela está na coluna J da planilha")
+      if (idxRegional === -1 && (rawData[headerRowIndex]?.length >= 10 || headers.length >= 10)) {
+        idxRegional = 9;
+      }
 
       // Fallbacks posicionais caso os nomes não coincidam exatamente:
-      if (idxImei === -1) idxImei = 2; // Coluna C
-      if (idxSku === -1) idxSku = 3; // Coluna D
-      if (idxModelo === -1) idxModelo = 4; // Coluna E
-      if (idxNfOrigem === -1) idxNfOrigem = 7; // Coluna H
-      if (idxDealer === -1) idxDealer = 9; // Coluna J
+      if (idxImei === -1) {
+        const primeiroDado = rawData[headerRowIndex + 1] || [];
+        if (/^\d{15}$/.test(normalizeImei(primeiroDado[0]))) {
+          idxImei = 0; // Novo formato: Coluna A
+        } else {
+          idxImei = 2; // Formato anterior: Coluna C
+        }
+      }
+      if (idxSku === -1) idxSku = idxImei === 0 ? 1 : 3;
+      if (idxModelo === -1) idxModelo = idxImei === 0 ? 2 : 4;
+      if (idxNfOrigem === -1) idxNfOrigem = idxImei === 0 ? 3 : 7;
+      if (idxDealer === -1) idxDealer = idxImei === 0 ? 8 : 9;
+      if (idxRegional === -1) idxRegional = 9;
 
       const itensTriados: ItemTriagemPlanilha[] = [];
       const seenImeis = new Set<string>();
@@ -239,8 +260,13 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
         const dealerNorm = normalizeDealer(rawDealer);
         dealersSet.add(dealerNorm);
 
-        // Coluna H: Nota Fiscal Origem (preservar valor original, string limpa)
-        // Coluna I: JAMAIS LIDA
+        // Coluna J: REGIONAL de cada IMEI
+        const rawRegionalCell = idxRegional !== -1 && row[idxRegional] !== undefined && row[idxRegional] !== null
+          ? String(row[idxRegional]).trim().toUpperCase()
+          : '';
+        const regionalLinha = rawRegionalCell || regional;
+
+        // NFOrigem Samsung (preservar valor original, string limpa)
         const rawNfOrigem = row[idxNfOrigem] !== undefined && row[idxNfOrigem] !== null ? String(row[idxNfOrigem]).trim() : null;
 
         const rawBrand = skuToBrandMap.get(sku) || skuToBrandMap.get(sku.replace(/^0+/, '')) || null;
@@ -253,7 +279,9 @@ export const ModalImportarPlanilhaRegional: React.FC<ModalImportarPlanilhaRegion
           model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
           brand: brandResolvida,
           origin_invoice: rawNfOrigem || null,
+          nf_origem_samsung: rawNfOrigem || null,
           dealer: dealerNorm,
+          regional: regionalLinha,
           source_row: sourceRow,
         });
       }

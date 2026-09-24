@@ -190,13 +190,18 @@ export const PainelAdmin: React.FC = () => {
 
   // Atualização reativa automática e sincronização contínua com o servidor central
   useEffect(() => {
-    const atualizarDados = () => {
+    const atualizarDados = async () => {
       setAtualizandoServidor(true);
-      db.puxarAtualizacoesServidor().finally(() => {
+      try {
+        await db.verificarRecuperacaoIndexedDB();
+        await db.puxarAtualizacoesServidor();
+      } catch (err) {
+        console.warn('Erro ao atualizar dados no Painel Admin:', err);
+      } finally {
         setAtualizandoServidor(false);
         setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
         setForcarAtualizacao((v) => v + 1);
-      });
+      }
     };
 
     atualizarDados();
@@ -1268,10 +1273,16 @@ export const PainelAdmin: React.FC = () => {
             <button
               onClick={async () => {
                 setAtualizandoServidor(true);
-                await db.puxarAtualizacoesServidor();
-                setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
-                setForcarAtualizacao((v) => v + 1);
-                setAtualizandoServidor(false);
+                try {
+                  await db.verificarRecuperacaoIndexedDB();
+                  await db.puxarAtualizacoesServidor();
+                } catch (err) {
+                  console.warn('Erro ao atualizar servidor:', err);
+                } finally {
+                  setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
+                  setForcarAtualizacao((v) => v + 1);
+                  setAtualizandoServidor(false);
+                }
               }}
               disabled={atualizandoServidor}
               className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-60 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
@@ -1468,6 +1479,8 @@ export const PainelAdmin: React.FC = () => {
                 const caixas = stats?.totalCaixas || 0;
                 const pend = stats?.pendencias || 0;
                 const taxa = stats?.taxaQualidade || 100;
+                const totalImeisRef = db.obterListaAtivaReferencia(reg).length;
+                const batchAtivo = db.listarHistoricoImportacoes(reg).find((b) => b.status === 'ATIVA');
 
                 return (
                   <div
@@ -1484,9 +1497,17 @@ export const PainelAdmin: React.FC = () => {
                       <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="text-2xl font-black text-slate-900 tracking-tight">
-                        {total} <span className="text-xs font-bold text-slate-400">aparelhos</span>
+                    <div className="space-y-1.5">
+                      <div>
+                        <div className="text-2xl font-black text-slate-900 tracking-tight">
+                          {total} <span className="text-xs font-bold text-slate-400">auditados</span>
+                        </div>
+                        {batchAtivo && (
+                          <div className="text-[10px] text-blue-700 bg-blue-50/80 px-2 py-0.5 rounded border border-blue-100 font-bold flex items-center justify-between mt-1">
+                            <span>Base v{batchAtivo.version}:</span>
+                            <span className="font-black">{totalImeisRef > 0 ? `${totalImeisRef} IMEIs` : `${batchAtivo.valid_count || batchAtivo.row_count} itens`}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
                         <span>Lotes / Caixas:</span>
@@ -1501,6 +1522,9 @@ export const PainelAdmin: React.FC = () => {
                         <strong className={pend > 0 ? 'text-rose-600 font-black' : 'text-slate-700'}>
                           {pend}
                         </strong>
+                      </div>
+                      <div className="pt-1 text-[10px] font-black text-blue-600 uppercase tracking-wider group-hover:underline flex items-center justify-end">
+                        Abrir Regional →
                       </div>
                     </div>
                   </div>

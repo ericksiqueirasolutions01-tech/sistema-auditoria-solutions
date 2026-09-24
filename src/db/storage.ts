@@ -963,43 +963,84 @@ class AuditoriaDatabase {
     }
   }
 
-  // Auto-recuperação caso localStorage tenha sido limpo pelo usuário
-  private async verificarRecuperacaoIndexedDB() {
-    if (this.limpezaEmAndamento) return;
+  // Auto-recuperação caso localStorage ou memória tenham sido limpos pelo navegador
+  public async verificarRecuperacaoIndexedDB(): Promise<boolean> {
+    if (this.limpezaEmAndamento) return false;
+    let recuperou = false;
     try {
-      const resetTimestamp = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
-      if (resetTimestamp) {
-        // A base foi oficialmente zerada pelo Administrador. Não restaurar resíduos antigos!
-        return;
-      }
-
+      // 1. Recuperar Produtos do Dexie (ou legado) se a lista em memória estiver vazia
       if (this.produtos.length === 0) {
-        const idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
-        if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
-          this.produtos = idbProds;
+        let prodsDexie: ProdutoAuditoria[] = [];
+        try {
+          prodsDexie = await idb.produtos.toArray();
+        } catch {}
+
+        if (Array.isArray(prodsDexie) && prodsDexie.length > 0 && !this.limpezaEmAndamento) {
+          this.produtos = prodsDexie;
           this.serialMap.clear();
           for (const p of this.produtos) {
             if (!p.regional) p.regional = 'VIA VAREJO RJ';
             this.serialMap.set(p.serial.trim().toUpperCase(), p);
           }
-          localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
-          console.log(`🛡️ Recuperados ${idbProds.length} registros com sucesso do IndexedDB redundante.`);
-        }
-
-        const idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
-        if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
-          this.lotesFinalizados = idbLotes;
-          localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
+          try {
+            localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
+          } catch {}
+          recuperou = true;
+          console.log(`🛡️ Recuperados ${prodsDexie.length} produtos do Dexie IndexedDB.`);
+        } else {
+          const idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
+          if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
+            this.produtos = idbProds;
+            this.serialMap.clear();
+            for (const p of this.produtos) {
+              if (!p.regional) p.regional = 'VIA VAREJO RJ';
+              this.serialMap.set(p.serial.trim().toUpperCase(), p);
+            }
+            try {
+              localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
+            } catch {}
+            recuperou = true;
+            console.log(`🛡️ Recuperados ${idbProds.length} registros com sucesso do IndexedDB legado.`);
+          }
         }
       }
 
-      // Auto-recuperação de batches e referências do IndexedDB
+      // 2. Recuperar Lotes Finalizados INDEPENDENTEMENTE de produtos estarem em 0
+      if (this.lotesFinalizados.length === 0) {
+        let lotesDexie: RegistroLoteFinalizado[] = [];
+        try {
+          lotesDexie = await idb.lotes_finalizados.toArray();
+        } catch {}
+
+        if (Array.isArray(lotesDexie) && lotesDexie.length > 0 && !this.limpezaEmAndamento) {
+          this.lotesFinalizados = lotesDexie;
+          try {
+            localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
+          } catch {}
+          recuperou = true;
+          console.log(`🛡️ Recuperados ${lotesDexie.length} lotes finalizados do Dexie IndexedDB.`);
+        } else {
+          const idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
+          if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
+            this.lotesFinalizados = idbLotes;
+            try {
+              localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
+            } catch {}
+            recuperou = true;
+          }
+        }
+      }
+
+      // 3. Auto-recuperação de batches e referências do IndexedDB
       if (typeof window !== 'undefined' && !this.limpezaEmAndamento) {
         if (this.importBatches.length === 0) {
           const batches = await idb.inventory_import_batches.toArray().catch(() => []);
           if (batches && batches.length > 0) {
             this.importBatches = batches;
-            localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+            try {
+              localStorage.setItem(STORAGE_KEY_IMPORT_BATCHES, JSON.stringify(this.importBatches));
+            } catch {}
+            recuperou = true;
           }
         }
         if (this.regionalReferences.length === 0) {
@@ -1010,19 +1051,30 @@ class AuditoriaDatabase {
             try {
               localStorage.setItem(STORAGE_KEY_REGIONAL_REFS, JSON.stringify(this.regionalReferences));
             } catch {}
+            recuperou = true;
           }
         }
         if (this.auditLots.length === 0) {
           const lots = await idb.audit_lots.toArray().catch(() => []);
           if (lots && lots.length > 0) {
             this.auditLots = lots;
-            localStorage.setItem(STORAGE_KEY_AUDIT_LOTS, JSON.stringify(this.auditLots));
+            try {
+              localStorage.setItem(STORAGE_KEY_AUDIT_LOTS, JSON.stringify(this.auditLots));
+            } catch {}
+            recuperou = true;
           }
         }
+      }
+
+      if (recuperou) {
+        this.notificarMudanca('dados');
+        this.notificarMudanca('produtos');
+        this.notificarMudanca('lotes');
       }
     } catch (err) {
       console.warn('Falha na checagem de recuperação do IndexedDB:', err);
     }
+    return recuperou;
   }
 
   // Sistema de Notificação Reativa em Tempo Real (Zero necessidade de atualizar a página)
@@ -3298,6 +3350,14 @@ class AuditoriaDatabase {
     const regAlvo =
       regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined);
 
+    const regCodAlvo = regAlvo && regAlvo !== 'TODAS' ? extrairCodigoRegional(regAlvo) : null;
+    const matchRegAlvo = (r?: string | null) => {
+      if (!regAlvo || regAlvo === 'TODAS') return true;
+      if (!r) return regAlvo.toUpperCase().includes('RJ');
+      const rNorm = r.trim().toUpperCase();
+      return rNorm === regAlvo.toUpperCase() || (regCodAlvo ? extrairCodigoRegional(rNorm) === regCodAlvo : false);
+    };
+
     let totalAuditados = 0;
     let produtosLacrados = 0;
     let produtosNaoLacrados = 0;
@@ -3313,7 +3373,7 @@ class AuditoriaDatabase {
 
     for (let i = 0; i < this.produtos.length; i++) {
       const p = this.produtos[i];
-      if (regAlvo && regAlvo !== 'TODAS' && (p.regional || 'VIA VAREJO RJ') !== regAlvo) continue;
+      if (!matchRegAlvo(p.regional)) continue;
 
       totalAuditados++;
       if (!ultimaAuditoria && p.data_cadastro) {
@@ -3347,7 +3407,20 @@ class AuditoriaDatabase {
       }
     }
 
-    const totalCaixas = caixasSet.size;
+    let totalCaixas = caixasSet.size;
+
+    // Se produtos em memória estiverem vazios mas há lotes finalizados para a regional
+    if (totalAuditados === 0) {
+      const lotesFin = this.lotesFinalizados.filter((l) => matchRegAlvo(l.regional));
+      if (lotesFin.length > 0) {
+        totalAuditados = lotesFin.reduce((acc, l) => acc + (l.total_produtos || 0), 0);
+        totalCaixas = lotesFin.reduce((acc, l) => acc + (l.total_caixas || 0), 0);
+        produtosLacrados = totalAuditados;
+        if (!ultimaAuditoria && lotesFin[0].data_fechamento) {
+          ultimaAuditoria = lotesFin[0].data_fechamento;
+        }
+      }
+    }
 
     const produtosPorCaixa = Array.from(boxMap.entries())
       .map(([caixa, total]) => ({ caixa, total }))
@@ -3385,9 +3458,27 @@ class AuditoriaDatabase {
       regionais = [this.usuarioAtual.regional];
     }
     return regionais.map((reg) => {
-      const produtosReg = this.produtos.filter((p) => (p.regional || 'VIA VAREJO RJ') === reg);
-      const totalProdutos = produtosReg.length;
-      const caixasSet = new Set(produtosReg.map((p) => p.numero_caixa));
+      const regCod = extrairCodigoRegional(reg);
+      const matchReg = (r?: string | null) => {
+        if (!r) return false;
+        const rNorm = r.trim().toUpperCase();
+        return rNorm === reg.toUpperCase() || extrairCodigoRegional(rNorm) === regCod;
+      };
+
+      const produtosReg = this.produtos.filter((p) => matchReg(p.regional));
+      const lotesReg = this.lotesFinalizados.filter((l) => matchReg(l.regional));
+
+      const caixasSet = new Set(produtosReg.map((p) => (p.numero_caixa || '').trim().toUpperCase()).filter(Boolean));
+      let totalProdutos = produtosReg.length;
+      let totalCaixas = caixasSet.size;
+
+      if (totalProdutos === 0 && lotesReg.length > 0) {
+        totalProdutos = lotesReg.reduce((acc, l) => acc + (l.total_produtos || 0), 0);
+        totalCaixas = lotesReg.reduce((acc, l) => acc + (l.total_caixas || 0), 0);
+      } else if (lotesReg.length > 0) {
+        const caixasLote = lotesReg.reduce((acc, l) => acc + (l.total_caixas || 0), 0);
+        if (caixasLote > totalCaixas) totalCaixas = caixasLote;
+      }
       const modelosSet = new Set(produtosReg.map((p) => p.modelo_produto));
       const produtosLacrados = produtosReg.filter((p) => p.produto_lacrado === 'SIM').length;
       const produtosNaoLacrados = produtosReg.filter((p) => p.produto_lacrado === 'NÃO').length;
@@ -3400,12 +3491,12 @@ class AuditoriaDatabase {
       ).length;
       const taxaQualidade =
         totalProdutos > 0 ? Math.round((produtosLacrados / totalProdutos) * 100) : 100;
-      const ultimaAuditoria = produtosReg.length > 0 ? produtosReg[0].data_cadastro : null;
+      const ultimaAuditoria = produtosReg.length > 0 ? produtosReg[0].data_cadastro : (lotesReg.length > 0 ? lotesReg[0].data_fechamento : null);
 
       return {
         regional: reg,
         totalProdutos,
-        totalCaixas: caixasSet.size,
+        totalCaixas,
         produtosLacrados,
         produtosNaoLacrados,
         avariasFaltantes,
@@ -4415,34 +4506,26 @@ class AuditoriaDatabase {
       // Se durante o fetch a base foi limpa, não processar respostas antigas defasadas
       if (this.limpezaEmAndamento) return false;
 
-      if (produtosRemotos && Array.isArray(produtosRemotos)) {
-        if (produtosRemotos.length === 0) {
-          const resetLocal = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
-          // Somente limpa os produtos locais se houver solicitação explícita de reset (Limpar Base pelo Admin)
-          if (resetTimestampRemoto || resetLocal) {
-            if (this.produtos.length > 0) {
-              this.produtos = [];
-              this.serialMap.clear();
-              alterou = true;
-            }
-          }
-        } else {
-          const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
-          if (alterouProds) alterou = true;
+      if (produtosRemotos && Array.isArray(produtosRemotos) && produtosRemotos.length > 0) {
+        const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
+        if (alterouProds) alterou = true;
+      } else if (resetTimestampRemoto) {
+        // Apenas zera localmente se o próprio servidor central enviar comando de resetTimestampRemoto
+        if (this.produtos.length > 0) {
+          this.produtos = [];
+          this.serialMap.clear();
+          alterou = true;
         }
       }
 
-      if (fotosRemotas && Array.isArray(fotosRemotas)) {
-        if (fotosRemotas.length === 0) {
-          const resetLocal = typeof window !== 'undefined' ? localStorage.getItem('solutions_base_zerada_timestamp') : null;
-          if ((resetTimestampRemoto || resetLocal) && this.fotosGrupos.length > 0) {
-            this.fotosGrupos = [];
-            this.registros10Fotos = [];
-            alterou = true;
-          }
-        } else {
-          const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
-          if (alterouFotos) alterou = true;
+      if (fotosRemotas && Array.isArray(fotosRemotas) && fotosRemotas.length > 0) {
+        const alterouFotos = this.mesclarFotosCentral(fotosRemotas);
+        if (alterouFotos) alterou = true;
+      } else if (resetTimestampRemoto) {
+        if (this.fotosGrupos.length > 0) {
+          this.fotosGrupos = [];
+          this.registros10Fotos = [];
+          alterou = true;
         }
       }
 

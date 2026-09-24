@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { db } from '../db/storage';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import syncHandler from '../../api/central/sync';
 
 describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa por NFOrigem Samsung', () => {
@@ -416,6 +417,12 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
     expect(jsonEnviado?.erro).toBe(
       'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.'
     );
+  });
+
+  afterAll(async () => {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('audit_products').delete().eq('serial', '355555555555555');
+    }
   });
 });
 

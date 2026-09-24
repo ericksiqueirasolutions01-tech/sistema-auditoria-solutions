@@ -186,10 +186,13 @@ export default async function handler(req: any, res: any) {
           for (const dp of dbProducts) {
             const obs = dp.observacao || '';
             if (obs.includes('[EVIDENCIAS_CAIXA:')) {
-              const match = obs.match(/\[EVIDENCIAS_CAIXA:(.*?)\]/);
-              if (match && match[1]) {
-                try {
-                  const parsed = JSON.parse(match[1]);
+              try {
+                const startIdx = obs.indexOf('[EVIDENCIAS_CAIXA:');
+                const jsonStart = startIdx + '[EVIDENCIAS_CAIXA:'.length;
+                const lastBracket = obs.lastIndexOf(']');
+                if (lastBracket > jsonStart) {
+                  const jsonStr = obs.substring(jsonStart, lastBracket).trim();
+                  const parsed = JSON.parse(jsonStr);
                   const cx = parsed.caixa || dp.numero_caixa || 'Caixa 01';
                   const reg = parsed.regional || dp.regions?.nome || dp.regions?.codigo || userRegional || 'VIA VAREJO RJ';
                   const chaveCx = `${reg}:::${cx}`;
@@ -222,9 +225,9 @@ export default async function handler(req: any, res: any) {
                       }
                     }
                   }
-                } catch (e) {
-                  console.warn('Erro ao parsear fotos de evidencia no Supabase:', e);
                 }
+              } catch (e) {
+                console.warn('Erro ao parsear fotos de evidencia no Supabase:', e);
               }
             }
           }
@@ -263,7 +266,11 @@ export default async function handler(req: any, res: any) {
               }
             }
             if (observacaoLimpa.includes('[EVIDENCIAS_CAIXA:')) {
-              observacaoLimpa = observacaoLimpa.replace(/\[EVIDENCIAS_CAIXA:.*?\]\s*/g, '').trim();
+              const startEv = observacaoLimpa.indexOf('[EVIDENCIAS_CAIXA:');
+              const endEv = observacaoLimpa.lastIndexOf(']');
+              if (endEv > startEv) {
+                observacaoLimpa = (observacaoLimpa.substring(0, startEv) + observacaoLimpa.substring(endEv + 1)).trim();
+              }
             }
 
             const classifCalculada =

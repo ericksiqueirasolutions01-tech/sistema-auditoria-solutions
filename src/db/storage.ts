@@ -4059,48 +4059,39 @@ class AuditoriaDatabase {
       }
     }
 
-    // 6. Zerar o servidor central online e repositórios de nuvem com carimbo de reset
-    try {
-      const cleanPayload = JSON.stringify({
-        system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-        produtos: [],
-        fotos: [],
-        historico_envios: [],
-        tentativas_duplicadas: [],
-        lotes_finalizados: [],
-        reset_timestamp: agora,
-        ultimaAtualizacao: agora,
-      });
+    // 6. Zerar o servidor central online e repositórios de nuvem com carimbo de reset (APENAS EM PRODUÇÃO REAL, NUNCA EM AMBIENTE DE TESTES)
+    const isTestEnvironment =
+      (typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST))) ||
+      (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE === 'test');
 
-      // 6.1 Chamar endpoint serverless da API central (/api/central/limpar)
-      const limparApiUrl = obterApiUrl('/api/central/limpar');
-      await fetch(limparApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          solicitante: this.usuarioAtual?.nome || 'Administrador',
-          confirmacao: 'CONFIRMAR_EXCLUSAO_TOTAL_BASE_DADOS',
-        }),
-      }).catch((err) => {
-        console.warn('[Storage] Chamada a /api/central/limpar falhou:', err);
-      });
+    if (!isTestEnvironment) {
+      try {
+        const cleanPayload = JSON.stringify({
+          system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
+          produtos: [],
+          fotos: [],
+          historico_envios: [],
+          tentativas_duplicadas: [],
+          lotes_finalizados: [],
+          reset_timestamp: agora,
+          ultimaAtualizacao: agora,
+        });
 
-      // 6.2 Fallback direto para o Supabase se configurado no cliente
-      if (isSupabaseConfigured && supabase) {
-        try {
-          await supabase.from('audit_products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-          await supabase.from('lot_photos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-          await supabase.from('sync_events').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-          await supabase.from('lots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-          await supabase.from('audit_lots').delete().neq('id', 'dummy');
-          await supabase.from('regional_inventory_reference').delete().neq('id', 'dummy');
-          await supabase.from('inventory_import_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        } catch (errSup) {
-          console.warn('[Storage] Falha ao zerar no Supabase diretamente:', errSup);
-        }
+        // 6.1 Chamar endpoint serverless da API central (/api/central/limpar)
+        const limparApiUrl = obterApiUrl('/api/central/limpar');
+        await fetch(limparApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            solicitante: this.usuarioAtual?.nome || 'Administrador',
+            confirmacao: 'CONFIRMAR_EXCLUSAO_TOTAL_BASE_DADOS',
+          }),
+        }).catch((err) => {
+          console.warn('[Storage] Chamada a /api/central/limpar falhou:', err);
+        });
+      } catch (e) {
+        console.warn('Erro ao zerar nuvem central:', e);
       }
-    } catch (e) {
-      console.warn('Erro ao zerar nuvem central:', e);
     }
 
     // 7. Reconfirmar esvaziamento em memória e persistência para garantir 0 resíduos
@@ -4372,9 +4363,12 @@ class AuditoriaDatabase {
             for (const dp of dbProducts) {
               if (dp.observacao && dp.observacao.includes('[EVIDENCIAS_CAIXA:')) {
                 try {
-                  const mFoto = dp.observacao.match(/\[EVIDENCIAS_CAIXA:(.*?)\](?:\s|$)/);
-                  if (mFoto && mFoto[1]) {
-                    const parsed = JSON.parse(mFoto[1]);
+                  const startIdx = dp.observacao.indexOf('[EVIDENCIAS_CAIXA:');
+                  const jsonStart = startIdx + '[EVIDENCIAS_CAIXA:'.length;
+                  const lastBracket = dp.observacao.lastIndexOf(']');
+                  if (lastBracket > jsonStart) {
+                    const jsonStr = dp.observacao.substring(jsonStart, lastBracket).trim();
+                    const parsed = JSON.parse(jsonStr);
                     const regEvid = dp.regions?.nome || dp.regions?.codigo || parsed.regional || 'VIA VAREJO RJ';
                     const cxEvid = dp.numero_caixa || parsed.caixa || 'Caixa 01';
                     const chaveCx = `${regEvid}:::${cxEvid}`;
@@ -4436,7 +4430,11 @@ class AuditoriaDatabase {
               let lacreSeguranca = p.lacre_seguranca || null;
               let obsLimpa = p.observacao || '';
               if (obsLimpa.includes('[EVIDENCIAS_CAIXA:')) {
-                obsLimpa = obsLimpa.replace(/\[EVIDENCIAS_CAIXA:.*?\]\s*/g, '').trim();
+                const startEv = obsLimpa.indexOf('[EVIDENCIAS_CAIXA:');
+                const endEv = obsLimpa.lastIndexOf(']');
+                if (endEv > startEv) {
+                  obsLimpa = (obsLimpa.substring(0, startEv) + obsLimpa.substring(endEv + 1)).trim();
+                }
               }
               if (p.observacao && p.observacao.includes('[LACRE:')) {
                 const m = p.observacao.match(/\[LACRE:(.*?)\]/);
@@ -4574,7 +4572,22 @@ class AuditoriaDatabase {
     // Se estiver em processo de limpeza, não mesclar nada
     if (this.limpezaEmAndamento) return false;
 
-    // Inserir ou atualizar produtos vindos da central sem remover itens locais existentes
+    // Reconciliar produtos já sincronizados (ENVIADO): se não existem mais na central (ex: RJ zerado), remover localmente
+    const chavesCentral = new Set(
+      produtosCentral.map((cp) => `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`)
+    );
+    const prodsMantidos: ProdutoAuditoria[] = [];
+    for (const p of this.produtos) {
+      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
+      if ((p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO') && !chavesCentral.has(chave)) {
+        this.serialMap.delete(p.serial.trim().toUpperCase());
+        alterou = true;
+      } else {
+        prodsMantidos.push(p);
+      }
+    }
+    this.produtos = prodsMantidos;
+
     const locaisMap = new Map<string, ProdutoAuditoria>();
     for (const p of this.produtos) {
       const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
@@ -4742,6 +4755,20 @@ class AuditoriaDatabase {
 
   mesclarLotesCentral(lotesCentral: RegistroLoteFinalizado[]): boolean {
     let alterou = false;
+
+    // Reconciliar lotes finalizados: remover lotes de regionais que foram zeradas no servidor central (ex: RJ)
+    const lotesKeysCentral = new Set(
+      lotesCentral.map((l) => `${(l.regional || '').trim().toUpperCase()}:::${(l.numero_lote || '').trim().toUpperCase()}`)
+    );
+    const lotesFiltrados = this.lotesFinalizados.filter((l) => {
+      const k = `${(l.regional || '').trim().toUpperCase()}:::${(l.numero_lote || '').trim().toUpperCase()}`;
+      return lotesKeysCentral.has(k);
+    });
+    if (lotesFiltrados.length !== this.lotesFinalizados.length) {
+      this.lotesFinalizados = lotesFiltrados;
+      alterou = true;
+    }
+
     for (const cl of lotesCentral) {
       const idx = this.lotesFinalizados.findIndex(
         (l) =>

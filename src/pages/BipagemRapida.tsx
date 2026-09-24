@@ -3297,40 +3297,40 @@ export const BipagemRapida: React.FC = () => {
 
         <div className="overflow-x-auto h-[calc(100vh-250px)] max-h-[calc(100vh-220px)] min-h-[500px] overflow-y-auto w-full">
           <table className="w-full text-left text-xs border-collapse font-sans">
-            <thead className="bg-slate-200 text-slate-800 uppercase font-black text-[11px] tracking-wider sticky top-0 z-30 border-b-2 border-slate-300 select-none shadow-2xs">
+            <thead className="bg-slate-200 text-slate-800 uppercase font-black text-[10px] tracking-wider sticky top-0 z-30 border-b-2 border-slate-300 select-none shadow-2xs">
               <tr>
-                <th className="py-2 px-1 w-[44px] min-w-[44px] max-w-[44px] text-center bg-slate-300 border-r border-slate-300 sticky left-0 z-30 font-mono">#</th>
-                <th className="py-2 px-1 w-[86px] min-w-[86px] max-w-[86px] text-center bg-slate-200 border-r border-slate-300 sticky left-[44px] z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)] text-slate-800">
-                  Ações ⚙️
+                <th className="py-2 px-1 w-[34px] min-w-[34px] max-w-[34px] text-center bg-slate-300 border-r border-slate-300 sticky left-0 z-30 font-mono">#</th>
+                <th className="py-2 px-1 w-[125px] min-w-[125px] max-w-[125px] text-center bg-slate-200 border-r border-slate-300 sticky left-[34px] z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)] text-slate-800">
+                  Ações (Editar/Excluir)
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[80px] bg-slate-100 text-center">Estação 💻</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 w-28 text-center">Fabricante ✏️</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[200px] max-w-[320px]">Modelo Produto ✏️</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 font-mono min-w-[105px]">SKU ✏️</th>
-                <th className="py-1.5 px-3 border-r border-slate-300 min-w-[160px] bg-blue-100 text-blue-950">
+                <th className="py-1.5 px-1 border-r border-slate-300 w-[64px] min-w-[64px] bg-slate-100 text-center">Estação 💻</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 w-[82px] min-w-[82px] text-center">Fabricante ✏️</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 min-w-[150px] max-w-[200px]">Modelo Produto ✏️</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 font-mono w-[75px] min-w-[75px]">SKU ✏️</th>
+                <th className="py-1.5 px-2 border-r border-slate-300 w-[135px] min-w-[135px] bg-blue-100 text-blue-950">
                   IMEI (Bipar / Editar) ⚡
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[105px] bg-slate-100 text-slate-900">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[75px] min-w-[75px] bg-slate-100 text-slate-900">
                   NF Origem
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-24">Data Auditoria</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[90px] bg-indigo-50 text-indigo-950">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[68px] min-w-[68px]">Data</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[68px] min-w-[68px] bg-indigo-50 text-indigo-950">
                   Caixa ✏️
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[90px] bg-amber-50 text-amber-950">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[48px] min-w-[48px] bg-amber-50 text-amber-950">
                   Lote ✏️
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[140px] bg-blue-50 text-blue-950">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center min-w-[100px] max-w-[140px] bg-blue-50 text-blue-950">
                   Classificação
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-22">Produto Lacrado</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center min-w-[105px] bg-indigo-50 text-indigo-950">
-                  Lacre Segurança 🔒
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[56px] min-w-[56px]">Lacrado</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[80px] min-w-[80px] bg-indigo-50 text-indigo-950">
+                  Lacre Seg. 🔒
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Kit Completo</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 text-center w-20">Marcas de Uso</th>
-                <th className="py-1.5 px-2 border-r border-slate-300 min-w-[110px]">Observação</th>
-                <th className="py-1.5 px-2 text-center min-w-[85px]">Status Sync</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[48px] min-w-[48px]">Kit</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-[48px] min-w-[48px]">Marcas</th>
+                <th className="py-1.5 px-1 border-r border-slate-300 w-[75px] min-w-[75px]">Obs</th>
+                <th className="py-1.5 px-1 text-center w-[75px] min-w-[75px]">Status Sync</th>
               </tr>
             </thead>
 
@@ -3341,28 +3341,30 @@ export const BipagemRapida: React.FC = () => {
                 if (isEditing) {
                   return (
                     <tr key={item.id} className="bg-amber-50 border-2 border-amber-400">
-                      <td className="py-2 px-1 text-center font-mono font-bold text-slate-700 bg-amber-200 border-r border-amber-300 sticky left-0 z-20 w-[44px] min-w-[44px] max-w-[44px]">
+                      <td className="py-2 px-1 text-center font-mono font-bold text-slate-700 bg-amber-200 border-r border-amber-300 sticky left-0 z-20 w-[34px] min-w-[34px] max-w-[34px]">
                         {index + 1}
                       </td>
-                      <td className="py-2 px-1 text-center bg-amber-100 border-r border-amber-300 sticky left-[44px] z-20 w-[86px] min-w-[86px] max-w-[86px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)]">
+                      <td className="py-1 px-1 text-center bg-amber-100 border-r border-amber-300 sticky left-[34px] z-20 w-[125px] min-w-[125px] max-w-[125px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)]">
                         <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => salvarEdicaoLinha(item.id)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded cursor-pointer shadow-xs transition-colors"
+                            className="inline-flex items-center gap-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-1.5 py-1 rounded cursor-pointer shadow-xs transition-colors"
                             title="Salvar alteração (Enter)"
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            <Check className="w-3 h-3" />
+                            <span>Salvar</span>
                           </button>
                           <button
                             onClick={cancelarEdicaoLinha}
-                            className="bg-slate-200 hover:bg-slate-300 text-slate-700 p-1.5 rounded cursor-pointer shadow-xs transition-colors"
+                            className="inline-flex items-center gap-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold px-1.5 py-1 rounded cursor-pointer shadow-xs transition-colors"
                             title="Cancelar (Esc)"
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <X className="w-3 h-3" />
+                            <span>Sair</span>
                           </button>
                         </div>
                       </td>
-                      <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-slate-700 bg-amber-100/50 border-r border-amber-200 whitespace-nowrap">
+                      <td className="py-2 px-1 text-center font-mono text-[10px] font-bold text-slate-700 bg-amber-100/50 border-r border-amber-200 whitespace-nowrap w-[64px] min-w-[64px]">
                         💻 {item.computador_id || 'PC-01'}
                       </td>
 
@@ -3558,24 +3560,25 @@ export const BipagemRapida: React.FC = () => {
                     title="Dê um duplo clique para editar esta linha"
                   >
                     <td
-                      className={`py-2 px-1 text-center font-mono font-bold text-slate-500 border-r border-slate-200 sticky left-0 z-10 w-[44px] min-w-[44px] max-w-[44px] ${
+                      className={`py-1.5 px-1 text-center font-mono font-bold text-slate-500 border-r border-slate-200 sticky left-0 z-10 w-[34px] min-w-[34px] max-w-[34px] ${
                         index % 2 === 0 ? 'bg-white group-hover:bg-blue-50' : 'bg-slate-50 group-hover:bg-blue-50'
                       }`}
                     >
                       {index + 1}
                     </td>
                     <td
-                      className={`py-2 px-1 text-center border-r border-slate-200 sticky left-[44px] z-10 w-[86px] min-w-[86px] max-w-[86px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)] ${
+                      className={`py-1.5 px-1 text-center border-r border-slate-200 sticky left-[34px] z-10 w-[125px] min-w-[125px] max-w-[125px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)] ${
                         index % 2 === 0 ? 'bg-white group-hover:bg-blue-50' : 'bg-slate-50 group-hover:bg-blue-50'
                       }`}
                     >
-                      <div className="flex items-center justify-center gap-1.5">
+                      <div className="flex items-center justify-center gap-1">
                         {item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR' ? (
                           <span
                             title="Item enviado para o online. Apenas o Administrador pode editar."
-                            className="text-slate-400 p-1 cursor-not-allowed inline-flex items-center"
+                            className="text-slate-400 p-1 cursor-not-allowed inline-flex items-center gap-0.5 text-[9px] font-bold"
                           >
-                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            <Lock className="w-3 h-3 text-slate-400" />
+                            <span>Travado</span>
                           </span>
                         ) : (
                           <button
@@ -3583,10 +3586,11 @@ export const BipagemRapida: React.FC = () => {
                               e.stopPropagation();
                               iniciarEdicaoLinha(item);
                             }}
-                            title="Editar esta linha (ou duplo clique)"
-                            className="text-blue-600 hover:text-blue-800 p-1.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer shadow-2xs"
+                            title="Editar este produto (ou duplo clique)"
+                            className="inline-flex items-center gap-0.5 text-blue-700 hover:text-blue-900 text-[10px] font-bold px-1.5 py-1 rounded bg-blue-100/80 hover:bg-blue-200/80 border border-blue-300 transition-colors cursor-pointer shadow-2xs"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Edit2 className="w-3 h-3" />
+                            <span>Editar</span>
                           </button>
                         )}
                         {item.status_sincronizacao === 'ENVIADO' && usuarioAtual?.perfil !== 'ADMINISTRADOR' ? (
@@ -3602,15 +3606,16 @@ export const BipagemRapida: React.FC = () => {
                               e.stopPropagation();
                               handleExcluirLinha(item.id, item.serial, item.status_sincronizacao);
                             }}
-                            title="Remover linha"
-                            className="text-rose-600 hover:text-rose-800 p-1.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer shadow-2xs"
+                            title="Excluir este produto"
+                            className="inline-flex items-center gap-0.5 text-rose-700 hover:text-rose-900 text-[10px] font-bold px-1.5 py-1 rounded bg-rose-100/80 hover:bg-rose-200/80 border border-rose-300 transition-colors cursor-pointer shadow-2xs"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3 h-3" />
+                            <span>Excluir</span>
                           </button>
                         )}
                       </div>
                     </td>
-                    <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-slate-700 bg-slate-100/70 border-r border-slate-200 whitespace-nowrap">
+                    <td className="py-2 px-1 text-center font-mono text-[10px] font-bold text-slate-700 bg-slate-100/70 border-r border-slate-200 whitespace-nowrap w-[64px] min-w-[64px]">
                       💻 {item.computador_id || 'PC-01'}
                     </td>
                     <td className="py-2 px-3 font-bold text-slate-700 border-r border-slate-200 whitespace-nowrap">
@@ -3734,30 +3739,54 @@ export const BipagemRapida: React.FC = () => {
                   );
                 })}
 
+              {/* BANNER INFORMATIVO QUANDO A LISTA ESTIVER VAZIA */}
+              {produtos.length === 0 && (
+                <tr className="bg-blue-50/50 border-b border-slate-200">
+                  <td colSpan={18} className="py-3 px-4 text-center">
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 text-slate-700">
+                      <span className="font-black text-xs text-slate-900 bg-white px-2 py-0.5 rounded border border-blue-200 shadow-2xs">
+                        📦 Caixa 01 aberta • Nenhum produto bipado ainda
+                      </span>
+                      <span className="text-[11px] text-slate-600">
+                        Bipe o IMEI na linha verde abaixo. Cada produto bipado terá os botões{' '}
+                        <strong className="text-blue-700 bg-blue-100 px-1 py-0.5 rounded border border-blue-300">
+                          ✏️ Editar
+                        </strong>{' '}
+                        e{' '}
+                        <strong className="text-rose-700 bg-rose-100 px-1 py-0.5 rounded border border-rose-300">
+                          🗑️ Excluir
+                        </strong>{' '}
+                        fixados imediatamente nesta Coluna 2 (à esquerda)!
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+
               {/* LINHA ATIVA DE ENTRADA / BIPAGEM CONTÍNUA */}
               <tr className="bg-emerald-50/80 border-t-2 border-b-2 border-emerald-600 ring-2 ring-emerald-500/50 sticky bottom-0 z-20 shadow-lg">
-                <td className="py-2.5 px-1 text-center font-mono font-black text-emerald-900 bg-emerald-200 border-r border-emerald-300 sticky left-0 z-20 w-[44px] min-w-[44px] max-w-[44px]">
+                <td className="py-2 px-1 text-center font-mono font-black text-emerald-900 bg-emerald-200 border-r border-emerald-300 sticky left-0 z-20 w-[34px] min-w-[34px] max-w-[34px]">
                   {produtos.length + 1} ▶
                 </td>
-                <td className="py-2.5 px-1 text-center bg-emerald-100 border-r border-emerald-300 sticky left-[44px] z-20 w-[86px] min-w-[86px] max-w-[86px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)]">
+                <td className="py-1 px-1 text-center bg-emerald-100 border-r border-emerald-300 sticky left-[34px] z-20 w-[125px] min-w-[125px] max-w-[125px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)]">
                   <button
                     type="button"
                     onClick={processarBipagemLinha}
-                    className="bg-emerald-700 hover:bg-emerald-800 text-white font-black text-[10px] uppercase px-2 py-1.5 rounded shadow-xs flex items-center justify-center mx-auto gap-1 cursor-pointer transition-colors"
-                    title="Adicionar linha (Enter)"
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white font-black text-[10px] uppercase px-2 py-1 rounded shadow-xs flex items-center justify-center mx-auto gap-1 cursor-pointer transition-colors w-full"
+                    title="Inserir produto bipado (Enter)"
                   >
-                    <CornerDownLeft className="w-3.5 h-3.5" />
-                    <span>Add</span>
+                    <CornerDownLeft className="w-3 h-3" />
+                    <span>+ Inserir</span>
                   </button>
                 </td>
-                <td className="py-2 px-2 text-center font-mono text-[10px] font-bold text-emerald-950 bg-emerald-100/70 border-r border-emerald-300 whitespace-nowrap">
+                <td className="py-2 px-1 text-center font-mono text-[10px] font-bold text-emerald-950 bg-emerald-100/70 border-r border-emerald-300 whitespace-nowrap w-[64px] min-w-[64px]">
                   💻 {computadorAtual.id}
                 </td>
                 {/* FABRICANTE */}
-                <td className="py-2 px-2 border-r border-emerald-300 min-w-[130px]">
+                <td className="py-1 px-1 border-r border-emerald-300 w-[82px] min-w-[82px]">
                   {statusReferencia === 'LISTED' ? (
                     <div
-                      className="w-full text-xs font-black text-slate-600 bg-slate-100 border border-slate-300 rounded px-2 py-1.5 select-none text-center cursor-not-allowed"
+                      className="w-full text-xs font-black text-slate-600 bg-slate-100 border border-slate-300 rounded px-1.5 py-1 select-none text-center cursor-not-allowed truncate"
                       title="Fabricante fixado pela base regional oficial (somente leitura)"
                     >
                       🔒 {fabricanteAtivo}
@@ -3769,14 +3798,14 @@ export const BipagemRapida: React.FC = () => {
                       value={fabricanteAtivo}
                       onChange={(e) => handleFabricanteChange(e.target.value)}
                       placeholder="Fabricante..."
-                      className="w-full text-xs font-black text-slate-900 bg-white border-2 border-emerald-500 rounded px-2 py-1.5 focus:border-emerald-600 focus:outline-none uppercase"
+                      className="w-full text-xs font-black text-slate-900 bg-white border-2 border-emerald-500 rounded px-1.5 py-1 focus:border-emerald-600 focus:outline-none uppercase"
                       title={statusReferencia === 'OUT_OF_LIST' ? 'Fabricante editável para produto fora da lista' : 'Fabricante editável'}
                     />
                   )}
                 </td>
 
                 {/* MODELO PRODUTO */}
-                <td className="py-2 px-2 border-r border-emerald-300 min-w-[220px]">
+                <td className="py-1 px-1 border-r border-emerald-300 min-w-[150px] max-w-[200px]">
                   <input
                     list="lista-modelos-samsung"
                     type="text"
@@ -3794,14 +3823,14 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* SKU */}
-                <td className="py-2 px-2 border-r border-emerald-300 min-w-[110px]">
+                <td className="py-1 px-1 border-r border-emerald-300 w-[75px] min-w-[75px]">
                   <input
                     type="text"
                     value={eanAtivo}
                     onChange={(e) => setEanAtivo(e.target.value)}
                     readOnly={statusReferencia === 'LISTED'}
-                    placeholder={statusReferencia === 'LISTED' ? 'SKU...' : 'SKU obrigatório...'}
-                    className={`w-full font-mono text-xs rounded px-2 py-1.5 focus:outline-none ${
+                    placeholder={statusReferencia === 'LISTED' ? 'SKU...' : 'SKU...'}
+                    className={`w-full font-mono text-xs rounded px-1.5 py-1 focus:outline-none ${
                       statusReferencia === 'LISTED'
                         ? 'bg-slate-100 font-bold text-slate-600 border border-slate-300 cursor-not-allowed select-none'
                         : 'bg-white font-black text-slate-900 border-2 border-emerald-500 focus:ring-1 focus:ring-emerald-600'
@@ -3811,7 +3840,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* IMEI */}
-                <td className="py-2 px-2 border-r border-emerald-300 bg-white min-w-[160px]">
+                <td className="py-1 px-1.5 border-r border-emerald-300 bg-white w-[135px] min-w-[135px]">
                   <input
                     id="input-imei-desktop"
                     aria-label="Posicione o cursor e bipe o IMEI com 15 dígitos"
@@ -3864,54 +3893,54 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* NF ORIGEM */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 font-mono text-xs text-slate-700 whitespace-nowrap bg-emerald-50/50 select-none min-w-[110px]">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 font-mono text-[10px] text-slate-700 whitespace-nowrap bg-emerald-50/50 select-none w-[75px] min-w-[75px]">
                   {statusReferencia === 'LISTED'
                     ? (referenciaDetectada?.origin_invoice || '-')
                     : statusReferencia === 'OUT_OF_LIST'
-                    ? 'NÃO LOCALIZADA NA BASE'
+                    ? 'N/D'
                     : '-'}
                 </td>
 
                 {/* DATA AUDITORIA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 w-24">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 w-[68px] min-w-[68px]">
                   <input
                     type="text"
                     value={dataAtiva}
                     onChange={(e) => setDataAtiva(e.target.value)}
-                    className="w-full text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded px-1.5 py-1.5 focus:outline-none"
+                    className="w-full text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded px-1 py-1 focus:outline-none"
                     title="Data da auditoria"
                   />
                 </td>
 
                 {/* CAIXA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-blue-50/50 min-w-[95px]">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 bg-blue-50/50 w-[68px] min-w-[68px]">
                   <input
                     list="lista-caixas-existentes"
                     type="text"
                     value={caixaAtiva}
                     onChange={(e) => setCaixaAtiva(e.target.value)}
-                    placeholder="Ex: Caixa 01"
-                    className="w-full text-center text-xs font-black text-blue-900 bg-white border-2 border-blue-500 rounded px-2 py-1.5 focus:outline-none uppercase"
+                    placeholder="Caixa 01"
+                    className="w-full text-center text-xs font-black text-blue-900 bg-white border-2 border-blue-500 rounded px-1 py-1 focus:outline-none uppercase"
                     title="Caixa editável. Sem limite de produtos!"
                   />
                 </td>
 
                 {/* NÚMERO DO LOTE */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-amber-50/50 min-w-[95px]">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 bg-amber-50/50 w-[48px] min-w-[48px]">
                   <input
                     type="text"
                     value={loteAtivo}
                     onChange={(e) => handleMudarLoteAtivo(e.target.value)}
-                    placeholder="LOTE 1"
-                    className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-2 py-1.5 focus:outline-none uppercase"
+                    placeholder="01"
+                    className="w-full text-center text-xs font-black text-amber-900 bg-white border-2 border-amber-500 rounded px-1 py-1 focus:outline-none uppercase"
                     title="Número do Lote ativo (digitado pelo colaborador)"
                   />
                 </td>
 
                 {/* CLASSIFICAÇÃO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 bg-blue-50/40 min-w-[150px]">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 bg-blue-50/40 min-w-[100px] max-w-[140px]">
                   {classificacaoAtiva ? (
-                    <span className="font-black px-2 py-0.5 rounded text-[10px] border bg-blue-100 text-blue-900 border-blue-300 whitespace-nowrap block truncate max-w-[220px]" title={classificacaoAtiva}>
+                    <span className="font-black px-1.5 py-0.5 rounded text-[10px] border bg-blue-100 text-blue-900 border-blue-300 whitespace-nowrap block truncate max-w-[130px]" title={classificacaoAtiva}>
                       {classificacaoAtiva}
                     </span>
                   ) : (
@@ -3920,7 +3949,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* PRODUTO LACRADO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 w-24">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 w-[56px] min-w-[56px]">
                   <select
                     value={lacreAtivo}
                     onChange={(e) => {
@@ -3934,7 +3963,7 @@ export const BipagemRapida: React.FC = () => {
                         setTimeout(() => kitSelectRef.current?.focus(), 50);
                       }
                     }}
-                    className={`w-full text-[11px] font-black px-2 py-1.5 rounded-md border focus:outline-none cursor-pointer ${
+                    className={`w-full text-[10px] font-black px-1 py-1 rounded border focus:outline-none cursor-pointer ${
                       lacreAtivo === 'SIM'
                         ? 'bg-emerald-700 text-white border-emerald-800'
                         : 'bg-amber-600 text-white border-amber-700'
@@ -3946,21 +3975,21 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* LACRE DE SEGURANÇA */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 min-w-[110px] bg-indigo-50/30">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 w-[80px] min-w-[80px] bg-indigo-50/30">
                   <input
                     type="text"
                     value={lacreSegurancaAtivo}
                     onChange={(e) => handleMudarLacreSeguranca(e.target.value.toUpperCase())}
                     placeholder="Nº LACRE"
-                    className="w-full text-center text-xs font-mono font-black text-indigo-900 bg-white border-2 border-indigo-400 rounded px-1.5 py-1.5 focus:outline-none uppercase placeholder:text-slate-400"
+                    className="w-full text-center text-[10px] font-mono font-black text-indigo-900 bg-white border border-indigo-400 rounded px-1 py-1 focus:outline-none uppercase placeholder:text-slate-400"
                     title={`Lacre de Segurança da Caixa ${caixaAtiva}`}
                   />
                 </td>
 
                 {/* KIT COMPLETO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 w-20">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 w-[48px] min-w-[48px]">
                   {lacreAtivo === 'SIM' ? (
-                    <span className="text-slate-400 font-bold">-</span>
+                    <span className="text-slate-400 font-bold text-[10px]">-</span>
                   ) : (
                     <select
                       ref={kitSelectRef}
@@ -3969,9 +3998,9 @@ export const BipagemRapida: React.FC = () => {
                         setKitAtivo(e.target.value as SimNao);
                         marcasSelectRef.current?.focus();
                       }}
-                      className="w-full text-[11px] font-bold bg-white border border-amber-500 rounded p-1 text-slate-900 cursor-pointer"
+                      className="w-full text-[10px] font-bold bg-white border border-amber-500 rounded p-0.5 text-slate-900 cursor-pointer"
                     >
-                      <option value="">Selecione</option>
+                      <option value="">-</option>
                       <option value="SIM">SIM</option>
                       <option value="NÃO">NÃO</option>
                     </select>
@@ -3979,17 +4008,17 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* MARCAS DE USO */}
-                <td className="py-2 px-2 text-center border-r border-emerald-300 w-20">
+                <td className="py-1 px-1 text-center border-r border-emerald-300 w-[48px] min-w-[48px]">
                   {lacreAtivo === 'SIM' ? (
-                    <span className="text-slate-400 font-bold">-</span>
+                    <span className="text-slate-400 font-bold text-[10px]">-</span>
                   ) : (
                     <select
                       ref={marcasSelectRef}
                       value={marcasAtivo}
                       onChange={(e) => setMarcasAtivo(e.target.value as SimNao)}
-                      className="w-full text-[11px] font-bold bg-white border border-amber-500 rounded p-1 text-slate-900 cursor-pointer"
+                      className="w-full text-[10px] font-bold bg-white border border-amber-500 rounded p-0.5 text-slate-900 cursor-pointer"
                     >
-                      <option value="">Selecione</option>
+                      <option value="">-</option>
                       <option value="NÃO">NÃO</option>
                       <option value="SIM">SIM</option>
                     </select>
@@ -3997,7 +4026,7 @@ export const BipagemRapida: React.FC = () => {
                 </td>
 
                 {/* OBSERVAÇÃO */}
-                <td className="py-2 px-2 border-r border-emerald-300 min-w-[120px]">
+                <td className="py-1 px-1 border-r border-emerald-300 w-[75px] min-w-[75px]">
                   <input
                     type="text"
                     value={obsAtivo}
@@ -4007,14 +4036,14 @@ export const BipagemRapida: React.FC = () => {
                         processarBipagemLinha();
                       }
                     }}
-                    placeholder="Obs livre..."
-                    className="w-full text-xs text-slate-900 bg-white border border-slate-300 rounded px-2 py-1.5 focus:outline-none"
+                    placeholder="Obs..."
+                    className="w-full text-[10px] text-slate-900 bg-white border border-slate-300 rounded px-1 py-1 focus:outline-none"
                   />
                 </td>
 
                 {/* STATUS SYNC PADRÃO (PENDENTE) */}
-                <td className="py-2 px-2 text-center whitespace-nowrap min-w-[85px]">
-                  <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                <td className="py-1 px-1 text-center whitespace-nowrap w-[75px] min-w-[75px]">
+                  <span className="inline-flex items-center gap-0.5 font-bold text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
                     Pendente
                   </span>

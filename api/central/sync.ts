@@ -127,6 +127,59 @@ function normalizeDatabaseDate(dataInput: any): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function isRegistroDoDia24EmDiante(item: any): boolean {
+  if (!item) return false;
+  const dataRaw = String(
+    item.data_auditoria ||
+    item.data_fechamento ||
+    item.data_hora ||
+    item.data_cadastro ||
+    item.created_at ||
+    item.data_sincronizacao ||
+    item.data ||
+    ''
+  ).trim();
+  if (!dataRaw) return true;
+
+  if (
+    dataRaw.includes('23/09/2026') ||
+    dataRaw.includes('2026-09-23') ||
+    dataRaw.includes('23/09') ||
+    dataRaw.includes('22/09') ||
+    dataRaw.includes('2026-09-22') ||
+    dataRaw.includes('21/09') ||
+    dataRaw.includes('2026-09-21') ||
+    dataRaw.includes('20/09') ||
+    dataRaw.includes('2026-09-20')
+  ) {
+    return false;
+  }
+
+  const brMatch = dataRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const dia = parseInt(brMatch[1], 10);
+    const mes = parseInt(brMatch[2], 10);
+    const ano = parseInt(brMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  const isoMatch = dataRaw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (isoMatch) {
+    const ano = parseInt(isoMatch[1], 10);
+    const mes = parseInt(isoMatch[2], 10);
+    const dia = parseInt(isoMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  return true;
+}
+
 function obterCaminhosCentrais() {
   const isTest = typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST));
   const dataDir = isTest
@@ -152,7 +205,7 @@ function carregarBaseCentral() {
   try {
     if (fs.existsSync(dbFile)) {
       const parsed = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
-      produtos = parsed.produtos || [];
+      produtos = (parsed.produtos || []).filter(isRegistroDoDia24EmDiante);
       fotos = parsed.fotos || [];
     }
   } catch {}
@@ -240,7 +293,9 @@ export default async function handler(req: any, res: any) {
         body = JSON.parse(body);
       } catch {}
     }
-    const { produtos, computador, usuario, regional, fotos, registros_10_fotos } = body || {};
+    const { produtos: prodsRaw, computador, usuario, regional, fotos, registros_10_fotos } = body || {};
+    // Expurgo compulsório: rejeitar qualquer item com data de 23/09/2026 ou data anterior
+    const produtos = Array.isArray(prodsRaw) ? prodsRaw.filter(isRegistroDoDia24EmDiante) : [];
 
     // 1. Verificação e Normalização de Autenticação Server-Side
     if (!usuario) {

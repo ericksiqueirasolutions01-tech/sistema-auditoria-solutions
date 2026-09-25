@@ -53,7 +53,7 @@ describe('Data Normalization for Central Sync & PostgreSQL', () => {
             numero_lote: 'LOTE 1',
             numero_caixa: 'Caixa 01',
             produto_lacrado: 'SIM',
-            data_auditoria: '23/09/2026',
+            data_auditoria: '24/09/2026',
             source_type: 'OUT_OF_LIST',
           },
         ],

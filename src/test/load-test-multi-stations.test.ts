@@ -11,7 +11,7 @@ const PRODUCTS_PER_STATION = 100;
 const TOTAL_EXPECTED = TOTAL_STATIONS * PRODUCTS_PER_STATION; // 1.000 produtos
 
 const LOAD_TEST_REGIONAL = 'VIA VAREJO BA';
-const LOAD_TEST_DATE = '23/09/2026';
+const LOAD_TEST_DATE = '24/09/2026';
 
 // Gerar seriais únicos para o teste de carga
 function gerarImeiCarga(stationIdx: number, itemIdx: number): string {

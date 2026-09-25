@@ -123,9 +123,9 @@ describe('CORREÇÃO 6 — Teste de Integridade: Arquitetura Central-First Multi
 
   it('3. Colaborador bipa com data DD/MM/YYYY e envia online para o banco central', async () => {
     // Data informada no padrão brasileiro pelo operador
-    const dataOperador = '23/09/2026';
+    const dataOperador = '24/09/2026';
     const dataNormalizada = normalizeDatabaseDate(dataOperador);
-    expect(dataNormalizada).toBe('2026-09-23');
+    expect(dataNormalizada).toBe('2026-09-24');
 
     let statusCode = 0;
     let jsonResult: any = null;
@@ -181,7 +181,7 @@ describe('CORREÇÃO 6 — Teste de Integridade: Arquitetura Central-First Multi
     expect(jsonResult.sucesso).toBe(true);
     expect(jsonResult.sincronizados).toBe(1);
 
-    // Conferir que no Supabase a coluna DATE foi salva exatamente como 2026-09-23
+    // Conferir que no Supabase a coluna DATE foi salva exatamente como 2026-09-24
     const { data: supaProd } = await supabase
       .from('audit_products')
       .select('serial, modelo, data_auditoria, status_sincronizacao, regional_id')
@@ -190,7 +190,7 @@ describe('CORREÇÃO 6 — Teste de Integridade: Arquitetura Central-First Multi
 
     expect(supaProd).toBeDefined();
     expect(supaProd?.serial).toBe(TEST_IMEI);
-    expect(supaProd?.data_auditoria).toBe('2026-09-23');
+    expect(supaProd?.data_auditoria).toBe('2026-09-24');
     expect(supaProd?.status_sincronizacao).toBe('ENVIADO');
   });
 
@@ -230,7 +230,7 @@ describe('CORREÇÃO 6 — Teste de Integridade: Arquitetura Central-First Multi
     expect(prodEncontrado).toBeDefined();
     expect(prodEncontrado.serial).toBe(TEST_IMEI);
     expect(prodEncontrado.modelo_produto).toBe('MOTO EDGE 70 INTEGRATION TEST');
-    expect(prodEncontrado.data_auditoria).toBe('23/09/2026'); // Formatado para exibição brasileira
+    expect(prodEncontrado.data_auditoria).toBe('24/09/2026'); // Formatado para exibição brasileira
     expect(prodEncontrado.status_sincronizacao).toBe('ENVIADO');
   });
 });

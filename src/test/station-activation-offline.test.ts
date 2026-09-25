@@ -13,7 +13,7 @@ const SUPABASE_FALLBACK_KEY = 'sb_publishable_F-Lc83bJD87AokRbHPmltg_hp2q6Ghj';
 const supabase = createClient(SUPABASE_FALLBACK_URL, SUPABASE_FALLBACK_KEY);
 
 const TEST_REGIONAL = 'VIA VAREJO BA';
-const TEST_DATE_BR = '23/09/2026';
+const TEST_DATE_BR = '24/09/2026';
 const TOTAL_OFFLINE_BIPAGENS = 50;
 
 function limparTestDbLocal() {
@@ -339,7 +339,7 @@ describe('CAMADA DE ATIVAÇÃO DE ESTAÇÃO WINDOWS & OPERAÇÃO OFFLINE (TESTES
     for (const prod of produtosSupabase) {
       expect(prod.regional).toContain('BA');
       expect(prod.usuario_sincronizacao || prod.usuario_cadastro).toBe('Operador Galpão BA');
-      expect(prod.data_auditoria).toBe('23/09/2026'); // Formatado pelo endpoint central para exibição no painel
+      expect(prod.data_auditoria).toBe('24/09/2026'); // Formatado pelo endpoint central para exibição no painel
       expect(prod.status_sincronizacao).toBe('ENVIADO');
       expect(prod.numero_lote).toBe('LOTE GALPAO OFFLINE 01');
       expect(prod.produto_lacrado).toBe('SIM');
@@ -354,7 +354,7 @@ describe('CAMADA DE ATIVAÇÃO DE ESTAÇÃO WINDOWS & OPERAÇÃO OFFLINE (TESTES
     expect(error).toBeNull();
     expect(count).toBe(TOTAL_OFFLINE_BIPAGENS);
     expect(directData).toBeDefined();
-    expect(directData?.[0].data_auditoria).toBe('2026-09-23'); // Normalizado no Postgres
+    expect(directData?.[0].data_auditoria).toBe('2026-09-24'); // Normalizado no Postgres
     expect(directData?.[0].status_sincronizacao).toBe('ENVIADO');
   });
 });

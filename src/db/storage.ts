@@ -171,6 +171,67 @@ export function formatarDataParaExibicaoBR(dataInput: any): string {
 }
 
 /**
+ * Validação rigorosa: Garante que NENHUM registro de 23/09/2026 ou data anterior permaneça no sistema.
+ * Apenas registros de 24/09/2026 em diante são admitidos em banco, cache, IndexedDB ou tela.
+ */
+export function isRegistroDoDia24EmDiante(item: any): boolean {
+  if (!item) return false;
+  const dataRaw = String(
+    item.data_auditoria ||
+    item.data_fechamento ||
+    item.data_hora ||
+    item.data_cadastro ||
+    item.created_at ||
+    item.data_sincronizacao ||
+    item.data ||
+    ''
+  ).trim();
+  if (!dataRaw) return true;
+
+  // Bloqueio explícito contra 23/09 e datas anteriores de setembro/2026
+  if (
+    dataRaw.includes('23/09/2026') ||
+    dataRaw.includes('2026-09-23') ||
+    dataRaw.includes('23/09') ||
+    dataRaw.includes('22/09') ||
+    dataRaw.includes('2026-09-22') ||
+    dataRaw.includes('21/09') ||
+    dataRaw.includes('2026-09-21') ||
+    dataRaw.includes('20/09') ||
+    dataRaw.includes('2026-09-20')
+  ) {
+    return false;
+  }
+
+  // Parse formato brasileiro DD/MM/YYYY
+  const brMatch = dataRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const dia = parseInt(brMatch[1], 10);
+    const mes = parseInt(brMatch[2], 10);
+    const ano = parseInt(brMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  // Parse formato ISO YYYY-MM-DD
+  const isoMatch = dataRaw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (isoMatch) {
+    const ano = parseInt(isoMatch[1], 10);
+    const mes = parseInt(isoMatch[2], 10);
+    const dia = parseInt(isoMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  return true;
+}
+
+
+/**
  * Normaliza o valor de NF de Origem Samsung para validação de homogeneidade de caixas.
  * Valores ausentes ou nulos ('', 'SEM NF', 'NÃO LOCALIZADA NA BASE', etc.) são padronizados para ''.
  */
@@ -853,7 +914,16 @@ class AuditoriaDatabase {
       }
 
       // Higienização Mandatória: RJ 100% zerada por determinação da diretoria
-      this.produtos = this.produtos.filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
+      // E remoção compulsória de qualquer registro de 23/09/2026 ou anterior (apenas 24/09 em diante)
+      const antesFiltroProds = this.produtos.length;
+      this.produtos = this.produtos.filter(
+        (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+      );
+      if (this.produtos.length !== antesFiltroProds) {
+        try {
+          localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
+        } catch {}
+      }
 
       const histRaw = localStorage.getItem(STORAGE_KEY_HISTORICO);
       this.historico = histRaw ? JSON.parse(histRaw) : [];
@@ -894,9 +964,16 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados);
       }
 
-      // Carregar lotes finalizados (com higienização de RJ)
+      // Carregar lotes finalizados (com higienização de RJ e remoção de registros de 23/09 ou anteriores)
       const lotesRaw = localStorage.getItem(STORAGE_KEY_LOTES_FINALIZADOS);
-      this.lotesFinalizados = lotesRaw ? (JSON.parse(lotesRaw) as RegistroLoteFinalizado[]).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ') : [];
+      this.lotesFinalizados = lotesRaw
+        ? (JSON.parse(lotesRaw) as RegistroLoteFinalizado[]).filter(
+            (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+          )
+        : [];
+      try {
+        localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
+      } catch {}
 
       // Carregar batches de importação de planilhas regionais
       try {
@@ -993,6 +1070,30 @@ class AuditoriaDatabase {
     if (this.limpezaEmAndamento) return false;
     let recuperou = false;
     try {
+      // 0. Expulso compulsório e preventivo no IndexedDB Dexie:
+      // Excluir qualquer produto ou lote da RJ ou anterior a 24/09/2026
+      try {
+        const todosProdsDexie = await idb.produtos.toArray();
+        const prodsExpurgar = (todosProdsDexie || []).filter(
+          (p) => extrairCodigoRegional(p.regional) === 'RJ' || !isRegistroDoDia24EmDiante(p)
+        );
+        if (prodsExpurgar.length > 0) {
+          await idb.produtos.bulkDelete(prodsExpurgar.map((p) => p.id));
+          console.log(`🧹 Expurgados ${prodsExpurgar.length} produtos de 23/09 ou RJ do IndexedDB Dexie.`);
+        }
+      } catch (errCleanDexie) {}
+
+      try {
+        const todosLotesDexie = await idb.lotes_finalizados.toArray();
+        const lotesExpurgar = (todosLotesDexie || []).filter(
+          (l) => extrairCodigoRegional(l.regional) === 'RJ' || !isRegistroDoDia24EmDiante(l)
+        );
+        if (lotesExpurgar.length > 0) {
+          await idb.lotes_finalizados.bulkDelete(lotesExpurgar.map((l) => l.id));
+          console.log(`🧹 Expurgados ${lotesExpurgar.length} lotes de 23/09 ou RJ do IndexedDB Dexie.`);
+        }
+      } catch (errCleanLotes) {}
+
       // 1. Recuperar Produtos do Dexie (ou legado) se a lista em memória estiver vazia
       if (this.produtos.length === 0) {
         let prodsDexie: ProdutoAuditoria[] = [];
@@ -1000,7 +1101,9 @@ class AuditoriaDatabase {
           prodsDexie = await idb.produtos.toArray();
         } catch {}
 
-        prodsDexie = (prodsDexie || []).filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
+        prodsDexie = (prodsDexie || []).filter(
+          (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+        );
 
         if (Array.isArray(prodsDexie) && prodsDexie.length > 0 && !this.limpezaEmAndamento) {
           this.produtos = prodsDexie;
@@ -1016,7 +1119,9 @@ class AuditoriaDatabase {
           console.log(`🛡️ Recuperados ${prodsDexie.length} produtos do Dexie IndexedDB.`);
         } else {
           let idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
-          idbProds = (idbProds || []).filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
+          idbProds = (idbProds || []).filter(
+            (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+          );
           if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
             this.produtos = idbProds;
             this.serialMap.clear();
@@ -1040,7 +1145,9 @@ class AuditoriaDatabase {
           lotesDexie = await idb.lotes_finalizados.toArray();
         } catch {}
 
-        lotesDexie = (lotesDexie || []).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ');
+        lotesDexie = (lotesDexie || []).filter(
+          (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+        );
 
         if (Array.isArray(lotesDexie) && lotesDexie.length > 0 && !this.limpezaEmAndamento) {
           this.lotesFinalizados = lotesDexie;
@@ -1051,7 +1158,9 @@ class AuditoriaDatabase {
           console.log(`🛡️ Recuperados ${lotesDexie.length} lotes finalizados do Dexie IndexedDB.`);
         } else {
           let idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
-          idbLotes = (idbLotes || []).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ');
+          idbLotes = (idbLotes || []).filter(
+            (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+          );
           if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
             this.lotesFinalizados = idbLotes;
             try {
@@ -4639,12 +4748,17 @@ class AuditoriaDatabase {
     // Se estiver em processo de limpeza, não mesclar nada
     if (this.limpezaEmAndamento) return false;
 
+    // Higienização de entrada: rejeita qualquer produto que seja de RJ ou anterior a 24/09/2026
+    const produtosCentralValidos = (produtosCentral || []).filter(
+      (cp) => extrairCodigoRegional(cp.regional) !== 'RJ' && isRegistroDoDia24EmDiante(cp)
+    );
+
     // Mapas de busca rápida para produtos da central
     const chavesCentral = new Set(
-      produtosCentral.map((cp) => `${extrairCodigoRegional(cp.regional)}:::${cp.serial.trim().toUpperCase()}`)
+      produtosCentralValidos.map((cp) => `${extrairCodigoRegional(cp.regional)}:::${cp.serial.trim().toUpperCase()}`)
     );
     const seriaisCentral = new Set(
-      produtosCentral.map((cp) => cp.serial.trim().toUpperCase())
+      produtosCentralValidos.map((cp) => cp.serial.trim().toUpperCase())
     );
 
     const prodsMantidos: ProdutoAuditoria[] = [];
@@ -4654,6 +4768,13 @@ class AuditoriaDatabase {
 
       // Regra 1: RJ foi 100% zerada por determinação da diretoria
       if (regCod === 'RJ') {
+        this.serialMap.delete(p.serial.trim().toUpperCase());
+        alterou = true;
+        continue;
+      }
+
+      // Regra 1.1: Expurgo compulsório de qualquer registro de 23/09/2026 ou anterior
+      if (!isRegistroDoDia24EmDiante(p)) {
         this.serialMap.delete(p.serial.trim().toUpperCase());
         alterou = true;
         continue;
@@ -4687,7 +4808,7 @@ class AuditoriaDatabase {
       locaisMap.set(chave, p);
     }
 
-    for (const cp of produtosCentral) {
+    for (const cp of produtosCentralValidos) {
       const cpRegCod = extrairCodigoRegional(cp.regional);
       if (cpRegCod === 'RJ') continue; // RJ é estritamente 0
 
@@ -4873,13 +4994,22 @@ class AuditoriaDatabase {
   mesclarLotesCentral(lotesCentral: RegistroLoteFinalizado[]): boolean {
     let alterou = false;
 
+    // Higienização de entrada: rejeita qualquer lote que seja de RJ ou anterior a 24/09/2026
+    const lotesCentralValidos = (lotesCentral || []).filter(
+      (cl) => extrairCodigoRegional(cl.regional) !== 'RJ' && isRegistroDoDia24EmDiante(cl)
+    );
+
     // Reconciliar lotes finalizados: RJ zerada e BA com apenas os lotes oficiais da nuvem central
     const lotesKeysCentral = new Set(
-      lotesCentral.map((l) => `${extrairCodigoRegional(l.regional)}:::${(l.numero_lote || '').trim().toUpperCase()}`)
+      lotesCentralValidos.map((l) => `${extrairCodigoRegional(l.regional)}:::${(l.numero_lote || '').trim().toUpperCase()}`)
     );
     const lotesFiltrados = this.lotesFinalizados.filter((l) => {
       const regCod = extrairCodigoRegional(l.regional);
       if (regCod === 'RJ') {
+        alterou = true;
+        return false;
+      }
+      if (!isRegistroDoDia24EmDiante(l)) {
         alterou = true;
         return false;
       }
@@ -4896,7 +5026,7 @@ class AuditoriaDatabase {
       alterou = true;
     }
 
-    for (const cl of lotesCentral) {
+    for (const cl of lotesCentralValidos) {
       const clRegCod = extrairCodigoRegional(cl.regional);
       if (clRegCod === 'RJ') continue;
 

@@ -90,6 +90,59 @@ function formatarDataParaExibicaoBR(dataInput: any): string {
   return str;
 }
 
+function isRegistroDoDia24EmDiante(item: any): boolean {
+  if (!item) return false;
+  const dataRaw = String(
+    item.data_auditoria ||
+    item.data_fechamento ||
+    item.data_hora ||
+    item.data_cadastro ||
+    item.created_at ||
+    item.data_sincronizacao ||
+    item.data ||
+    ''
+  ).trim();
+  if (!dataRaw) return true;
+
+  if (
+    dataRaw.includes('23/09/2026') ||
+    dataRaw.includes('2026-09-23') ||
+    dataRaw.includes('23/09') ||
+    dataRaw.includes('22/09') ||
+    dataRaw.includes('2026-09-22') ||
+    dataRaw.includes('21/09') ||
+    dataRaw.includes('2026-09-21') ||
+    dataRaw.includes('20/09') ||
+    dataRaw.includes('2026-09-20')
+  ) {
+    return false;
+  }
+
+  const brMatch = dataRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const dia = parseInt(brMatch[1], 10);
+    const mes = parseInt(brMatch[2], 10);
+    const ano = parseInt(brMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  const isoMatch = dataRaw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (isoMatch) {
+    const ano = parseInt(isoMatch[1], 10);
+    const mes = parseInt(isoMatch[2], 10);
+    const dia = parseInt(isoMatch[3], 10);
+    if (ano < 2026) return false;
+    if (ano === 2026 && mes < 9) return false;
+    if (ano === 2026 && mes === 9 && dia < 24) return false;
+    return true;
+  }
+
+  return true;
+}
+
 function obterDadosCentraisLocais() {
   const dataDir = path.resolve(process.cwd(), 'data');
   const dbFile = path.join(dataDir, 'central_database.json');
@@ -106,9 +159,9 @@ function obterDadosCentraisLocais() {
   try {
     if (fs.existsSync(dbFile)) {
       const parsed = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
-      produtos = parsed.produtos || [];
+      produtos = (parsed.produtos || []).filter(isRegistroDoDia24EmDiante);
       fotos = parsed.fotos || [];
-      lotes_finalizados = parsed.lotes_finalizados || [];
+      lotes_finalizados = (parsed.lotes_finalizados || []).filter(isRegistroDoDia24EmDiante);
       registros_10_fotos = parsed.registros_10_fotos || [];
     }
   } catch {}
@@ -171,6 +224,7 @@ export default async function handler(req: any, res: any) {
           .from('audit_products')
           .select('*, regions(codigo, nome)')
           .is('deleted_at', null)
+          .gte('data_auditoria', '2026-09-24')
           .order('created_at', { ascending: false });
 
         const regionalFiltro = (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL')
@@ -248,9 +302,11 @@ export default async function handler(req: any, res: any) {
             }
           }
 
-          // Filtrar produtos auditados reais (excluindo os registros de controle de fotos)
+          // Filtrar produtos auditados reais (excluindo os registros de controle de fotos e registros de 23/09 ou anteriores)
           const produtosReais = dbProducts.filter((p: any) =>
-            !p.serial?.startsWith('EVIDENCIA_FOTOS_') && p.modelo !== 'EVIDENCIA FOTOGRAFICA'
+            !p.serial?.startsWith('EVIDENCIA_FOTOS_') &&
+            p.modelo !== 'EVIDENCIA FOTOGRAFICA' &&
+            isRegistroDoDia24EmDiante(p)
           );
 
           // Mapa de lacres por caixa para garantir que toda a caixa herde o lacre
@@ -352,10 +408,11 @@ export default async function handler(req: any, res: any) {
             const { data: dbLots } = await supabase
               .from('lots')
               .select('*, regions(codigo, nome)')
-              .is('deleted_at', null);
+              .is('deleted_at', null)
+              .gte('created_at', '2026-09-24T00:00:00Z');
 
             if (Array.isArray(dbLots) && dbLots.length > 0) {
-              lotesFormatados = dbLots.map((dl: any) => ({
+              lotesFormatados = dbLots.filter(isRegistroDoDia24EmDiante).map((dl: any) => ({
                 id: dl.id,
                 numero_lote: dl.numero_lote || '01',
                 regional: dl.regions?.nome || dl.regions?.codigo || 'VIA VAREJO BA',

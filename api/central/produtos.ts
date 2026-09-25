@@ -227,9 +227,19 @@ export default async function handler(req: any, res: any) {
           .gte('data_auditoria', '2026-09-24')
           .order('created_at', { ascending: false });
 
-        const regionalFiltro = (userPerfil === 'OPERADOR' || userPerfil === 'SUPERVISOR_REGIONAL')
-          ? userRegional
-          : (req.query?.regional ? String(req.query.regional).trim().toUpperCase() : 'TODAS');
+        const isAdmin = userPerfil === 'ADMINISTRADOR' || userPerfil === 'SUPER_ADMIN';
+        let regionalFiltro = 'TODAS';
+        if (isAdmin) {
+          if (req.query?.regional && String(req.query.regional).trim().toUpperCase() !== 'TODAS') {
+            regionalFiltro = String(req.query.regional).trim().toUpperCase();
+          } else {
+            regionalFiltro = 'TODAS';
+          }
+        } else {
+          regionalFiltro = (req.query?.regional && String(req.query.regional).trim().toUpperCase() !== 'TODAS')
+            ? String(req.query.regional).trim().toUpperCase()
+            : (userRegional || 'TODAS');
+        }
 
         if (regionalFiltro && regionalFiltro !== 'TODAS') {
           const { data: allRegions } = await supabase.from('regions').select('id, codigo, nome');

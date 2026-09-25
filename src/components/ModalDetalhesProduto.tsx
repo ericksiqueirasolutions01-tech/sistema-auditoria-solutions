@@ -158,3 +158,4 @@ export const ModalDetalhesProduto: React.FC<ModalDetalhesProdutoProps> = ({ prod
     </div>
   );
 };
+

@@ -849,6 +849,7 @@ class AuditoriaDatabase {
   }
 
   private carregarDados() {
+    if (typeof localStorage === 'undefined') return;
     try {
       const prodRaw = localStorage.getItem(STORAGE_KEY_PRODUTOS);
       this.produtos = prodRaw ? JSON.parse(prodRaw) : [];
@@ -916,11 +917,10 @@ class AuditoriaDatabase {
         localStorage.setItem(STORAGE_KEY_USUARIOS, JSON.stringify(this.usuarios));
       }
 
-      // Higienização Mandatória: RJ 100% zerada por determinação da diretoria
-      // E remoção compulsória de qualquer registro de 23/09/2026 ou anterior (apenas 24/09 em diante)
+      // Remoção compulsória de qualquer registro de 23/09/2026 ou anterior (apenas 24/09 em diante)
       const antesFiltroProds = this.produtos.length;
       this.produtos = this.produtos.filter(
-        (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+        (p) => isRegistroDoDia24EmDiante(p)
       );
       if (this.produtos.length !== antesFiltroProds) {
         try {
@@ -959,10 +959,10 @@ class AuditoriaDatabase {
       this.historico = histRaw ? JSON.parse(histRaw) : [];
 
       const fotosRaw = localStorage.getItem(STORAGE_KEY_FOTOS);
-      this.fotosGrupos = fotosRaw ? (JSON.parse(fotosRaw) as FotoGrupoAuditoria[]).filter((f) => extrairCodigoRegional(f.regional) !== 'RJ') : [];
+      this.fotosGrupos = fotosRaw ? (JSON.parse(fotosRaw) as FotoGrupoAuditoria[]).filter(isRegistroDoDia24EmDiante) : [];
 
       const fotos10Raw = localStorage.getItem(STORAGE_KEY_FOTOS_10_CAIXAS);
-      this.registros10Fotos = fotos10Raw ? (JSON.parse(fotos10Raw) as Registro10FotosCaixa[]).filter((r) => extrairCodigoRegional(r.regional) !== 'RJ') : [];
+      this.registros10Fotos = fotos10Raw ? (JSON.parse(fotos10Raw) as Registro10FotosCaixa[]).filter(isRegistroDoDia24EmDiante) : [];
 
       const tentRaw = localStorage.getItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS);
       this.tentativasDuplicadas = tentRaw ? JSON.parse(tentRaw) : [];
@@ -994,11 +994,11 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados);
       }
 
-      // Carregar lotes finalizados (com higienização de RJ e remoção de registros de 23/09 ou anteriores)
+      // Carregar lotes finalizados (com remoção de registros de 23/09 ou anteriores)
       const lotesRaw = localStorage.getItem(STORAGE_KEY_LOTES_FINALIZADOS);
       this.lotesFinalizados = lotesRaw
         ? (JSON.parse(lotesRaw) as RegistroLoteFinalizado[]).filter(
-            (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+            (l) => isRegistroDoDia24EmDiante(l)
           )
         : [];
 
@@ -1046,14 +1046,14 @@ class AuditoriaDatabase {
       }
 
       // Carregar colaborador ativo da sessão
-      const colabRaw = sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
+      const colabRaw = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO) : null) || localStorage.getItem(STORAGE_KEY_COLABORADOR_ATIVO);
       this.colaboradorAtivo = colabRaw || null;
 
       // Limpeza de sessão legada no localStorage para garantir que entrar no sistema sempre exija login
       localStorage.removeItem('solutions_auditoria_sessao');
 
       // Verificar se há sessão ativa apenas na aba atual (sessionStorage)
-      const sess = sessionStorage.getItem('solutions_auditoria_sessao');
+      const sess = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('solutions_auditoria_sessao') : null;
       if (sess) {
         try {
           const parsed = JSON.parse(sess);
@@ -1106,27 +1106,27 @@ class AuditoriaDatabase {
     if (this.limpezaEmAndamento) return false;
     let recuperou = false;
     try {
-      // 0. Expulso compulsório e preventivo no IndexedDB Dexie:
-      // Excluir qualquer produto ou lote da RJ ou anterior a 24/09/2026
+      // 0. Expurgo compulsório e preventivo no IndexedDB Dexie:
+      // Excluir qualquer produto ou lote anterior a 24/09/2026 (23/09 e anteriores)
       try {
         const todosProdsDexie = await idb.produtos.toArray();
         const prodsExpurgar = (todosProdsDexie || []).filter(
-          (p) => extrairCodigoRegional(p.regional) === 'RJ' || !isRegistroDoDia24EmDiante(p)
+          (p) => !isRegistroDoDia24EmDiante(p)
         );
         if (prodsExpurgar.length > 0) {
           await idb.produtos.bulkDelete(prodsExpurgar.map((p) => p.id));
-          console.log(`🧹 Expurgados ${prodsExpurgar.length} produtos de 23/09 ou RJ do IndexedDB Dexie.`);
+          console.log(`🧹 Expurgados ${prodsExpurgar.length} produtos de 23/09 ou anteriores do IndexedDB Dexie.`);
         }
       } catch (errCleanDexie) {}
 
       try {
         const todosLotesDexie = await idb.lotes_finalizados.toArray();
         const lotesExpurgar = (todosLotesDexie || []).filter(
-          (l) => extrairCodigoRegional(l.regional) === 'RJ' || !isRegistroDoDia24EmDiante(l)
+          (l) => !isRegistroDoDia24EmDiante(l)
         );
         if (lotesExpurgar.length > 0) {
           await idb.lotes_finalizados.bulkDelete(lotesExpurgar.map((l) => l.id));
-          console.log(`🧹 Expurgados ${lotesExpurgar.length} lotes de 23/09 ou RJ do IndexedDB Dexie.`);
+          console.log(`🧹 Expurgados ${lotesExpurgar.length} lotes de 23/09 ou anteriores do IndexedDB Dexie.`);
         }
       } catch (errCleanLotes) {}
 
@@ -1138,14 +1138,14 @@ class AuditoriaDatabase {
         } catch {}
 
         prodsDexie = (prodsDexie || []).filter(
-          (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+          (p) => isRegistroDoDia24EmDiante(p)
         );
 
         if (Array.isArray(prodsDexie) && prodsDexie.length > 0 && !this.limpezaEmAndamento) {
           this.produtos = prodsDexie;
           this.serialMap.clear();
           for (const p of this.produtos) {
-            if (!p.regional) p.regional = 'VIA VAREJO BA';
+            if (!p.regional) p.regional = p.regional_usuario || 'VIA VAREJO RJ';
             this.serialMap.set(p.serial.trim().toUpperCase(), p);
           }
           try {
@@ -1156,13 +1156,13 @@ class AuditoriaDatabase {
         } else {
           let idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
           idbProds = (idbProds || []).filter(
-            (p) => extrairCodigoRegional(p.regional) !== 'RJ' && isRegistroDoDia24EmDiante(p)
+            (p) => isRegistroDoDia24EmDiante(p)
           );
           if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
             this.produtos = idbProds;
             this.serialMap.clear();
             for (const p of this.produtos) {
-              if (!p.regional) p.regional = 'VIA VAREJO BA';
+              if (!p.regional) p.regional = p.regional_usuario || 'VIA VAREJO RJ';
               this.serialMap.set(p.serial.trim().toUpperCase(), p);
             }
             try {
@@ -1182,7 +1182,7 @@ class AuditoriaDatabase {
         } catch {}
 
         lotesDexie = (lotesDexie || []).filter(
-          (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+          (l) => isRegistroDoDia24EmDiante(l)
         );
 
         if (Array.isArray(lotesDexie) && lotesDexie.length > 0 && !this.limpezaEmAndamento) {
@@ -1195,7 +1195,7 @@ class AuditoriaDatabase {
         } else {
           let idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
           idbLotes = (idbLotes || []).filter(
-            (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
+            (l) => isRegistroDoDia24EmDiante(l)
           );
           if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
             this.lotesFinalizados = idbLotes;
@@ -1275,7 +1275,7 @@ class AuditoriaDatabase {
   private salvarTudo() {
     try {
       // 1. Gravação síncrona no LocalStorage (registros leves e metadados)
-      if (typeof window !== 'undefined' && window.localStorage) {
+      if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
         localStorage.setItem(STORAGE_KEY_USUARIOS, JSON.stringify(this.usuarios));
         localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify(this.historico));
@@ -1364,7 +1364,9 @@ class AuditoriaDatabase {
   setUsuarioAtual(u: Usuario | null) {
     this.usuarioAtual = u;
     if (u) {
-      sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('solutions_auditoria_sessao', JSON.stringify(u));
+      }
       // CORREÇÃO 1 — Sincronização automática após login buscando dados da API central
       const isTestEnv = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
       if (typeof window !== 'undefined' && !isTestEnv) {
@@ -1373,10 +1375,14 @@ class AuditoriaDatabase {
         }, 50);
       }
     } else {
-      sessionStorage.removeItem('solutions_auditoria_sessao');
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('solutions_auditoria_sessao');
+      }
       this.limparColaboradorAtivo();
     }
-    localStorage.removeItem('solutions_auditoria_sessao');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('solutions_auditoria_sessao');
+    }
   }
 
   // =========================================================================
@@ -4720,13 +4726,18 @@ class AuditoriaDatabase {
       try {
         const params = new URLSearchParams();
         params.set('_t', String(Date.now()));
+        const isUserAdmin = !this.usuarioAtual || this.usuarioAtual.perfil === 'ADMINISTRADOR' || this.usuarioAtual.perfil === 'SUPER_ADMIN';
         if (this.usuarioAtual?.perfil) params.set('perfil', this.usuarioAtual.perfil);
-        if (this.usuarioAtual?.regional) params.set('regional', this.usuarioAtual.regional);
+        if (isUserAdmin) {
+          params.set('regional', 'TODAS');
+        } else if (this.usuarioAtual?.regional) {
+          params.set('regional', this.usuarioAtual.regional);
+        }
 
         const urlProds = obterApiUrl(`/api/central/produtos?${params.toString()}`);
         const headers: Record<string, string> = {
           'x-user-perfil': this.usuarioAtual?.perfil || 'ADMINISTRADOR',
-          'x-user-regional': this.usuarioAtual?.regional || 'TODAS',
+          'x-user-regional': isUserAdmin ? 'TODAS' : (this.usuarioAtual?.regional || 'TODAS'),
         };
         const token = typeof window !== 'undefined' ? sessionStorage.getItem('solutions_auth_session_token_v1') : null;
         if (token) {
@@ -5034,9 +5045,9 @@ class AuditoriaDatabase {
     // Se estiver em processo de limpeza, não mesclar nada
     if (this.limpezaEmAndamento) return false;
 
-    // Higienização de entrada: rejeita qualquer produto que seja de RJ ou anterior a 24/09/2026
+    // Higienização de entrada: rejeita qualquer produto anterior a 24/09/2026
     const produtosCentralValidos = (produtosCentral || []).filter(
-      (cp) => extrairCodigoRegional(cp.regional) !== 'RJ' && isRegistroDoDia24EmDiante(cp)
+      (cp) => isRegistroDoDia24EmDiante(cp)
     );
 
     // Mapas de busca rápida para produtos da central
@@ -5052,14 +5063,7 @@ class AuditoriaDatabase {
       const regCod = extrairCodigoRegional(p.regional);
       const chave = `${regCod}:::${p.serial.trim().toUpperCase()}`;
 
-      // Regra 1: RJ foi 100% zerada por determinação da diretoria
-      if (regCod === 'RJ') {
-        this.serialMap.delete(p.serial.trim().toUpperCase());
-        alterou = true;
-        continue;
-      }
-
-      // Regra 1.1: Expurgo compulsório de qualquer registro de 23/09/2026 ou anterior
+      // Regra 1: Expurgo compulsório de qualquer registro de 23/09/2026 ou anterior
       if (!isRegistroDoDia24EmDiante(p)) {
         this.serialMap.delete(p.serial.trim().toUpperCase());
         alterou = true;
@@ -5067,7 +5071,7 @@ class AuditoriaDatabase {
       }
 
       // Regra 2: Para BA, manter estritamente os 64 produtos oficiais registrados hoje (nuvem central)
-      if (regCod === 'BA') {
+      if (regCod === 'BA' && produtosCentralValidos.length > 0) {
         if (!chavesCentral.has(chave) && !seriaisCentral.has(p.serial.trim().toUpperCase())) {
           this.serialMap.delete(p.serial.trim().toUpperCase());
           alterou = true;
@@ -5076,7 +5080,7 @@ class AuditoriaDatabase {
       }
 
       // Regra 3: Para outras regionais, se estava como ENVIADO e não está na central, remover
-      if (regCod !== 'BA' && (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO')) {
+      if (regCod !== 'BA' && (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO') && produtosCentralValidos.length > 0) {
         if (!chavesCentral.has(chave) && !seriaisCentral.has(p.serial.trim().toUpperCase())) {
           this.serialMap.delete(p.serial.trim().toUpperCase());
           alterou = true;
@@ -5096,7 +5100,6 @@ class AuditoriaDatabase {
 
     for (const cp of produtosCentralValidos) {
       const cpRegCod = extrairCodigoRegional(cp.regional);
-      if (cpRegCod === 'RJ') continue; // RJ é estritamente 0
 
       if (cp.lacre_seguranca && cp.numero_caixa) {
         this.definirLacreCaixa(cp.numero_caixa, cp.lacre_seguranca, cp.regional);
@@ -5157,20 +5160,8 @@ class AuditoriaDatabase {
   mesclarFotosCentral(fotosCentral: FotoGrupoAuditoria[]): boolean {
     let alterou = false;
 
-    // Purge RJ fotos
-    const fotosMantidas = this.fotosGrupos.filter((f) => extrairCodigoRegional(f.regional) !== 'RJ');
-    if (fotosMantidas.length !== this.fotosGrupos.length) {
-      this.fotosGrupos = fotosMantidas;
-      alterou = true;
-    }
-    const reg10Mantidos = this.registros10Fotos.filter((r) => extrairCodigoRegional(r.regional) !== 'RJ');
-    if (reg10Mantidos.length !== this.registros10Fotos.length) {
-      this.registros10Fotos = reg10Mantidos;
-      alterou = true;
-    }
-
     for (const cf of fotosCentral) {
-      if (extrairCodigoRegional(cf.regional) === 'RJ') continue;
+      if (!isRegistroDoDia24EmDiante(cf)) continue;
       const cfRegCod = extrairCodigoRegional(cf.regional);
       const idx = this.fotosGrupos.findIndex(
         (f) =>
@@ -5280,26 +5271,22 @@ class AuditoriaDatabase {
   mesclarLotesCentral(lotesCentral: RegistroLoteFinalizado[]): boolean {
     let alterou = false;
 
-    // Higienização de entrada: rejeita qualquer lote que seja de RJ ou anterior a 24/09/2026
+    // Higienização de entrada: rejeita qualquer lote anterior a 24/09/2026
     const lotesCentralValidos = (lotesCentral || []).filter(
-      (cl) => extrairCodigoRegional(cl.regional) !== 'RJ' && isRegistroDoDia24EmDiante(cl)
+      (cl) => isRegistroDoDia24EmDiante(cl)
     );
 
-    // Reconciliar lotes finalizados: RJ zerada e BA com apenas os lotes oficiais da nuvem central
+    // Reconciliar lotes finalizados
     const lotesKeysCentral = new Set(
       lotesCentralValidos.map((l) => `${extrairCodigoRegional(l.regional)}:::${(l.numero_lote || '').trim().toUpperCase()}`)
     );
     const lotesFiltrados = this.lotesFinalizados.filter((l) => {
       const regCod = extrairCodigoRegional(l.regional);
-      if (regCod === 'RJ') {
-        alterou = true;
-        return false;
-      }
       if (!isRegistroDoDia24EmDiante(l)) {
         alterou = true;
         return false;
       }
-      if (regCod === 'BA') {
+      if (regCod === 'BA' && lotesCentralValidos.length > 0) {
         const k = `${regCod}:::${(l.numero_lote || '').trim().toUpperCase()}`;
         const keep = lotesKeysCentral.has(k);
         if (!keep) alterou = true;
@@ -5314,7 +5301,6 @@ class AuditoriaDatabase {
 
     for (const cl of lotesCentralValidos) {
       const clRegCod = extrairCodigoRegional(cl.regional);
-      if (clRegCod === 'RJ') continue;
 
       const idx = this.lotesFinalizados.findIndex(
         (l) =>

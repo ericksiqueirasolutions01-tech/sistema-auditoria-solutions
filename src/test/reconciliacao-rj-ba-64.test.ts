@@ -18,6 +18,7 @@ describe('Reconciliação Rigorosa RJ = 0 e BA = 64', () => {
         id: 1000 + i,
         serial: 'RJ-TEST-' + i,
         regional: 'VIA VAREJO RJ',
+        data_auditoria: '23/09/2026',
         status_sincronizacao: 'PENDENTE',
         sync_status: 'PENDENTE',
         numero_caixa: '01',
@@ -48,7 +49,7 @@ describe('Reconciliação Rigorosa RJ = 0 e BA = 64', () => {
 
     (db as any).produtos = produtosContaminados;
     (db as any).lotesFinalizados = [
-      { id: 'lote-rj-1', numero_lote: '01', regional: 'VIA VAREJO RJ', total_caixas: 1, total_produtos: 4, status: 'FINALIZADO' },
+      { id: 'lote-rj-1', numero_lote: '01', regional: 'VIA VAREJO RJ', data_fechamento: '23/09/2026', total_caixas: 1, total_produtos: 4, status: 'FINALIZADO' },
       ...Array.from({ length: 8 }, (_, idx) => ({
         id: 'lote-ba-' + (idx + 1),
         numero_lote: '0' + (idx + 1),

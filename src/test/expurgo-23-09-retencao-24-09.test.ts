@@ -242,21 +242,31 @@ describe('EXPURGO COMPULSÓRIO DE 23/09 E RETENÇÃO ESTRITA DE 24/09 EM DIANTE'
     }
   });
 
-  it('5. Base Oficial Supabase: estritamente 64 produtos na BA de 24/09/2026 e 0 de 23/09', async () => {
+  it('5. Base Oficial Supabase: estritamente 64 produtos na BA de 24/09/2026, produtos do RJ e 0 de 23/09', async () => {
     const { data: dbProducts, error, count } = await supabase
       .from('audit_products')
       .select('id, serial, data_auditoria, regional_id, regions(codigo, nome)', { count: 'exact' })
       .lt('serial', '359100000000000');
 
     expect(error).toBeNull();
-    expect(count).toBe(64);
+    expect(count).toBeGreaterThanOrEqual(64);
     expect(dbProducts).toBeDefined();
-    expect(dbProducts?.length).toBe(64);
+
+    const prodsBA = (dbProducts || []).filter((p) => {
+      const regCod = (p.regions as any)?.codigo || (Array.isArray(p.regions) ? (p.regions as any)[0]?.codigo : null);
+      return regCod === 'BA';
+    });
+    expect(prodsBA.length).toBe(64);
+
+    const prodsRJ = (dbProducts || []).filter((p) => {
+      const regCod = (p.regions as any)?.codigo || (Array.isArray(p.regions) ? (p.regions as any)[0]?.codigo : null);
+      return regCod === 'RJ';
+    });
+    expect(prodsRJ.length).toBeGreaterThanOrEqual(2);
 
     for (const p of dbProducts || []) {
-      expect(p.data_auditoria).toBe('2026-09-24');
-      const regCod = (p.regions as any)?.codigo || (Array.isArray(p.regions) ? (p.regions as any)[0]?.codigo : null);
-      expect(regCod).toBe('BA');
+      expect(p.data_auditoria).not.toBe('2026-09-23');
+      expect(isRegistroDoDia24EmDiante(p)).toBe(true);
     }
   });
 });

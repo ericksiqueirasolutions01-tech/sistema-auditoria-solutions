@@ -124,6 +124,10 @@ export const PainelAdmin: React.FC = () => {
   const [limpandoBase, setLimpandoBase] = useState(false);
   const [alertaLimpeza, setAlertaLimpeza] = useState<string | null>(null);
 
+  // Exclusão de Produtos com IMEI Duplicado no Servidor
+  const [mostrarModalDuplicados, setMostrarModalDuplicados] = useState(false);
+  const [excluindoDuplicados, setExcluindoDuplicados] = useState(false);
+
   // Pastas da Galeria
   const [pastaRegionalAberta, setPastaRegionalAberta] = useState<Record<string, boolean>>({
     'VIA VAREJO RJ': true,
@@ -155,6 +159,7 @@ export const PainelAdmin: React.FC = () => {
         else if (mostrarModalExcluirLote) setMostrarModalExcluirLote(false);
         else if (produtoParaEditar) setProdutoParaEditar(null);
         else if (mostrarModalLimpeza) setMostrarModalLimpeza(false);
+        else if (mostrarModalDuplicados) setMostrarModalDuplicados(false);
         else if (mostrarModalImportarPlanilha) setMostrarModalImportarPlanilha(false);
         else if (mostrarModalHistoricoPlanilhas) setMostrarModalHistoricoPlanilhas(false);
       }
@@ -168,6 +173,7 @@ export const PainelAdmin: React.FC = () => {
     mostrarModalExcluirLote,
     produtoParaEditar,
     mostrarModalLimpeza,
+    mostrarModalDuplicados,
     mostrarModalImportarPlanilha,
     mostrarModalHistoricoPlanilhas,
   ]);
@@ -256,6 +262,23 @@ export const PainelAdmin: React.FC = () => {
       alert('Erro ao resetar base operacional: ' + msg);
     } finally {
       setLimpandoBase(false);
+    }
+  };
+
+  const executarExclusaoDuplicados = async () => {
+    setExcluindoDuplicados(true);
+    try {
+      const res = await db.excluirProdutosImeiDuplicadoServidor();
+      setAlertaLimpeza(res.mensagem);
+      setUltimaAtualizacaoServidor(new Date().toLocaleTimeString('pt-BR'));
+      setForcarAtualizacao((v) => v + 1);
+      setMostrarModalDuplicados(false);
+      setTimeout(() => setAlertaLimpeza(null), 8000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert('Erro ao excluir produtos duplicados: ' + msg);
+    } finally {
+      setExcluindoDuplicados(false);
     }
   };
 
@@ -1310,6 +1333,20 @@ export const PainelAdmin: React.FC = () => {
               <Trash2 className="w-4 h-4" />
               Limpar Base de Testes
             </button>
+
+            {/* Botão de Exclusão de IMEIs Duplicados do Servidor */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setMostrarModalDuplicados(true)}
+                disabled={excluindoDuplicados}
+                className="bg-amber-600 hover:bg-amber-700 active:scale-95 disabled:opacity-60 text-white px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                title="Excluir produtos com IMEI duplicado do servidor central mantendo 1 único registro oficial"
+              >
+                <ShieldAlert className="w-4 h-4" />
+                <span>{excluindoDuplicados ? 'Excluindo...' : 'Excluir IMEIs Duplicados'}</span>
+              </button>
+            )}
 
             {/* Importar Planilha Regional de Referência (ADMIN ONLY) */}
             {isAdmin && (
@@ -3701,6 +3738,80 @@ export const PainelAdmin: React.FC = () => {
               >
                 <Trash2 className="w-4 h-4" />
                 {limpandoBase ? 'Limpando Base...' : 'Confirmar e Limpar Toda a Base'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmação de Exclusão de Produtos com IMEI Duplicado do Servidor */}
+      {mostrarModalDuplicados && (
+        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border-2 border-amber-500 space-y-4">
+            <div className="flex items-center justify-between border-b border-amber-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                    Excluir IMEIs Duplicados do Servidor
+                  </h3>
+                  <span className="text-xs font-bold text-amber-700">
+                    Deduplicação Central Definitiva (Supabase + Local)
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarModalDuplicados(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 text-slate-900 text-xs font-medium space-y-2">
+              <p className="font-bold text-amber-950">
+                Esta ação fará uma varredura completa no servidor central (Supabase PostgreSQL e Fallback) para:
+              </p>
+              <div className="bg-white/90 p-3 rounded-lg border border-amber-200 space-y-1.5 text-xs text-slate-800">
+                <div>• Identificar qualquer produto com <strong>IMEI / Serial duplicado</strong> na base central.</div>
+                <div>• Preservar o registro <strong>original e oficial</strong> mais antigo.</div>
+                <div>• Excluir permanentemente registros redundantes e limpar logs de conflito.</div>
+                <div>• Liberar o lote e desimpedir sincronizações bloqueadas.</div>
+              </div>
+              <p className="text-[11px] text-emerald-800 font-bold">
+                ✓ Os 64 produtos oficiais da Regional BA permanecem 100% seguros e intactos.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setMostrarModalDuplicados(false)}
+                disabled={excluindoDuplicados}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executarExclusaoDuplicados}
+                disabled={excluindoDuplicados}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase shadow-lg shadow-amber-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {excluindoDuplicados ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Confirmar Exclusão de Duplicados
+                  </>
+                )}
               </button>
             </div>
           </div>

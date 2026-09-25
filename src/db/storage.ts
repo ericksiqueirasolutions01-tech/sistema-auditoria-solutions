@@ -24,6 +24,7 @@ import {
   DetalheImeiDuplicado,
   LogTentativaDuplicado,
   ResultadoSincronizacao,
+  ResultadoExclusaoDuplicadosServidor,
   StatusConexao,
   LogAcessoUsuario,
   ConfiguracaoInicialInfo,
@@ -1792,6 +1793,100 @@ class AuditoriaDatabase {
       this.notificarMudanca('sync');
     }
     return { removidos: count };
+  }
+
+  async excluirProdutosImeiDuplicadoServidor(): Promise<ResultadoExclusaoDuplicadosServidor> {
+    const url = obterApiUrl('/api/central/excluir-duplicados');
+    let resServidor: ResultadoExclusaoDuplicadosServidor = {
+      sucesso: false,
+      mensagem: '',
+      removidos: 0,
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          solicitante: this.usuarioAtual?.nome || 'Administrador',
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      if (response.ok) {
+        resServidor = await response.json();
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        resServidor = {
+          sucesso: false,
+          mensagem: errJson.erro || `Erro HTTP ${response.status} ao contatar servidor`,
+          removidos: 0,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[Storage] Falha ao chamar /api/central/excluir-duplicados via fetch:', err);
+      resServidor = {
+        sucesso: false,
+        mensagem: err?.message || 'Falha de conexão com o servidor',
+        removidos: 0,
+      };
+    }
+
+    // Limpeza de duplicados e inconsistências locais (Memória, IndexedDB e Cache)
+    let removidosLocais = 0;
+
+    // 1. Remover itens locais com status ERRO_DUPLICADO
+    for (let i = this.produtos.length - 1; i >= 0; i--) {
+      const p = this.produtos[i];
+      if (p.status_sincronizacao === 'ERRO_DUPLICADO') {
+        this.produtos.splice(i, 1);
+        this.serialMap.delete(p.serial.trim().toUpperCase());
+        removidosLocais++;
+      }
+    }
+
+    // 2. Garantir unicidade estrita no banco local
+    const vistos = new Set<string>();
+    for (let i = this.produtos.length - 1; i >= 0; i--) {
+      const p = this.produtos[i];
+      const key = (p.imei || p.serial).trim().toUpperCase();
+      if (vistos.has(key)) {
+        this.produtos.splice(i, 1);
+        removidosLocais++;
+      } else {
+        vistos.add(key);
+      }
+    }
+
+    // 3. Limpar logs de tentativas duplicadas locais
+    this.tentativasDuplicadas = [];
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS);
+      } catch {}
+    }
+    if (idb && idb.tentativas_duplicadas) {
+      try {
+        await idb.tentativas_duplicadas.clear();
+      } catch {}
+    }
+
+    this.salvarTudo();
+    this.notificarMudanca('produtos');
+    this.notificarMudanca('sync');
+    this.notificarMudanca('tentativas-duplicadas');
+
+    return {
+      sucesso: resServidor.sucesso !== false,
+      mensagem:
+        resServidor.mensagem ||
+        (removidosLocais > 0
+          ? `Expurgo concluído: ${removidosLocais} item(ns) duplicado(s) removido(s) localmente.`
+          : 'Nenhum produto com IMEI duplicado encontrado no servidor central. Base 100% íntegra e sem duplicidades.'),
+      removidos: Math.max(resServidor.removidos || 0, removidosLocais),
+      duplicadosIdentificados: resServidor.duplicadosIdentificados || [],
+      totalRestante: resServidor.totalRestante ?? this.produtos.length,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   // Product Audit Core

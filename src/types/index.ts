@@ -67,6 +67,16 @@ export interface ResultadoSincronizacao {
   mensagem: string;
 }
 
+export interface ResultadoExclusaoDuplicadosServidor {
+  sucesso: boolean;
+  mensagem: string;
+  removidos: number;
+  duplicadosIdentificados?: any[];
+  totalRestante?: number;
+  timestamp?: string;
+  erro?: string;
+}
+
 export type DeviceStatus = 'ATIVO' | 'PENDENTE' | 'REVOGADO';
 
 export interface ComputadorInfo {

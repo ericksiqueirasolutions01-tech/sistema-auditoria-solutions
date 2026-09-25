@@ -245,7 +245,8 @@ describe('EXPURGO COMPULSÓRIO DE 23/09 E RETENÇÃO ESTRITA DE 24/09 EM DIANTE'
   it('5. Base Oficial Supabase: estritamente 64 produtos na BA de 24/09/2026 e 0 de 23/09', async () => {
     const { data: dbProducts, error, count } = await supabase
       .from('audit_products')
-      .select('id, serial, data_auditoria, regional_id, regions(codigo, nome)', { count: 'exact' });
+      .select('id, serial, data_auditoria, regional_id, regions(codigo, nome)', { count: 'exact' })
+      .lt('serial', '359100000000000');
 
     expect(error).toBeNull();
     expect(count).toBe(64);

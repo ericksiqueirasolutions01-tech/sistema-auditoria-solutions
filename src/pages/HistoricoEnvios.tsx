@@ -37,12 +37,34 @@ export const HistoricoEnvios: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [duplicadosAlerta, setDuplicadosAlerta] = useState<DetalheImeiDuplicado[] | null>(null);
   const [totalEnviadosAlerta, setTotalEnviadosAlerta] = useState<number>(0);
+  const [excluindoDuplicados, setExcluindoDuplicados] = useState(false);
 
   useEffect(() => {
     return db.onMudanca(() => {
       setRefreshKey((k) => k + 1);
     });
   }, []);
+
+  const handleExcluirDuplicadosServidor = async () => {
+    if (
+      !confirm(
+        'Deseja excluir todos os produtos com IMEI duplicado do servidor central?\nCada IMEI será mantido de forma única e oficial, e os logs de conflito serão redefinidos.'
+      )
+    ) {
+      return;
+    }
+    setExcluindoDuplicados(true);
+    try {
+      const res = await db.excluirProdutosImeiDuplicadoServidor();
+      setNotificacao(res.mensagem);
+      setRefreshKey((k) => k + 1);
+    } catch {
+      setNotificacao('Erro ao conectar ao servidor central para exclusão de duplicados.');
+    } finally {
+      setExcluindoDuplicados(false);
+      setTimeout(() => setNotificacao(null), 6000);
+    }
+  };
 
   const historicoEnvios = db.listarHistoricoEnvios(regionalFiltro);
   const computadores = db.listarComputadoresCadastrados(regionalFiltro);
@@ -446,6 +468,18 @@ export const HistoricoEnvios: React.FC = () => {
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                 <span>Exportar Excel</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleExcluirDuplicadosServidor}
+                disabled={excluindoDuplicados}
+                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Excluir produtos com IMEI duplicado do servidor central mantendo 1 único registro oficial"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{excluindoDuplicados ? 'Excluindo...' : 'Excluir IMEIs Duplicados (Servidor)'}</span>
               </button>
             )}
             {isAdmin && tentativasDuplicadas.length > 0 && (

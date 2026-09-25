@@ -423,3 +423,4 @@ export const ModalGerenciarPendencias: React.FC<ModalGerenciarPendenciasProps> =
     </div>
   );
 };
+

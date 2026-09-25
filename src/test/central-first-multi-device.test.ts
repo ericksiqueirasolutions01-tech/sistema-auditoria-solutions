@@ -6,7 +6,7 @@ import referenciaImportHandler from '../../api/central/referencia-import';
 import referenciaLookupHandler from '../../api/central/referencia-lookup';
 import { createClient } from '@supabase/supabase-js';
 
-const TEST_IMEI = '358999000111222';
+const TEST_IMEI = '359999000111222';
 const TEST_REGIONAL = 'VIA VAREJO BA';
 
 const SUPABASE_FALLBACK_URL = 'https://chvfzqekkmongsrqbwev.supabase.co';

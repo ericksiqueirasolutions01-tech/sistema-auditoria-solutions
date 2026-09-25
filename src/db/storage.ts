@@ -7261,6 +7261,7 @@ class AuditoriaDatabase {
         id: gerarUUID(),
         regional: itemRegional,
         import_batch_id: batchId,
+        imei: imeiNorm,
         imei_normalized: imeiNorm,
         sku: sku || 'SEM SKU',
         model_description: modelDesc || 'MODELO NÃO ESPECIFICADO',
@@ -7364,6 +7365,7 @@ class AuditoriaDatabase {
       try {
         const urlImport = obterApiUrl('/api/central/referencia-import');
         const payloadImport = {
+          batchId: newBatch.id,
           regional,
           fileName,
           usuario: this.usuarioAtual,
@@ -7379,6 +7381,11 @@ class AuditoriaDatabase {
           sincronizadoOnline = true;
           if (data.batch?.version) {
             newBatch.version = data.batch.version;
+          }
+          if (data.batch?.id && data.batch.id !== newBatch.id) {
+            newBatch.id = data.batch.id;
+            validRefs.forEach((r) => (r.import_batch_id = data.batch.id));
+            this.salvarTudo();
           }
         } else {
           erroOnline = data?.erro || `Servidor retornou erro HTTP ${res.status}`;

@@ -2,6 +2,8 @@
 // Prompt Mestre: Importação e ativação exclusiva de administradores com HTTP 403 para não-admins.
 // NUNCA processa nem persiste a coluna I (Data da NF).
 
+export const maxDuration = 60;
+
 import fs from 'fs';
 import path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -25,6 +27,18 @@ function getSupabaseServiceKey(): string {
 }
 
 function isSupabaseServerConfigured(): boolean {
+  if (
+    typeof process !== 'undefined' &&
+    (process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.VITEST) ||
+      Boolean(process.env.CI) ||
+      Boolean(process.env.GITHUB_ACTIONS))
+  ) {
+    if (process.env.FORCE_TEST_SERVER_SYNC === 'true') {
+      return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
+    }
+    return false;
+  }
   return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
 }
 
@@ -341,18 +355,29 @@ export default async function handler(req: any, res: any) {
   const validRefs: any[] = [];
   const exemplosInvalidos: { linha: number; imei: string; motivo: string }[] = [];
 
-  const batchId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const rawBatchId = req.body?.batchId ? String(req.body.batchId).trim() : '';
+  const batchId = uuidRegex.test(rawBatchId)
+    ? rawBatchId
+    : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
 
   itens.forEach((item: any, idx: number) => {
     const rowNum = item.source_row || idx + 2;
-    const imeiNorm = normalizeImei(item.imei);
+    const rawImei = item.imei_normalized || item.imei || item.serial || item.IMEI || '';
+    const imeiNorm = normalizeImei(rawImei);
 
     if (!imeiNorm || !/^\d{15}$/.test(imeiNorm)) {
       imeisInvalidos++;
       if (exemplosInvalidos.length < 10) {
         exemplosInvalidos.push({
           linha: rowNum,
-          imei: String(item.imei || ''),
+          imei: String(rawImei || item.imei || ''),
           motivo: 'IMEI não possui exatamente 15 dígitos numéricos.',
         });
       }
@@ -372,15 +397,23 @@ export default async function handler(req: any, res: any) {
     }
     seenImeis.add(imeiNorm);
 
-    const sku = (item.sku ? String(item.sku) : '').trim();
+    const sku = (item.sku ? String(item.sku) : item.SKU ? String(item.SKU) : '').trim();
     if (!sku) linhasSkuVazio++;
 
-    const modelDesc = (item.model_description ? String(item.model_description) : '').trim();
+    const modelDesc = (
+      item.model_description ? String(item.model_description) :
+      item.descricao ? String(item.descricao) :
+      item.DESCRICAO ? String(item.DESCRICAO) : ''
+    ).trim();
     if (!modelDesc) linhasModeloVazio++;
 
-    const dealerRaw = item.dealer !== undefined && item.dealer !== null ? String(item.dealer).trim() : '';
+    const dealerRaw = item.dealer_raw !== undefined && item.dealer_raw !== null
+      ? String(item.dealer_raw).trim()
+      : item.dealer !== undefined && item.dealer !== null
+      ? String(item.dealer).trim()
+      : '';
     if (!dealerRaw) linhasDealerVazio++;
-    const dealerNorm = normalizeDealer(dealerRaw);
+    const dealerNorm = item.dealer_normalized || normalizeDealer(dealerRaw);
 
     // Coluna H / NFOrigem Samsung; Coluna I (Data da NF) omitida; Coluna J (Regional)
     const itemRegional = (item.regional ? String(item.regional).trim().toUpperCase() : '') || regional;
@@ -396,9 +429,15 @@ export default async function handler(req: any, res: any) {
         : originInvoice;
     const brand = inferirFabricante(modelDesc, item.brand, sku);
 
+    const itemId = item.id && String(item.id).trim()
+      ? String(item.id).trim()
+      : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `ref-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+
     imeisValidos++;
     validRefs.push({
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ref-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
+      id: itemId,
       regional: itemRegional,
       import_batch_id: batchId,
       imei_normalized: imeiNorm,
@@ -470,9 +509,9 @@ export default async function handler(req: any, res: any) {
       const { error: batchErr } = await supabase.from('inventory_import_batches').insert(newBatchData);
       if (batchErr) throw batchErr;
 
-      // Inserir referências em chunks de 100
-      for (let i = 0; i < validRefs.length; i += 100) {
-        const chunk = validRefs.slice(i, i + 100);
+      // Inserir referências em chunks de 250
+      for (let i = 0; i < validRefs.length; i += 250) {
+        const chunk = validRefs.slice(i, i + 250);
         let { error: chunkErr } = await supabase.from('regional_inventory_reference').insert(chunk);
         if (chunkErr && (chunkErr.message?.includes('nf_origem_samsung') || chunkErr.code === 'PGRST204')) {
           const fallbackChunk = chunk.map(({ nf_origem_samsung, ...rest }: any) => rest);

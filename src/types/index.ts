@@ -553,6 +553,7 @@ export interface RegionalInventoryReference {
   regional_id?: string;
   regional: string; // Ex: 'VIA VAREJO BA' ou 'BA'
   import_batch_id: string; // UUID do batch de importação
+  imei?: string; // Compatibilidade com payloads que aceitam imei
   imei_normalized: string; // String com exatamente 15 dígitos
   sku: string;
   model_description: string;

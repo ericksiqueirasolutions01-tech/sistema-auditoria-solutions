@@ -690,6 +690,57 @@ describe('SUÍTE COMPLETA: Importação Regional, Referência de IMEIs e Lotes D
 
       expect(res.statusCode).toBe(204);
     });
+
+    it('endpoint deve aceitar itens com imei_normalized (formato enviado pelo cliente) e preservar batchId', async () => {
+      const handlerModule = await import('../../api/central/referencia-import');
+      const handler = handlerModule.default;
+
+      const testUuid = '11111111-2222-4333-8444-555555555555';
+      const req = {
+        method: 'POST',
+        headers: {},
+        body: {
+          batchId: testUuid,
+          usuario: { perfil: 'ADMINISTRADOR', nome: 'Admin Master', login: 'admin' },
+          regional: 'VIA VAREJO RJ',
+          fileName: 'Cópia de CB Consolidado.xlsx',
+          itens: [
+            {
+              id: 'item-uuid-rj-1',
+              imei_normalized: '357847400000001',
+              sku: 'SM-S928B',
+              model_description: 'Galaxy S24 Ultra 512GB',
+              brand: 'SAMSUNG',
+              origin_invoice: 'NF-RJ-100',
+              dealer_raw: 'SAMSUNG ELETRONICA DA AMAZONIA LTDA',
+              source_file_name: 'Cópia de CB Consolidado.xlsx',
+              source_row: 2,
+            },
+            {
+              id: 'item-uuid-rj-2',
+              imei: '357847400000002',
+              sku: 'SM-A546E',
+              model_description: 'Galaxy A54 5G 128GB',
+              brand: 'SAMSUNG',
+              dealer: 'MAGAZINE LUIZA',
+              source_file_name: 'Cópia de CB Consolidado.xlsx',
+              source_row: 3,
+            }
+          ],
+        },
+      };
+
+      const res = createMockRes();
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body?.sucesso).toBe(true);
+      expect(res.body?.totalImportados).toBe(2);
+      expect(res.body?.batch?.id).toBe(testUuid);
+      expect(res.body?.batch?.regional).toBe('VIA VAREJO RJ');
+      expect(res.body?.metricas?.imeisValidos).toBe(2);
+      expect(res.body?.metricas?.imeisInvalidos).toBe(0);
+    });
   });
 
   // =========================================================================

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { db, normalizeDatabaseDate, formatarDataParaExibicaoBR } from '../db/storage';
 import syncHandler from '../../api/central/sync';
 import produtosHandler from '../../api/central/produtos';
@@ -14,11 +14,19 @@ const SUPABASE_FALLBACK_KEY = 'sb_publishable_F-Lc83bJD87AokRbHPmltg_hp2q6Ghj';
 const supabase = createClient(SUPABASE_FALLBACK_URL, SUPABASE_FALLBACK_KEY);
 
 describe('CORREÇÃO 6 — Teste de Integridade: Arquitetura Central-First Multi-Dispositivos', () => {
+  beforeAll(async () => {
+    process.env.FORCE_TEST_SERVER_SYNC = 'true';
+    await supabase.from('audit_products').delete().eq('serial', TEST_IMEI);
+    await supabase.from('regional_inventory_reference').delete().eq('imei_normalized', TEST_IMEI);
+    await supabase.from('inventory_import_batches').delete().eq('file_name', 'teste_e2e_central_first.xlsx');
+  });
+
   afterAll(async () => {
     // Limpeza dos dados de teste no Supabase
     await supabase.from('audit_products').delete().eq('serial', TEST_IMEI);
     await supabase.from('regional_inventory_reference').delete().eq('imei_normalized', TEST_IMEI);
     await supabase.from('inventory_import_batches').delete().eq('file_name', 'teste_e2e_central_first.xlsx');
+    delete process.env.FORCE_TEST_SERVER_SYNC;
   });
 
   it('1. Admin importa uma base e persiste no banco central Supabase', async () => {

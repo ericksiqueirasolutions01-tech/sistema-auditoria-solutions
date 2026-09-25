@@ -171,6 +171,28 @@ export function formatarDataParaExibicaoBR(dataInput: any): string {
 }
 
 /**
+ * Normaliza o valor de NF de Origem Samsung para validação de homogeneidade de caixas.
+ * Valores ausentes ou nulos ('', 'SEM NF', 'NÃO LOCALIZADA NA BASE', etc.) são padronizados para ''.
+ */
+export function normalizarNfOrigem(nf?: string | null): string {
+  if (!nf) return '';
+  const clean = String(nf).trim().toUpperCase();
+  if (
+    clean === '' ||
+    clean === 'NÃO LOCALIZADA NA BASE' ||
+    clean === 'NAO LOCALIZADA NA BASE' ||
+    clean === 'SEM NF' ||
+    clean === 'N/A' ||
+    clean === 'NULL' ||
+    clean === 'UNDEFINED'
+  ) {
+    return '';
+  }
+  return clean;
+}
+
+
+/**
  * Catálogo Mestre de SKUs Conhecidos do Sistema
  * Mapeia SKU -> Marca Oficial
  */
@@ -1740,7 +1762,10 @@ class AuditoriaDatabase {
     const serialNorm = (item.serial || item.imei || '').trim().toUpperCase();
 
     // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8, 16)
-    const refLookup = this.consultarImeiReferencia(serialNorm, item.regional || (this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined));
+    const refLookup =
+      this.consultarImeiReferencia(serialNorm, item.regional) ||
+      this.consultarImeiReferencia(serialNorm, this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined) ||
+      this.consultarImeiReferencia(serialNorm);
 
     // A regional nunca deve ser digitada manualmente. Ela vem da base oficial de referência se encontrada.
     const regionalFinal =
@@ -3315,9 +3340,22 @@ class AuditoriaDatabase {
 
     // 3. REGRA MANDATÓRIA DE NF ORIGEM SAMSUNG: Uma caixa só pode conter produtos da mesma NFOrigem Samsung
     if (!ehCaixaZero && primeiroProduto) {
-      const nfExistente = (primeiroProduto.nf_origem_samsung || primeiroProduto.origin_invoice || primeiroProduto.numero_nf || primeiroProduto.nf_origem || '').trim().toUpperCase();
-      const nfNovo = (nf_origem_samsung || '').trim().toUpperCase();
-      if (nfExistente !== nfNovo) {
+      const nfExistente = normalizarNfOrigem(
+        primeiroProduto.nf_origem_samsung ||
+        primeiroProduto.origin_invoice ||
+        primeiroProduto.numero_nf ||
+        primeiroProduto.nf_origem
+      );
+      const nfNovo = normalizarNfOrigem(nf_origem_samsung);
+
+      if (nfExistente && nfNovo && nfExistente !== nfNovo) {
+        return {
+          compativel: false,
+          erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
+          configCaixa: this.obterConfiguracaoCaixa(caixa, regAlvo || undefined),
+        };
+      }
+      if ((nfExistente && !nfNovo) || (!nfExistente && nfNovo)) {
         return {
           compativel: false,
           erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
@@ -4021,31 +4059,46 @@ class AuditoriaDatabase {
       localStorage.setItem('solutions_base_zerada_timestamp', agora);
     }
 
-    // 3. Esvaziar completamente todas as estruturas em memória
-    this.produtos = [];
+    // 3. Esvaziar estruturas em memória preservando estritamente os 64 registros oficiais da regional BA de 24/09/2026
+    const produtosPreservadosBA = this.produtos.filter((p) => {
+      const regCod = extrairCodigoRegional(p.regional);
+      const dataStr = (p.data_auditoria || (p as any).data_hora || p.data_sincronizacao || '').trim();
+      const ehData2409 = dataStr.includes('24/09/2026') || dataStr.includes('2026-09-24');
+      return regCod === 'BA' && ehData2409;
+    });
+
+    const lotesPreservadosBA = this.lotesFinalizados.filter((l) => {
+      const regCod = extrairCodigoRegional(l.regional);
+      return regCod === 'BA' && (l.numero_lote === '01' || l.numero_lote === '1');
+    });
+
+    this.produtos = produtosPreservadosBA;
     this.serialMap.clear();
+    for (const p of this.produtos) {
+      this.serialMap.set(p.serial.trim().toUpperCase(), p);
+    }
     this.fotosGrupos = [];
     this.registros10Fotos = [];
     this.historico = [];
     this.tentativasDuplicadas = [];
     this.seriaisLimposDaTela.clear();
-    this.lotesFinalizados = [];
+    this.lotesFinalizados = lotesPreservadosBA;
     this.importBatches = [];
     this.regionalReferences = [];
     this.auditLots = [];
     this.referenceMap.clear();
     this.imeiToRefMap.clear();
-    this.salvarUltimoLote('01');
+    this.salvarUltimoLote(lotesPreservadosBA[0]?.numero_lote || '01');
 
-    // 4. Limpar completamente o LocalStorage
+    // 4. Salvar LocalStorage preservando BA oficial
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
       localStorage.setItem(STORAGE_KEY_FOTOS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_FOTOS_10_CAIXAS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_HISTORICO, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_HISTORICO_ENVIOS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
       localStorage.setItem('solutions_caixas_cadastradas_v1', JSON.stringify([]));
       localStorage.removeItem(STORAGE_KEY_SERIAIS_LIMPOS_TELA);
       localStorage.removeItem('solutions_ultima_sincronizacao');
@@ -4061,7 +4114,13 @@ class AuditoriaDatabase {
     if (typeof window !== 'undefined' && window.indexedDB) {
       try {
         await idb.produtos.clear();
+        if (this.produtos.length > 0) {
+          await idb.produtos.bulkPut(this.produtos);
+        }
         await idb.lotes_finalizados.clear();
+        if (this.lotesFinalizados.length > 0) {
+          await idb.lotes_finalizados.bulkPut(this.lotesFinalizados);
+        }
         await idb.fotos_evidencias.clear();
         if (idb.inventory_import_batches) await idb.inventory_import_batches.clear();
         if (idb.regional_inventory_reference) await idb.regional_inventory_reference.clear();
@@ -4080,11 +4139,11 @@ class AuditoriaDatabase {
       try {
         const cleanPayload = JSON.stringify({
           system: 'GRUPO SOLUTIONS AUDITORIA SAMSUNG',
-          produtos: [],
+          produtos: produtosPreservadosBA,
           fotos: [],
           historico_envios: [],
           tentativas_duplicadas: [],
-          lotes_finalizados: [],
+          lotes_finalizados: lotesPreservadosBA,
           reset_timestamp: agora,
           ultimaAtualizacao: agora,
         });
@@ -4106,21 +4165,13 @@ class AuditoriaDatabase {
       }
     }
 
-    // 7. Reconfirmar esvaziamento em memória e persistência para garantir 0 resíduos
-    this.produtos = [];
+    // 7. Reconfirmar esvaziamento em memória e persistência para garantir 0 resíduos além do BA preservado
+    this.produtos = produtosPreservadosBA;
     this.serialMap.clear();
-    this.fotosGrupos = [];
-    this.registros10Fotos = [];
-    this.historico = [];
-    this.tentativasDuplicadas = [];
-    this.seriaisLimposDaTela.clear();
-    this.lotesFinalizados = [];
-    this.importBatches = [];
-    this.regionalReferences = [];
-    this.auditLots = [];
-    this.referenceMap.clear();
-    this.imeiToRefMap.clear();
-    this.salvarUltimoLote('01');
+    for (const p of this.produtos) {
+      this.serialMap.set(p.serial.trim().toUpperCase(), p);
+    }
+    this.lotesFinalizados = lotesPreservadosBA;
 
     this.salvarTudo();
 
@@ -4135,9 +4186,13 @@ class AuditoriaDatabase {
     this.notificarMudanca('sync');
     this.notificarMudanca('dados');
 
+    const msgSucesso = produtosPreservadosBA.length > 0
+      ? `Base de dados limpa com sucesso. Preservados ${produtosPreservadosBA.length} registros oficiais da Regional BA (24/09/2026). Demais regionais zeradas.`
+      : 'Base de dados resetada com sucesso pelo Administrador: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.';
+
     return {
       sucesso: true,
-      mensagem: 'Base de dados resetada com sucesso pelo Administrador: 0 produtos, 0 caixas, 0 fotos, 0 sincronizações.',
+      mensagem: msgSucesso,
     };
   }
 
@@ -6223,16 +6278,19 @@ class AuditoriaDatabase {
         continue;
       }
 
+      const ehNaoLacrado = item.lacrado?.toUpperCase() === 'NÃO';
+      const caixaDestino = ehNaoLacrado ? 'Caixa 0' : item.caixa;
+
       const res = this.inserirProduto({
         modelo_produto: item.modelo,
         ean: item.ean || '7890000000000',
         serial: item.serial,
         data_auditoria: item.data || dataHoje,
-        numero_caixa: item.caixa,
+        numero_caixa: caixaDestino,
         regional: item.regional || this.usuarioAtual?.regional || 'VIA VAREJO RJ',
-        produto_lacrado: item.lacrado?.toUpperCase() === 'NÃO' ? 'NÃO' : 'SIM',
-        kit_completo: item.lacrado?.toUpperCase() === 'NÃO' ? 'SIM' : null,
-        aparelho_marcas_uso: item.lacrado?.toUpperCase() === 'NÃO' ? 'NÃO' : null,
+        produto_lacrado: ehNaoLacrado ? 'NÃO' : 'SIM',
+        kit_completo: ehNaoLacrado ? 'SIM' : null,
+        aparelho_marcas_uso: ehNaoLacrado ? 'NÃO' : null,
         numero_nf: item.numero_nf || '',
         nf_conferida: item.nf_conferida !== undefined ? item.nf_conferida : null,
       });
@@ -6382,11 +6440,12 @@ class AuditoriaDatabase {
   consultarImeiReferencia(imei: string, regional?: string | null): RegionalInventoryReference | null {
     if (!imei) return null;
     const imeiNorm = normalizeImei(imei);
-    if (regional) {
+    if (regional && regional !== 'TODAS') {
       const regFull = (regional || '').trim().toUpperCase();
       const regCod = extrairCodigoRegional(regional);
       const refReg = this.referenceMap.get(`${regFull}#${imeiNorm}`) || this.referenceMap.get(`${regCod}#${imeiNorm}`);
       if (refReg) return refReg;
+      return null;
     }
     return this.imeiToRefMap.get(imeiNorm) || null;
   }

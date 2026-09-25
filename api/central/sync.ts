@@ -57,6 +57,9 @@ function isSupabaseServerConfigured(): boolean {
       Boolean(process.env.CI) ||
       Boolean(process.env.GITHUB_ACTIONS))
   ) {
+    if (process.env.FORCE_TEST_SERVER_SYNC === 'true') {
+      return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
+    }
     return false;
   }
   return Boolean(getSupabaseUrl() && getSupabaseServiceKey());

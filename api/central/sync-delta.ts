@@ -217,6 +217,7 @@ export default async function handler(req: any, res: any) {
 
         try {
           inFlightImeis.add(imeiNorm);
+          await new Promise((resolve) => setTimeout(resolve, 10));
 
           // 5.2 Validação de Bloqueio por Lote Finalizado (Gate 9.3)
           const loteDestino = (p.numero_lote || '').trim().toUpperCase();

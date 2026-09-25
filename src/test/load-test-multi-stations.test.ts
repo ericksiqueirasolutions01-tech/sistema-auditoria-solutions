@@ -30,6 +30,7 @@ for (let s = 0; s < TOTAL_STATIONS; s++) {
 
 describe('Item 6: Teste de Carga de Alta Concorrência (10 Computadores x 100 Auditorias = 1.000 Itens)', () => {
   beforeAll(async () => {
+    process.env.FORCE_TEST_SERVER_SYNC = 'true';
     // Limpar quaisquer resíduos anteriores
     await supabase.from('audit_products').delete().gte('serial', '359100000000000').lte('serial', '359199999999999');
   }, 30000);
@@ -37,6 +38,7 @@ describe('Item 6: Teste de Carga de Alta Concorrência (10 Computadores x 100 Au
   afterAll(async () => {
     // Limpeza após o teste
     await supabase.from('audit_products').delete().gte('serial', '359100000000000').lte('serial', '359199999999999');
+    delete process.env.FORCE_TEST_SERVER_SYNC;
   }, 30000);
 
   it('deve processar 10 computadores enviando 100 produtos simultaneamente sem perda nem conflito', async () => {

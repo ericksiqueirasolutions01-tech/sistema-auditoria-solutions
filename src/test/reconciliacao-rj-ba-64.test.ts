@@ -97,3 +97,4 @@ describe('Reconciliação Rigorosa RJ = 0 e BA = 64', () => {
     expect(lotesBA[0].total_produtos).toBe(64);
   });
 });
+

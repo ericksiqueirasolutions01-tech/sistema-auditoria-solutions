@@ -24,6 +24,18 @@ function getSupabaseServiceKey(): string {
 }
 
 function isSupabaseServerConfigured(): boolean {
+  if (
+    typeof process !== 'undefined' &&
+    (process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.VITEST) ||
+      Boolean(process.env.CI) ||
+      Boolean(process.env.GITHUB_ACTIONS))
+  ) {
+    if (process.env.FORCE_TEST_SERVER_SYNC === 'true') {
+      return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
+    }
+    return false;
+  }
   return Boolean(getSupabaseUrl() && getSupabaseServiceKey());
 }
 

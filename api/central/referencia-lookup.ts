@@ -94,24 +94,36 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    let query = supabase
-      .from('regional_inventory_reference')
-      .select('id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, nf_origem_samsung, dealer_raw, dealer_normalized, source_file_name, is_active')
-      .eq('imei_normalized', imeiNorm)
-      .eq('is_active', true);
+    const colsWithNf = 'id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, nf_origem_samsung, dealer_raw, dealer_normalized, source_file_name, is_active';
+    const colsWithoutNf = 'id, regional, import_batch_id, imei_normalized, sku, model_description, brand, origin_invoice, dealer_raw, dealer_normalized, source_file_name, is_active';
 
-    if (regional && regional !== 'TODAS') {
-      const regUpper = regional.trim().toUpperCase();
-      const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
-      const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
-      if (regionaisValidas.length === 1) {
-        query = query.eq('regional', regionaisValidas[0]);
-      } else if (regionaisValidas.length > 1) {
-        query = query.in('regional', regionaisValidas);
+    const buildQuery = (cols: string) => {
+      let q = supabase
+        .from('regional_inventory_reference')
+        .select(cols)
+        .eq('imei_normalized', imeiNorm)
+        .eq('is_active', true);
+
+      if (regional && regional !== 'TODAS') {
+        const regUpper = regional.trim().toUpperCase();
+        const regClean = regUpper.replace(/^VIA VAREJO\s*[-]?\s*/, '').trim();
+        const regionaisValidas = Array.from(new Set([regUpper, `VIA VAREJO ${regClean}`, regClean])).filter(Boolean);
+        if (regionaisValidas.length === 1) {
+          q = q.eq('regional', regionaisValidas[0]);
+        } else if (regionaisValidas.length > 1) {
+          q = q.in('regional', regionaisValidas);
+        }
       }
-    }
+      return q;
+    };
 
-    const { data, error } = await query.limit(1).maybeSingle();
+    let { data, error } = await buildQuery(colsWithNf).limit(1).maybeSingle();
+
+    if (error && (error.code === '42703' || error.message?.includes('nf_origem_samsung'))) {
+      const fallbackResult = await buildQuery(colsWithoutNf).limit(1).maybeSingle();
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
 
     if (error) throw error;
 
@@ -119,12 +131,14 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ sucesso: true, encontrado: false, item: null });
     }
 
+    const itemData = data as any;
     return res.status(200).json({
       sucesso: true,
       encontrado: true,
       item: {
-        ...data,
-        nf_origem_samsung: data.nf_origem_samsung || data.origin_invoice || null,
+        ...itemData,
+        nf_origem_samsung: itemData.nf_origem_samsung || itemData.origin_invoice || null,
+        origin_invoice: itemData.origin_invoice || itemData.nf_origem_samsung || null,
       },
     });
   } catch (err: any) {

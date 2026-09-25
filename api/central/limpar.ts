@@ -140,52 +140,38 @@ export default async function handler(req: any, res: any) {
     // 1. Limpeza segura no Supabase se configurado
     if (supabase) {
       try {
-        // Limpeza real em audit_products, lot_photos e lots
-        await supabase
-          .from('audit_products')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
+        // Encontrar ID da regional BA para preservar estritamente os 64 registros oficiais de 24/09/2026
+        const { data: regBA } = await supabase.from('regions').select('id').or('codigo.eq.BA,nome.ilike.%BA%').limit(1);
+        const baId = regBA?.[0]?.id;
 
-        await supabase
-          .from('lot_photos')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
+        if (baId) {
+          // Deleta produtos de todas as outras regionais (RJ, SP, MG, etc.)
+          await supabase.from('audit_products').delete().neq('regional_id', baId);
+          // Na regional BA, deleta registros que NÃO sejam do dia 24/09/2026
+          await supabase.from('audit_products').delete().eq('regional_id', baId).neq('data_auditoria', '2026-09-24');
 
-        await supabase
-          .from('sync_events')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
+          // Lotes: manter Lote 01 de BA e remover de outras regionais
+          await supabase.from('lots').delete().neq('regional_id', baId);
+          await supabase.from('lots').delete().eq('regional_id', baId).neq('numero_lote', '01');
+        } else {
+          // Fallback caso não encontre ID de BA: preserva data_auditoria 2026-09-24
+          await supabase.from('audit_products').delete().neq('data_auditoria', '2026-09-24');
+          await supabase.from('lots').delete().neq('numero_lote', '01');
+        }
 
-        await supabase
-          .from('lots')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
-
-        await supabase
-          .from('audit_lots')
-          .delete()
-          .neq('id', 'dummy');
-
-        await supabase
-          .from('regional_inventory_reference')
-          .delete()
-          .neq('id', 'dummy');
-
-        await supabase
-          .from('inventory_import_batches')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
+        // Limpeza de logs operacionais e tentativas duplicadas
+        await supabase.from('sync_events').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
         // Trilha imutável append-only
         await supabase.from('audit_log').insert({
           actor_user_id: body?.usuario || 'ADMINISTRADOR',
           device_id: 'PAINEL_ADMIN_WEB',
-          action: 'LIMPEZA_TOTAL_BASE',
+          action: 'LIMPEZA_SEGURA_BASE',
           entity_type: 'BASE_DADOS',
           entity_id: 'ALL',
           regional: 'GLOBAL',
-          reason: body?.motivo || 'Limpeza autorizada da base de dados central',
-          detalhes: 'Todos os produtos e lotes ativos foram marcados como excluídos.',
+          reason: body?.motivo || 'Limpeza autorizada: RJ zerado, BA mantido com 64 peças de 24/09/2026',
+          detalhes: 'Preservados estritamente os 64 registros oficiais da regional BA de 24/09/2026.',
         });
       } catch (errDb) {
         console.error('[LimparAPI] Erro ao limpar no Supabase:', errDb);
@@ -196,9 +182,35 @@ export default async function handler(req: any, res: any) {
     const { dbFile, logsFile, tentFile } = obterCaminhosCentrais();
     try {
       if (fs.existsSync(dbFile)) {
+        let produtosPreservados: any[] = [];
+        let lotesPreservados: any[] = [];
+        try {
+          const parsed = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
+          produtosPreservados = (parsed.produtos || []).filter((p: any) => {
+            const reg = String(p.regional || '').toUpperCase();
+            const data = String(p.data_auditoria || p.data_hora || p.data_cadastro || '').trim();
+            const ehBA = reg.includes('BA');
+            const eh2409 = data.includes('24/09/2026') || data.includes('2026-09-24');
+            return ehBA && eh2409;
+          });
+          lotesPreservados = (parsed.lotes_finalizados || []).filter((l: any) => {
+            const reg = String(l.regional || '').toUpperCase();
+            return reg.includes('BA') && (l.numero_lote === '01' || l.numero_lote === '1');
+          });
+        } catch {}
+
         fs.writeFileSync(
           dbFile,
-          JSON.stringify({ produtos: [], fotos: [], ultimaAtualizacao: agora }, null, 2),
+          JSON.stringify(
+            {
+              produtos: produtosPreservados,
+              fotos: [],
+              lotes_finalizados: lotesPreservados,
+              ultimaAtualizacao: agora,
+            },
+            null,
+            2
+          ),
           'utf-8'
         );
       }

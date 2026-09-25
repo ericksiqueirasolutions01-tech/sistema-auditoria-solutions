@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { db } from '../db/storage';
 import syncHandler from '../../api/central/sync';
 import produtosHandler from '../../api/central/produtos';
@@ -14,6 +16,19 @@ const TEST_REGIONAL = 'VIA VAREJO BA';
 const TEST_DATE_BR = '23/09/2026';
 const TOTAL_OFFLINE_BIPAGENS = 50;
 
+function limparTestDbLocal() {
+  try {
+    const testDbPath = path.resolve(process.cwd(), 'data', 'test_data', 'central_database.json');
+    if (fs.existsSync(testDbPath)) {
+      const parsed = JSON.parse(fs.readFileSync(testDbPath, 'utf8'));
+      parsed.produtos = (parsed.produtos || []).filter(
+        (p: any) => !p.serial || !p.serial.startsWith('35920000000')
+      );
+      fs.writeFileSync(testDbPath, JSON.stringify(parsed, null, 2), 'utf8');
+    }
+  } catch {}
+}
+
 function gerarImeiOffline(idx: number): string {
   const numStr = String(idx).padStart(4, '0');
   return `35920000000${numStr}`;
@@ -25,6 +40,8 @@ describe('CAMADA DE ATIVAÇÃO DE ESTAÇÃO WINDOWS & OPERAÇÃO OFFLINE (TESTES
   const originalOnLine = navigator.onLine;
 
   beforeAll(async () => {
+    process.env.FORCE_TEST_SERVER_SYNC = 'true';
+    limparTestDbLocal();
     // Limpeza de testes anteriores no Supabase
     await supabase
       .from('audit_products')
@@ -41,12 +58,14 @@ describe('CAMADA DE ATIVAÇÃO DE ESTAÇÃO WINDOWS & OPERAÇÃO OFFLINE (TESTES
       writable: true,
     });
 
+    limparTestDbLocal();
     // Limpeza após testes
     await supabase
       .from('audit_products')
       .delete()
       .gte('serial', '359200000000000')
       .lte('serial', '359200000009999');
+    delete process.env.FORCE_TEST_SERVER_SYNC;
   }, 30000);
 
   it('TESTE 1: Computador novo sem ativação deve bloquear operação offline e solicitar internet', async () => {

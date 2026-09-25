@@ -206,10 +206,17 @@ describe('EXCLUSÃO DE PRODUTOS COM IMEI DUPLICADO NO SERVIDOR CENTRAL', () => {
   });
 
   it('4. Integridade da base Supabase PostgreSQL: 64 produtos únicos na Regional BA e 0 duplicidades', async () => {
-    const { data: dbProducts, error } = await supabase
+    const { data: baRegion } = await supabase.from('regions').select('id').eq('codigo', 'BA').single();
+    let query = supabase
       .from('audit_products')
       .select('id, serial, imei, regional_id, data_auditoria')
       .lt('serial', '359100000000000');
+
+    if (baRegion?.id) {
+      query = query.eq('regional_id', baRegion.id);
+    }
+
+    const { data: dbProducts, error } = await query;
 
     expect(error).toBeNull();
     expect(Array.isArray(dbProducts)).toBe(true);

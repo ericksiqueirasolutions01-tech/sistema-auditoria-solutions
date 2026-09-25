@@ -105,6 +105,7 @@ export const ConsultaProdutos: React.FC = () => {
     const data = produtos.map((p, i) => ({
       'Nº': i + 1,
       Regional: p.regional,
+      'Regional Origem': p.regional_produto || p.regional || '-',
       'Computador ID': p.computador_id || 'PC-01',
       'Nome Estação': p.computador_nome || 'Estação 01',
       Fabricante: p.fabricante,
@@ -300,6 +301,7 @@ export const ConsultaProdutos: React.FC = () => {
                 <th className="py-3.5 px-4">IMEI</th>
                 <th className="py-3.5 px-3 min-w-[100px]">Computador 💻</th>
                 <th className="py-3.5 px-4">Regional</th>
+                <th className="py-3.5 px-4 text-center">Reg. Origem</th>
                 <th className="py-3.5 px-4">Modelo</th>
                 <th className="py-3.5 px-4">EAN</th>
                 <th className="py-3.5 px-4">Caixa</th>
@@ -317,7 +319,7 @@ export const ConsultaProdutos: React.FC = () => {
             <tbody className="divide-y divide-slate-200">
               {produtos.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 15 : 14} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={isAdmin ? 16 : 15} className="py-12 text-center text-slate-400 font-bold">
                     Nenhum produto encontrado com os filtros aplicados.
                   </td>
                 </tr>
@@ -335,6 +337,11 @@ export const ConsultaProdutos: React.FC = () => {
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className="font-bold text-[11px] text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
                         {p.regional || 'GERAL'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap text-center">
+                      <span className="font-bold text-[11px] text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        {p.regional_produto || p.regional || '-'}
                       </span>
                     </td>
                     <td className="py-3 px-4 font-semibold text-slate-800">{p.modelo_produto}</td>

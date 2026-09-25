@@ -882,6 +882,26 @@ class AuditoriaDatabase {
           p.regional = 'VIA VAREJO RJ';
           migrou = true;
         }
+
+        // Normalização de regional: 'regional' deve conter estritamente o polo operacional (RJ, SP, MG, BA)
+        const codReg = extrairCodigoRegional(p.regional);
+        if (!['RJ', 'SP', 'MG', 'BA'].includes(codReg)) {
+          if (!p.regional_produto) {
+            p.regional_produto = p.regional;
+          }
+          const codUsuario = p.regional_usuario ? extrairCodigoRegional(p.regional_usuario) : '';
+          if (['RJ', 'SP', 'MG', 'BA'].includes(codUsuario)) {
+            p.regional = p.regional_usuario!;
+          } else {
+            p.regional = 'VIA VAREJO RJ';
+          }
+          migrou = true;
+        }
+        if (!p.regional_produto) {
+          p.regional_produto = p.regional;
+          migrou = true;
+        }
+
         if (!p.computador_id) {
           let pcPrefixo = 'PC-RJ-001';
           if (p.regional.includes('SP')) pcPrefixo = 'PC-SP-001';
@@ -1145,7 +1165,13 @@ class AuditoriaDatabase {
           this.produtos = prodsDexie;
           this.serialMap.clear();
           for (const p of this.produtos) {
-            if (!p.regional) p.regional = p.regional_usuario || 'VIA VAREJO RJ';
+            const regCod = extrairCodigoRegional(p.regional);
+            if (!['RJ', 'SP', 'MG', 'BA'].includes(regCod)) {
+              if (!p.regional_produto) p.regional_produto = p.regional;
+              const codUsuario = p.regional_usuario ? extrairCodigoRegional(p.regional_usuario) : '';
+              p.regional = ['RJ', 'SP', 'MG', 'BA'].includes(codUsuario) ? p.regional_usuario! : 'VIA VAREJO RJ';
+            }
+            if (!p.regional_produto) p.regional_produto = p.regional;
             this.serialMap.set(p.serial.trim().toUpperCase(), p);
           }
           try {
@@ -1162,7 +1188,13 @@ class AuditoriaDatabase {
             this.produtos = idbProds;
             this.serialMap.clear();
             for (const p of this.produtos) {
-              if (!p.regional) p.regional = p.regional_usuario || 'VIA VAREJO RJ';
+              const regCod = extrairCodigoRegional(p.regional);
+              if (!['RJ', 'SP', 'MG', 'BA'].includes(regCod)) {
+                if (!p.regional_produto) p.regional_produto = p.regional;
+                const codUsuario = p.regional_usuario ? extrairCodigoRegional(p.regional_usuario) : '';
+                p.regional = ['RJ', 'SP', 'MG', 'BA'].includes(codUsuario) ? p.regional_usuario! : 'VIA VAREJO RJ';
+              }
+              if (!p.regional_produto) p.regional_produto = p.regional;
               this.serialMap.set(p.serial.trim().toUpperCase(), p);
             }
             try {
@@ -2023,12 +2055,13 @@ class AuditoriaDatabase {
         ? this.usuarioAtual.regional
         : (item.regional_usuario || (this.usuarioAtual.regional ? this.usuarioAtual.regional : (item.regional?.trim() || 'VIA VAREJO RJ')))
     );
+    const codRegUsuario = extrairCodigoRegional(regionalUsuario);
+    const regionalFinal = ['RJ', 'SP', 'MG', 'BA'].includes(codRegUsuario) ? regionalUsuario : 'VIA VAREJO RJ';
     const regionalProduto = (
       refLookup?.regional
         ? refLookup.regional.trim().toUpperCase()
-        : (item.regional_produto ? item.regional_produto.trim().toUpperCase() : (item.regional ? item.regional.trim().toUpperCase() : regionalUsuario))
+        : (item.regional_produto ? item.regional_produto.trim().toUpperCase() : (item.regional ? item.regional.trim().toUpperCase() : regionalFinal))
     );
-    const regionalFinal = regionalUsuario;
 
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
@@ -2541,13 +2574,9 @@ class AuditoriaDatabase {
     return { sucesso: true };
   }
 
-  // Lista todas as regionais cadastradas no sistema
+  // Lista todas as regionais operacionais cadastradas no sistema (estritamente os 4 polos oficiais)
   listarRegionais(): string[] {
-    const set = new Set<string>(REGIONAIS_PADRAO);
-    for (const p of this.produtos) {
-      if (p.regional) set.add(p.regional);
-    }
-    return Array.from(set);
+    return [...REGIONAIS_PADRAO];
   }
 
   listarProdutos(filtro?: FiltroConsulta): ProdutoAuditoria[] {
@@ -5049,6 +5078,25 @@ class AuditoriaDatabase {
     const produtosCentralValidos = (produtosCentral || []).filter(
       (cp) => isRegistroDoDia24EmDiante(cp)
     );
+
+    // Normalização mandatória: a regional operacional deve ser estritamente um dos 4 polos (RJ, SP, MG, BA)
+    // A regional de origem do produto (Coluna J) é preservada com segurança em regional_produto
+    const normalizarRegionalItem = (item: ProdutoAuditoria) => {
+      const cod = extrairCodigoRegional(item.regional);
+      if (!['RJ', 'SP', 'MG', 'BA'].includes(cod)) {
+        if (!item.regional_produto) {
+          item.regional_produto = item.regional;
+        }
+        const codUser = item.regional_usuario ? extrairCodigoRegional(item.regional_usuario) : '';
+        item.regional = ['RJ', 'SP', 'MG', 'BA'].includes(codUser) ? item.regional_usuario! : 'VIA VAREJO RJ';
+      }
+      if (!item.regional_produto) {
+        item.regional_produto = item.regional;
+      }
+    };
+
+    produtosCentralValidos.forEach(normalizarRegionalItem);
+    this.produtos.forEach(normalizarRegionalItem);
 
     // Mapas de busca rápida para produtos da central
     const chavesCentral = new Set(

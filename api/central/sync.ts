@@ -94,6 +94,14 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+function extrairCodigoRegional(regional?: string | null): string {
+  const r = (regional || '').trim().toUpperCase();
+  if (r.startsWith('VIA VAREJO ')) {
+    return r.replace('VIA VAREJO ', '').trim();
+  }
+  return r || 'GERAL';
+}
+
 /**
  * CORREÇÃO 3 — Normaliza qualquer formato de data (DD/MM/YYYY, ISO, etc.) para o formato DATE do PostgreSQL (YYYY-MM-DD)
  */
@@ -556,9 +564,13 @@ export default async function handler(req: any, res: any) {
             computador_id: computador?.id || p.computador_id || 'PC-001',
             computador_nome: computador?.nome || p.computador_nome || 'Estacao',
             usuario_sincronizacao: usuarioNormalizado.nome || 'Operador',
-            regional: p.regional_produto || p.regional || regional || computador?.regional || regionalNome,
-            regional_produto: p.regional_produto || p.regional || regional || regionalNome,
-            regional_usuario: p.regional_usuario || regional || computador?.regional || regionalNome,
+            regional: ['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional_usuario || (['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || regional || computador?.regional || regionalNome))
+              ? (p.regional_usuario || (['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || regional || computador?.regional || regionalNome || 'VIA VAREJO RJ')
+              : 'VIA VAREJO RJ',
+            regional_produto: p.regional_produto || (!['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || regional || regionalNome || 'VIA VAREJO RJ',
+            regional_usuario: ['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional_usuario || regional || computador?.regional || regionalNome))
+              ? (p.regional_usuario || regional || computador?.regional || regionalNome || 'VIA VAREJO RJ')
+              : 'VIA VAREJO RJ',
           };
           centralData.produtos.push(itemNormalizado);
           if (sn) mapExistentes.set(sn, itemNormalizado);

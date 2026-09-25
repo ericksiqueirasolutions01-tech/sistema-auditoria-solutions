@@ -90,6 +90,14 @@ function formatarDataParaExibicaoBR(dataInput: any): string {
   return str;
 }
 
+function extrairCodigoRegional(regional?: string | null): string {
+  const r = (regional || '').trim().toUpperCase();
+  if (r.startsWith('VIA VAREJO ')) {
+    return r.replace('VIA VAREJO ', '').trim();
+  }
+  return r || 'GERAL';
+}
+
 function isRegistroDoDia24EmDiante(item: any): boolean {
   if (!item) return false;
   const dataRaw = String(
@@ -380,7 +388,9 @@ export default async function handler(req: any, res: any) {
               numero_lote: p.numero_lote,
               numero_caixa: p.numero_caixa,
               box_name: p.box_name || p.numero_caixa,
-              regional: p.regional || p.regions?.nome || p.regions?.codigo || userRegional || 'VIA VAREJO RJ',
+              regional: p.regions?.nome || (p.regional && ['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || userRegional || 'VIA VAREJO RJ',
+              regional_usuario: p.regions?.nome || (p.regional && ['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || userRegional || 'VIA VAREJO RJ',
+              regional_produto: p.regional_produto || (p.regional && !['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || p.regions?.nome || userRegional || 'VIA VAREJO RJ',
               produto_lacrado: p.produto_lacrado,
               kit_completo: p.kit_completo,
               aparelho_marcas_uso: p.aparelho_marcas_uso,
@@ -496,8 +506,16 @@ export default async function handler(req: any, res: any) {
           obs = obs.replace(/\[LACRE:.*?\]\s*/g, '').trim();
         }
       }
+      const regOperacional = ['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional_usuario || p.regional))
+        ? (p.regional_usuario || (['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || userRegional || 'VIA VAREJO RJ')
+        : 'VIA VAREJO RJ';
+      const regOrigem = p.regional_produto || (!['RJ', 'SP', 'MG', 'BA'].includes(extrairCodigoRegional(p.regional)) ? p.regional : null) || regOperacional;
+
       return {
         ...p,
+        regional: regOperacional,
+        regional_usuario: regOperacional,
+        regional_produto: regOrigem,
         lacre_seguranca: lacre,
         observacao: obs,
         sku: p.sku || p.ean || '',

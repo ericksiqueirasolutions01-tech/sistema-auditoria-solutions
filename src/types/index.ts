@@ -445,6 +445,7 @@ export interface ItemPendenteLote {
   fabricante?: string;
   origin_invoice?: string | null;
   motivo?: string;
+  regional?: string;
 }
 
 export interface RegistroLoteFinalizado {

@@ -475,6 +475,7 @@ export const PainelAdmin: React.FC = () => {
       'Nº': idx + 1,
       Estação: p.computador_id || 'PC-01',
       Regional: p.regional || regionalAlvo,
+      'Regional Origem': p.regional_produto || p.regional || '-',
       Fabricante: p.brand || p.fabricante || 'SAMSUNG',
       'Modelo Produto': p.modelo_produto || '-',
       SKU: p.sku || p.ean || '-',
@@ -506,6 +507,7 @@ export const PainelAdmin: React.FC = () => {
       { wch: 6 },  // Nº
       { wch: 14 }, // Estação
       { wch: 18 }, // Regional
+      { wch: 18 }, // Regional Origem
       { wch: 14 }, // Fabricante
       { wch: 34 }, // Modelo Produto
       { wch: 14 }, // SKU
@@ -578,6 +580,7 @@ export const PainelAdmin: React.FC = () => {
       p.modelo_produto || '-',
       p.sku || p.ean || '-',
       p.imei || p.serial,
+      p.regional_produto || p.regional || '-',
       p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-',
       p.box_name || p.numero_caixa,
       p.numero_lote || '01',
@@ -590,7 +593,7 @@ export const PainelAdmin: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Estação', 'Fabricante', 'Modelo Produto', 'SKU', 'IMEI', 'NF Origem', 'Caixa', 'Lote', 'Classificação', 'Lacrado', 'Lacre Seg.', 'Sync', 'Data']],
+      head: [['Nº', 'Estação', 'Fabricante', 'Modelo Produto', 'SKU', 'IMEI', 'Reg. Origem', 'NF Origem', 'Caixa', 'Lote', 'Classificação', 'Lacrado', 'Lacre Seg.', 'Sync', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {
@@ -919,6 +922,7 @@ export const PainelAdmin: React.FC = () => {
         'Número do Lacre': p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, p.regional || rel.cliente) || '-',
         'Cliente': clienteNome,
         'Regional': p.regional || regionalNome,
+        'Regional Origem': p.regional_produto || p.regional || regionalNome,
         'Fabricante': p.fabricante || 'SAMSUNG',
         'Modelo Produto': p.modelo_produto,
         'EAN': p.ean,
@@ -953,6 +957,7 @@ export const PainelAdmin: React.FC = () => {
         'Número do Lacre': '-',
         'Cliente': clienteNome,
         'Regional': rel.cliente || regionalNome,
+        'Regional Origem': item.regional || rel.cliente || regionalNome,
         'Fabricante': item.fabricante || 'SAMSUNG',
         'Modelo Produto': item.modelo || 'Modelo não especificado',
         'EAN': item.sku || '-',
@@ -1190,6 +1195,7 @@ export const PainelAdmin: React.FC = () => {
         p.lacre_seguranca || db.obterLacreCaixa(p.numero_caixa, p.regional || rel.cliente) || '-',
         p.modelo_produto,
         p.imei || p.serial,
+        p.regional_produto || p.regional || rel.cliente || '-',
         p.produto_lacrado,
         p.nf_conferida || 'SIM',
         dataHoraLancamento,
@@ -1209,6 +1215,7 @@ export const PainelAdmin: React.FC = () => {
           '-',
           item.modelo || 'Modelo não especificado',
           item.imei,
+          item.regional || rel.cliente || '-',
           motivoIdentificacao,
           'NÃO',
           '-',
@@ -1234,8 +1241,8 @@ export const PainelAdmin: React.FC = () => {
 
     autoTable(doc, {
       startY: currentY + 4,
-      head: [['#', 'Lote', 'Caixa', 'Número do Lacre', 'Modelo Produto', 'IMEI', 'Status / Lacrado', 'NF Conferida', 'Data/Hora', 'Colaborador']],
-      body: tableProds.length > 0 ? tableProds : [['-', '-', '-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-']],
+      head: [['#', 'Lote', 'Caixa', 'Número do Lacre', 'Modelo Produto', 'IMEI', 'Reg. Origem', 'Status / Lacrado', 'NF Conferida', 'Data/Hora', 'Colaborador']],
+      body: tableProds.length > 0 ? tableProds : [['-', '-', '-', '-', 'Nenhum produto neste lote', '-', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: {
         fillColor: [30, 41, 59],
@@ -2342,6 +2349,7 @@ export const PainelAdmin: React.FC = () => {
                         <ArrowUpDown className="w-3 h-3 text-blue-200" />
                       </div>
                     </th>
+                    <th className="py-2.5 px-3 border-r border-blue-600 min-w-[95px] text-center bg-blue-900/40">Reg. Origem</th>
                     <th className="py-2.5 px-3 border-r border-blue-600 min-w-[110px]">NF Origem</th>
                     <th
                       onClick={() => alternarOrdem('data_auditoria')}
@@ -2375,7 +2383,7 @@ export const PainelAdmin: React.FC = () => {
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   {produtosPaginados.length === 0 ? (
                     <tr>
-                      <td colSpan={18} className="py-12 text-center text-slate-400 font-sans">
+                      <td colSpan={19} className="py-12 text-center text-slate-400 font-sans">
                         Nenhum registro encontrado com os filtros aplicados.
                       </td>
                     </tr>
@@ -2406,6 +2414,9 @@ export const PainelAdmin: React.FC = () => {
                               ✓ {p.dealer || 'PRODUTO NA LISTA SAMSUNG'}
                             </span>
                           )}
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans font-bold text-amber-900 border-r border-slate-200 whitespace-nowrap bg-amber-50/40">
+                          {p.regional_produto || p.regional || '-'}
                         </td>
                         <td className="py-2 px-3 font-sans text-xs text-slate-700 border-r border-slate-200 whitespace-nowrap">
                           {p.origin_invoice || p.nf_origem || p.numero_nf || p.nf_conferida || '-'}

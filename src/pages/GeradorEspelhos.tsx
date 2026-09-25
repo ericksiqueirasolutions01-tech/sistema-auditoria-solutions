@@ -393,6 +393,7 @@ export const GeradorEspelhos: React.FC = () => {
     const dadosExcel = lista.map((p, idx) => ({
       'Nº': idx + 1,
       Regional: p.regional || regionalAtiva,
+      'Regional Origem': p.regional_produto || p.regional || regionalAtiva,
       Fabricante: p.fabricante,
       'Modelo Produto': p.modelo_produto,
       EAN: p.ean,
@@ -459,6 +460,7 @@ export const GeradorEspelhos: React.FC = () => {
     const tableData = lista.map((p, idx) => [
       (idx + 1).toString(),
       p.regional || regionalAtiva,
+      p.regional_produto || p.regional || regionalAtiva,
       p.numero_caixa,
       p.modelo_produto,
       p.ean,
@@ -473,7 +475,7 @@ export const GeradorEspelhos: React.FC = () => {
 
     autoTable(doc, {
       startY: 40,
-      head: [['Nº', 'Regional', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
+      head: [['Nº', 'Regional', 'Reg. Origem', 'Caixa', 'Modelo', 'EAN', 'IMEI', 'Lacrado', 'NF Conf', 'Kit Completo', 'Marcas de Uso', 'Observação', 'Data']],
       body: tableData,
       theme: 'grid',
       headStyles: {

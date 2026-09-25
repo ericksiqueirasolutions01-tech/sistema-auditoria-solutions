@@ -14,7 +14,10 @@ const ALLOWED_ORIGINS = [
 const inFlightImeis = new Set<string>();
 
 function obterCaminhosCentrais() {
-  const dataDir = path.resolve(process.cwd(), 'data');
+  const isTest = typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST));
+  const dataDir = isTest
+    ? path.resolve(process.cwd(), 'data', 'test_data')
+    : path.resolve(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

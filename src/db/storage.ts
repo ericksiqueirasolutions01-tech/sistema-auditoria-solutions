@@ -830,14 +830,17 @@ class AuditoriaDatabase {
         localStorage.setItem(STORAGE_KEY_USUARIOS, JSON.stringify(this.usuarios));
       }
 
+      // Higienização Mandatória: RJ 100% zerada por determinação da diretoria
+      this.produtos = this.produtos.filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
+
       const histRaw = localStorage.getItem(STORAGE_KEY_HISTORICO);
       this.historico = histRaw ? JSON.parse(histRaw) : [];
 
       const fotosRaw = localStorage.getItem(STORAGE_KEY_FOTOS);
-      this.fotosGrupos = fotosRaw ? JSON.parse(fotosRaw) : [];
+      this.fotosGrupos = fotosRaw ? (JSON.parse(fotosRaw) as FotoGrupoAuditoria[]).filter((f) => extrairCodigoRegional(f.regional) !== 'RJ') : [];
 
       const fotos10Raw = localStorage.getItem(STORAGE_KEY_FOTOS_10_CAIXAS);
-      this.registros10Fotos = fotos10Raw ? JSON.parse(fotos10Raw) : [];
+      this.registros10Fotos = fotos10Raw ? (JSON.parse(fotos10Raw) as Registro10FotosCaixa[]).filter((r) => extrairCodigoRegional(r.regional) !== 'RJ') : [];
 
       const tentRaw = localStorage.getItem(STORAGE_KEY_TENTATIVAS_DUPLICADAS);
       this.tentativasDuplicadas = tentRaw ? JSON.parse(tentRaw) : [];
@@ -869,9 +872,9 @@ class AuditoriaDatabase {
         salvarIndexedDB(STORAGE_KEY_LOTES_FINALIZADOS, this.lotesFinalizados);
       }
 
-      // Carregar lotes finalizados
+      // Carregar lotes finalizados (com higienização de RJ)
       const lotesRaw = localStorage.getItem(STORAGE_KEY_LOTES_FINALIZADOS);
-      this.lotesFinalizados = lotesRaw ? JSON.parse(lotesRaw) : [];
+      this.lotesFinalizados = lotesRaw ? (JSON.parse(lotesRaw) as RegistroLoteFinalizado[]).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ') : [];
 
       // Carregar batches de importação de planilhas regionais
       try {
@@ -975,11 +978,13 @@ class AuditoriaDatabase {
           prodsDexie = await idb.produtos.toArray();
         } catch {}
 
+        prodsDexie = (prodsDexie || []).filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
+
         if (Array.isArray(prodsDexie) && prodsDexie.length > 0 && !this.limpezaEmAndamento) {
           this.produtos = prodsDexie;
           this.serialMap.clear();
           for (const p of this.produtos) {
-            if (!p.regional) p.regional = 'VIA VAREJO RJ';
+            if (!p.regional) p.regional = 'VIA VAREJO BA';
             this.serialMap.set(p.serial.trim().toUpperCase(), p);
           }
           try {
@@ -988,12 +993,13 @@ class AuditoriaDatabase {
           recuperou = true;
           console.log(`🛡️ Recuperados ${prodsDexie.length} produtos do Dexie IndexedDB.`);
         } else {
-          const idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
+          let idbProds = await carregarIndexedDB<ProdutoAuditoria[]>(STORAGE_KEY_PRODUTOS);
+          idbProds = (idbProds || []).filter((p) => extrairCodigoRegional(p.regional) !== 'RJ');
           if (idbProds && idbProds.length > 0 && this.produtos.length === 0 && !this.limpezaEmAndamento) {
             this.produtos = idbProds;
             this.serialMap.clear();
             for (const p of this.produtos) {
-              if (!p.regional) p.regional = 'VIA VAREJO RJ';
+              if (!p.regional) p.regional = 'VIA VAREJO BA';
               this.serialMap.set(p.serial.trim().toUpperCase(), p);
             }
             try {
@@ -1012,6 +1018,8 @@ class AuditoriaDatabase {
           lotesDexie = await idb.lotes_finalizados.toArray();
         } catch {}
 
+        lotesDexie = (lotesDexie || []).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ');
+
         if (Array.isArray(lotesDexie) && lotesDexie.length > 0 && !this.limpezaEmAndamento) {
           this.lotesFinalizados = lotesDexie;
           try {
@@ -1020,7 +1028,8 @@ class AuditoriaDatabase {
           recuperou = true;
           console.log(`🛡️ Recuperados ${lotesDexie.length} lotes finalizados do Dexie IndexedDB.`);
         } else {
-          const idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
+          let idbLotes = await carregarIndexedDB<RegistroLoteFinalizado[]>(STORAGE_KEY_LOTES_FINALIZADOS);
+          idbLotes = (idbLotes || []).filter((l) => extrairCodigoRegional(l.regional) !== 'RJ');
           if (idbLotes && idbLotes.length > 0 && this.lotesFinalizados.length === 0 && !this.limpezaEmAndamento) {
             this.lotesFinalizados = idbLotes;
             try {
@@ -1138,8 +1147,11 @@ class AuditoriaDatabase {
             idb.audit_lots,
           ],
           async () => {
+            await idb.produtos.clear();
             if (this.produtos.length > 0) await idb.produtos.bulkPut(this.produtos);
+            await idb.usuarios.clear();
             if (this.usuarios.length > 0) await idb.usuarios.bulkPut(this.usuarios);
+            await idb.lotes_finalizados.clear();
             if (this.lotesFinalizados.length > 0) await idb.lotes_finalizados.bulkPut(this.lotesFinalizados);
             if (this.importBatches.length > 0) await idb.inventory_import_batches.bulkPut(this.importBatches);
             if (this.regionalReferences.length > 0) await idb.regional_inventory_reference.bulkPut(this.regionalReferences);
@@ -3353,7 +3365,7 @@ class AuditoriaDatabase {
     const regCodAlvo = regAlvo && regAlvo !== 'TODAS' ? extrairCodigoRegional(regAlvo) : null;
     const matchRegAlvo = (r?: string | null) => {
       if (!regAlvo || regAlvo === 'TODAS') return true;
-      if (!r) return regAlvo.toUpperCase().includes('RJ');
+      if (!r) return false;
       const rNorm = r.trim().toUpperCase();
       return rNorm === regAlvo.toUpperCase() || (regCodAlvo ? extrairCodigoRegional(rNorm) === regCodAlvo : false);
     };
@@ -4504,7 +4516,7 @@ class AuditoriaDatabase {
       // Se durante o fetch a base foi limpa, não processar respostas antigas defasadas
       if (this.limpezaEmAndamento) return false;
 
-      if (produtosRemotos && Array.isArray(produtosRemotos) && produtosRemotos.length > 0) {
+      if (produtosRemotos && Array.isArray(produtosRemotos)) {
         const alterouProds = this.mesclarProdutosCentral(produtosRemotos);
         if (alterouProds) alterou = true;
       } else if (resetTimestampRemoto) {
@@ -4540,7 +4552,7 @@ class AuditoriaDatabase {
         const alterouTent = this.mesclarTentativasDuplicadasCentral(tentativasRemotas);
         if (alterouTent) alterou = true;
       }
-      if (lotesRemotos && lotesRemotos.length > 0) {
+      if (lotesRemotos !== null && Array.isArray(lotesRemotos)) {
         const alterouLotes = this.mesclarLotesCentral(lotesRemotos);
         if (alterouLotes) alterou = true;
       }
@@ -4572,40 +4584,69 @@ class AuditoriaDatabase {
     // Se estiver em processo de limpeza, não mesclar nada
     if (this.limpezaEmAndamento) return false;
 
-    // Reconciliar produtos já sincronizados (ENVIADO): se não existem mais na central (ex: RJ zerado), remover localmente
+    // Mapas de busca rápida para produtos da central
     const chavesCentral = new Set(
-      produtosCentral.map((cp) => `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`)
+      produtosCentral.map((cp) => `${extrairCodigoRegional(cp.regional)}:::${cp.serial.trim().toUpperCase()}`)
     );
+    const seriaisCentral = new Set(
+      produtosCentral.map((cp) => cp.serial.trim().toUpperCase())
+    );
+
     const prodsMantidos: ProdutoAuditoria[] = [];
     for (const p of this.produtos) {
-      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
-      if ((p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO') && !chavesCentral.has(chave)) {
+      const regCod = extrairCodigoRegional(p.regional);
+      const chave = `${regCod}:::${p.serial.trim().toUpperCase()}`;
+
+      // Regra 1: RJ foi 100% zerada por determinação da diretoria
+      if (regCod === 'RJ') {
         this.serialMap.delete(p.serial.trim().toUpperCase());
         alterou = true;
-      } else {
-        prodsMantidos.push(p);
+        continue;
       }
+
+      // Regra 2: Para BA, manter estritamente os 64 produtos oficiais registrados hoje (nuvem central)
+      if (regCod === 'BA') {
+        if (!chavesCentral.has(chave) && !seriaisCentral.has(p.serial.trim().toUpperCase())) {
+          this.serialMap.delete(p.serial.trim().toUpperCase());
+          alterou = true;
+          continue;
+        }
+      }
+
+      // Regra 3: Para outras regionais, se estava como ENVIADO e não está na central, remover
+      if (regCod !== 'BA' && (p.status_sincronizacao === 'ENVIADO' || p.sync_status === 'ENVIADO')) {
+        if (!chavesCentral.has(chave) && !seriaisCentral.has(p.serial.trim().toUpperCase())) {
+          this.serialMap.delete(p.serial.trim().toUpperCase());
+          alterou = true;
+          continue;
+        }
+      }
+
+      prodsMantidos.push(p);
     }
     this.produtos = prodsMantidos;
 
     const locaisMap = new Map<string, ProdutoAuditoria>();
     for (const p of this.produtos) {
-      const chave = `${(p.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${p.serial.trim().toUpperCase()}`;
+      const chave = `${extrairCodigoRegional(p.regional)}:::${p.serial.trim().toUpperCase()}`;
       locaisMap.set(chave, p);
     }
 
     for (const cp of produtosCentral) {
+      const cpRegCod = extrairCodigoRegional(cp.regional);
+      if (cpRegCod === 'RJ') continue; // RJ é estritamente 0
+
       if (cp.lacre_seguranca && cp.numero_caixa) {
         this.definirLacreCaixa(cp.numero_caixa, cp.lacre_seguranca, cp.regional);
       }
-      const chave = `${(cp.regional || 'VIA VAREJO RJ').trim().toUpperCase()}:::${cp.serial.trim().toUpperCase()}`;
+      const chave = `${cpRegCod}:::${cp.serial.trim().toUpperCase()}`;
       // Se for operador e este produto foi limpo da tela deste computador, não restaurar na tela dele
       if (this.usuarioAtual?.perfil !== 'ADMINISTRADOR' && this.seriaisLimposDaTela.has(chave)) {
         continue;
       }
       const local = locaisMap.get(chave);
       if (!local) {
-        // Produto novo vindo de outro celular ou computador
+        // Produto novo vindo do servidor central
         const novo: ProdutoAuditoria = {
           ...cp,
           status_sincronizacao: 'ENVIADO',
@@ -4635,23 +4676,44 @@ class AuditoriaDatabase {
           local.classificacao_produto = cp.classificacao_produto || cp.box_classification;
           alterou = true;
         }
-        if (cp.status_sincronizacao === 'ENVIADO' && local.status_sincronizacao !== 'ENVIADO') {
+        if (local.status_sincronizacao !== 'ENVIADO') {
           local.status_sincronizacao = 'ENVIADO';
           local.sync_status = 'ENVIADO';
           alterou = true;
         }
       }
     }
+
+    // Reconstruir o mapa de busca rápida
+    this.serialMap.clear();
+    for (const p of this.produtos) {
+      this.serialMap.set(p.serial.trim().toUpperCase(), p);
+    }
     return alterou;
   }
 
   mesclarFotosCentral(fotosCentral: FotoGrupoAuditoria[]): boolean {
     let alterou = false;
+
+    // Purge RJ fotos
+    const fotosMantidas = this.fotosGrupos.filter((f) => extrairCodigoRegional(f.regional) !== 'RJ');
+    if (fotosMantidas.length !== this.fotosGrupos.length) {
+      this.fotosGrupos = fotosMantidas;
+      alterou = true;
+    }
+    const reg10Mantidos = this.registros10Fotos.filter((r) => extrairCodigoRegional(r.regional) !== 'RJ');
+    if (reg10Mantidos.length !== this.registros10Fotos.length) {
+      this.registros10Fotos = reg10Mantidos;
+      alterou = true;
+    }
+
     for (const cf of fotosCentral) {
+      if (extrairCodigoRegional(cf.regional) === 'RJ') continue;
+      const cfRegCod = extrairCodigoRegional(cf.regional);
       const idx = this.fotosGrupos.findIndex(
         (f) =>
           f.id === cf.id ||
-          (f.regional === cf.regional && f.caixa === cf.caixa && f.grupoNumero === cf.grupoNumero)
+          (extrairCodigoRegional(f.regional) === cfRegCod && f.caixa === cf.caixa && f.grupoNumero === cf.grupoNumero)
       );
       if (idx === -1) {
         this.fotosGrupos.push({
@@ -4756,13 +4818,23 @@ class AuditoriaDatabase {
   mesclarLotesCentral(lotesCentral: RegistroLoteFinalizado[]): boolean {
     let alterou = false;
 
-    // Reconciliar lotes finalizados: remover lotes de regionais que foram zeradas no servidor central (ex: RJ)
+    // Reconciliar lotes finalizados: RJ zerada e BA com apenas os lotes oficiais da nuvem central
     const lotesKeysCentral = new Set(
-      lotesCentral.map((l) => `${(l.regional || '').trim().toUpperCase()}:::${(l.numero_lote || '').trim().toUpperCase()}`)
+      lotesCentral.map((l) => `${extrairCodigoRegional(l.regional)}:::${(l.numero_lote || '').trim().toUpperCase()}`)
     );
     const lotesFiltrados = this.lotesFinalizados.filter((l) => {
-      const k = `${(l.regional || '').trim().toUpperCase()}:::${(l.numero_lote || '').trim().toUpperCase()}`;
-      return lotesKeysCentral.has(k);
+      const regCod = extrairCodigoRegional(l.regional);
+      if (regCod === 'RJ') {
+        alterou = true;
+        return false;
+      }
+      if (regCod === 'BA') {
+        const k = `${regCod}:::${(l.numero_lote || '').trim().toUpperCase()}`;
+        const keep = lotesKeysCentral.has(k);
+        if (!keep) alterou = true;
+        return keep;
+      }
+      return true;
     });
     if (lotesFiltrados.length !== this.lotesFinalizados.length) {
       this.lotesFinalizados = lotesFiltrados;
@@ -4770,10 +4842,13 @@ class AuditoriaDatabase {
     }
 
     for (const cl of lotesCentral) {
+      const clRegCod = extrairCodigoRegional(cl.regional);
+      if (clRegCod === 'RJ') continue;
+
       const idx = this.lotesFinalizados.findIndex(
         (l) =>
-          l.numero_lote.trim().toUpperCase() === cl.numero_lote.trim().toUpperCase() &&
-          l.regional.trim().toUpperCase() === cl.regional.trim().toUpperCase()
+          (l.numero_lote || '').trim().toUpperCase() === (cl.numero_lote || '').trim().toUpperCase() &&
+          extrairCodigoRegional(l.regional) === clRegCod
       );
       if (idx === -1) {
         this.lotesFinalizados.push(cl);
@@ -4784,9 +4859,11 @@ class AuditoriaDatabase {
         const dataLocal = new Date(local.data_reabertura || local.data_fechamento).getTime();
         if (
           dataRemota > dataLocal ||
-          (cl.historico_alteracoes?.length || 0) > (local.historico_alteracoes?.length || 0)
+          (cl.historico_alteracoes?.length || 0) > (local.historico_alteracoes?.length || 0) ||
+          local.total_produtos !== cl.total_produtos ||
+          local.total_caixas !== cl.total_caixas
         ) {
-          this.lotesFinalizados[idx] = cl;
+          this.lotesFinalizados[idx] = { ...local, ...cl };
           alterou = true;
         }
       }

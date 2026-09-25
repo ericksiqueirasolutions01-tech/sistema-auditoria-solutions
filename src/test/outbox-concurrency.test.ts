@@ -123,7 +123,8 @@ describe('GATE 5: Sincronização Delta / Outbox Engine com Idempotência e Conc
   describe('3. Resolução de Conflitos e Tombstone (Gate 9.3)', () => {
     it('deve recusar inserção em lote finalizado no servidor por operador comum', async () => {
       // Simula lote já finalizado no banco central
-      const dataDir = path.resolve(process.cwd(), 'data');
+      const dataDir = path.resolve(process.cwd(), 'data', 'test_data');
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
       const dbFile = path.join(dataDir, 'central_database.json');
       fs.writeFileSync(
         dbFile,
@@ -320,16 +321,11 @@ describe('GATE 5: Sincronização Delta / Outbox Engine com Idempotência e Conc
 
   afterAll(() => {
     // Restaura banco central limpo de teste
-    const dataDir = path.resolve(process.cwd(), 'data');
+    const dataDir = path.resolve(process.cwd(), 'data', 'test_data');
     try {
-      fs.writeFileSync(
-        path.join(dataDir, 'central_database.json'),
-        JSON.stringify({ produtos: [], lotes: [], fotos: [], ultimaAtualizacao: '2026-09-14T12:00:00.000Z' }, null, 2),
-        'utf-8'
-      );
-      fs.writeFileSync(path.join(dataDir, 'central_envios.json'), JSON.stringify([], null, 2), 'utf-8');
-      fs.writeFileSync(path.join(dataDir, 'central_tentativas_duplicadas.json'), JSON.stringify([], null, 2), 'utf-8');
-      fs.writeFileSync(path.join(dataDir, 'central_idempotency.json'), JSON.stringify({}, null, 2), 'utf-8');
+      if (fs.existsSync(dataDir)) {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      }
     } catch {}
   });
 });

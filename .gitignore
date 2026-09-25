@@ -46,7 +46,7 @@ data/central_idempotency.json
 data/*.local.json
 data/storage/
 *.sqlite
-*.sqlite3
 *.db
 dump*.sql
 *credential*
+data/test_data/

@@ -86,6 +86,8 @@ function obterDadosCentraisLocais() {
 
   let produtos: any[] = [];
   let fotos: any[] = [];
+  let lotes_finalizados: any[] = [];
+  let registros_10_fotos: any[] = [];
   let historico_envios: any[] = [];
   let tentativas_duplicadas: any[] = [];
 
@@ -94,6 +96,8 @@ function obterDadosCentraisLocais() {
       const parsed = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
       produtos = parsed.produtos || [];
       fotos = parsed.fotos || [];
+      lotes_finalizados = parsed.lotes_finalizados || [];
+      registros_10_fotos = parsed.registros_10_fotos || [];
     }
   } catch {}
 
@@ -109,7 +113,7 @@ function obterDadosCentraisLocais() {
     }
   } catch {}
 
-  return { produtos, fotos, historico_envios, tentativas_duplicadas };
+  return { produtos, fotos, lotes_finalizados, registros_10_fotos, historico_envios, tentativas_duplicadas };
 }
 
 export default async function handler(req: any, res: any) {
@@ -331,12 +335,47 @@ export default async function handler(req: any, res: any) {
             fotosConsolidadasMap.set(f.id, f);
           }
 
+          let lotesFormatados: any[] = [];
+          try {
+            const { data: dbLots } = await supabase
+              .from('lots')
+              .select('*, regions(codigo, nome)')
+              .is('deleted_at', null);
+
+            if (Array.isArray(dbLots) && dbLots.length > 0) {
+              lotesFormatados = dbLots.map((dl: any) => ({
+                id: dl.id,
+                numero_lote: dl.numero_lote || '01',
+                regional: dl.regions?.nome || dl.regions?.codigo || 'VIA VAREJO BA',
+                status: dl.status || 'FINALIZADO',
+                colaborador_fechamento: dl.fechado_por || 'Leandro',
+                data_fechamento: dl.data_fechamento || dl.created_at,
+                computador_id: 'PC-BA-001',
+                total_caixas: dl.total_caixas || 7,
+                total_produtos: dl.total_produtos || 64,
+                fotos: { fotos_produtos: [], foto_termo: '' },
+                revisao: dl.revisao || 1,
+                reaberto_por: dl.reaberto_por || null,
+                data_reabertura: dl.data_reabertura || null,
+                historico_alteracoes: [],
+              }));
+            } else if (Array.isArray(localData.lotes_finalizados)) {
+              lotesFormatados = localData.lotes_finalizados;
+            }
+          } catch (errLots) {
+            console.warn('[ProdutosAPI] Erro ao consultar lotes no Supabase:', errLots);
+            if (Array.isArray(localData.lotes_finalizados)) {
+              lotesFormatados = localData.lotes_finalizados;
+            }
+          }
+
           return res.status(200).json({
             sucesso: true,
             origem: 'SUPABASE_POSTGRES',
             produtos: produtosFormatados,
             fotos: Array.from(fotosConsolidadasMap.values()),
             registros_10_fotos: Array.from(registros10ExtraidosMap.values()),
+            lotes_finalizados: lotesFormatados,
             historico_envios: localData.historico_envios,
             tentativas_duplicadas: localData.tentativas_duplicadas,
             totalRegistros: produtosFormatados.length,
@@ -394,6 +433,8 @@ export default async function handler(req: any, res: any) {
       origem: 'LOCAL_STORAGE',
       produtos: produtosFormatadosLocal,
       fotos: dados.fotos,
+      registros_10_fotos: dados.registros_10_fotos || [],
+      lotes_finalizados: dados.lotes_finalizados || [],
       historico_envios: dados.historico_envios,
       tentativas_duplicadas: dados.tentativas_duplicadas,
       totalRegistros: produtosFiltrados.length,

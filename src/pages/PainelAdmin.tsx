@@ -193,8 +193,8 @@ export const PainelAdmin: React.FC = () => {
     const atualizarDados = async () => {
       setAtualizandoServidor(true);
       try {
-        await db.verificarRecuperacaoIndexedDB();
         await db.puxarAtualizacoesServidor();
+        await db.verificarRecuperacaoIndexedDB();
       } catch (err) {
         console.warn('Erro ao atualizar dados no Painel Admin:', err);
       } finally {
@@ -1274,8 +1274,8 @@ export const PainelAdmin: React.FC = () => {
               onClick={async () => {
                 setAtualizandoServidor(true);
                 try {
-                  await db.verificarRecuperacaoIndexedDB();
                   await db.puxarAtualizacoesServidor();
+                  await db.verificarRecuperacaoIndexedDB();
                 } catch (err) {
                   console.warn('Erro ao atualizar servidor:', err);
                 } finally {

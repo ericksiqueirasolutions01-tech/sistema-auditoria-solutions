@@ -234,15 +234,11 @@ describe('GATE 4: Banco Central Transacional (PostgreSQL + RLS)', () => {
     });
 
     afterAll(() => {
-      const dataDir = path.resolve(process.cwd(), 'data');
+      const dataDir = path.resolve(process.cwd(), 'data', 'test_data');
       try {
-        fs.writeFileSync(
-          path.join(dataDir, 'central_database.json'),
-          JSON.stringify({ produtos: [], fotos: [], ultimaAtualizacao: '2026-09-14T12:00:00.000Z' }, null, 2),
-          'utf-8'
-        );
-        fs.writeFileSync(path.join(dataDir, 'central_envios.json'), JSON.stringify([], null, 2), 'utf-8');
-        fs.writeFileSync(path.join(dataDir, 'central_tentativas_duplicadas.json'), JSON.stringify([], null, 2), 'utf-8');
+        if (fs.existsSync(dataDir)) {
+          fs.rmSync(dataDir, { recursive: true, force: true });
+        }
       } catch {}
     });
   });

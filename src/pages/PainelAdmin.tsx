@@ -14,6 +14,7 @@ import { SamsungLogo } from '../components/SamsungLogo';
 import { SolutionsLogo } from '../components/SolutionsLogo';
 import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataUri';
 import { ModalVisualizarFotoLote } from '../components/ModalVisualizarFotoLote';
+import { ModalGerenciarPendencias } from '../components/ModalGerenciarPendencias';
 import {
   AbaGaleriaFotos,
   ModalImportarPlanilhaRegional,
@@ -128,6 +129,9 @@ export const PainelAdmin: React.FC = () => {
   const [mostrarModalDuplicados, setMostrarModalDuplicados] = useState(false);
   const [excluindoDuplicados, setExcluindoDuplicados] = useState(false);
 
+  // Gestão e Exclusão de Pendências / Inconformidades Físicas
+  const [mostrarModalGerenciarPendencias, setMostrarModalGerenciarPendencias] = useState(false);
+
   // Pastas da Galeria
   const [pastaRegionalAberta, setPastaRegionalAberta] = useState<Record<string, boolean>>({
     'VIA VAREJO RJ': true,
@@ -160,6 +164,7 @@ export const PainelAdmin: React.FC = () => {
         else if (produtoParaEditar) setProdutoParaEditar(null);
         else if (mostrarModalLimpeza) setMostrarModalLimpeza(false);
         else if (mostrarModalDuplicados) setMostrarModalDuplicados(false);
+        else if (mostrarModalGerenciarPendencias) setMostrarModalGerenciarPendencias(false);
         else if (mostrarModalImportarPlanilha) setMostrarModalImportarPlanilha(false);
         else if (mostrarModalHistoricoPlanilhas) setMostrarModalHistoricoPlanilhas(false);
       }
@@ -174,6 +179,7 @@ export const PainelAdmin: React.FC = () => {
     produtoParaEditar,
     mostrarModalLimpeza,
     mostrarModalDuplicados,
+    mostrarModalGerenciarPendencias,
     mostrarModalImportarPlanilha,
     mostrarModalHistoricoPlanilhas,
   ]);
@@ -1348,6 +1354,25 @@ export const PainelAdmin: React.FC = () => {
               </button>
             )}
 
+            {/* Botão de Gestão e Exclusão de Pendências (ADMIN ONLY) */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setMostrarModalGerenciarPendencias(true)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer ${
+                  metricasRegional.pendencias > 0
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                    : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                }`}
+                title="Visualizar e excluir pendências e inconformidades físicas"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-300" />
+                <span>
+                  Pendências {metricasRegional.pendencias > 0 ? `(${metricasRegional.pendencias})` : ''}
+                </span>
+              </button>
+            )}
+
             {/* Importar Planilha Regional de Referência (ADMIN ONLY) */}
             {isAdmin && (
               <button
@@ -1827,11 +1852,21 @@ export const PainelAdmin: React.FC = () => {
                   <span className="text-[10px] text-amber-200 block font-semibold mt-0.5">abertos</span>
                 </div>
 
-                <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-                  <span className="text-[10px] font-bold text-rose-300 uppercase block">Pendências</span>
-                  <span className="text-2xl font-black text-rose-400">{metricasRegional.pendencias}</span>
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalGerenciarPendencias(true)}
+                  className="bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-xs rounded-2xl p-4 border border-white/10 text-left transition-all cursor-pointer group w-full"
+                  title="Clique para visualizar e excluir pendências"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-rose-300 uppercase block">Pendências</span>
+                    <span className="text-[9px] font-bold text-rose-200 bg-rose-500/40 px-1.5 py-0.5 rounded opacity-80 group-hover:opacity-100 transition-opacity">
+                      Ver e Excluir →
+                    </span>
+                  </div>
+                  <span className="text-2xl font-black text-rose-400 block mt-1">{metricasRegional.pendencias}</span>
                   <span className="text-[10px] text-rose-200 block font-semibold mt-0.5">inconformes</span>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -3816,6 +3851,20 @@ export const PainelAdmin: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Gestão & Exclusão de Pendências (ADMIN ONLY) */}
+      {mostrarModalGerenciarPendencias && (
+        <ModalGerenciarPendencias
+          isOpen={mostrarModalGerenciarPendencias}
+          regional={regionalAtiva !== 'CONSOLIDADO' ? regionalAtiva : 'VIA VAREJO BA'}
+          onClose={() => setMostrarModalGerenciarPendencias(false)}
+          onPendenciasExcluidas={(removidos) => {
+            setForcarAtualizacao((v) => v + 1);
+            setAlertaLimpeza(`${removidos} pendência(s) excluída(s) com sucesso. Base atualizada!`);
+            setTimeout(() => setAlertaLimpeza(null), 6000);
+          }}
+        />
       )}
 
       {/* Modal Administrativo de Reabertura de Lote (Exclusivo Administrador - Requisito 8) */}

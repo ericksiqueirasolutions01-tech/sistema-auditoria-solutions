@@ -77,6 +77,27 @@ export interface ResultadoExclusaoDuplicadosServidor {
   erro?: string;
 }
 
+export interface ItemPendenciaDetalhada {
+  id: string | number;
+  serial: string;
+  imei: string;
+  modelo_produto: string;
+  numero_caixa: string;
+  numero_lote: string;
+  regional: string;
+  data_auditoria?: string;
+  data_cadastro?: string;
+  status_sincronizacao?: string;
+  motivo?: string;
+  origem: 'PRODUTO' | 'LOTE_PENDENTE';
+}
+
+export interface ResultadoExclusaoPendencias {
+  sucesso: boolean;
+  removidos: number;
+  mensagem: string;
+}
+
 export type DeviceStatus = 'ATIVO' | 'PENDENTE' | 'REVOGADO';
 
 export interface ComputadorInfo {

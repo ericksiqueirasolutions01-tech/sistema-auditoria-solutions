@@ -25,6 +25,8 @@ import {
   LogTentativaDuplicado,
   ResultadoSincronizacao,
   ResultadoExclusaoDuplicadosServidor,
+  ItemPendenciaDetalhada,
+  ResultadoExclusaoPendencias,
   StatusConexao,
   LogAcessoUsuario,
   ConfiguracaoInicialInfo,
@@ -926,6 +928,33 @@ class AuditoriaDatabase {
         } catch {}
       }
 
+      // Higienização de pendências da Regional BA já ajustadas no estoque físico
+      const KEY_EXPURGO_PENDENCIAS_FISICAS_BA = 'solutions_pendencias_fisicas_ba_expurgadas_v1';
+      if (typeof localStorage !== 'undefined' && !localStorage.getItem(KEY_EXPURGO_PENDENCIAS_FISICAS_BA)) {
+        let expurgouPendenciasBA = false;
+        for (let i = this.produtos.length - 1; i >= 0; i--) {
+          const p = this.produtos[i];
+          if (extrairCodigoRegional(p.regional) === 'BA') {
+            if (
+              p.status_sincronizacao === 'PENDENTE' ||
+              p.sync_status === 'PENDENTE' ||
+              p.status_sincronizacao === 'ERRO_DUPLICADO'
+            ) {
+              this.produtos.splice(i, 1);
+              expurgouPendenciasBA = true;
+            }
+          }
+        }
+        if (expurgouPendenciasBA) {
+          try {
+            localStorage.setItem(STORAGE_KEY_PRODUTOS, JSON.stringify(this.produtos));
+          } catch {}
+        }
+        try {
+          localStorage.setItem(KEY_EXPURGO_PENDENCIAS_FISICAS_BA, 'true');
+        } catch {}
+      }
+
       const histRaw = localStorage.getItem(STORAGE_KEY_HISTORICO);
       this.historico = histRaw ? JSON.parse(histRaw) : [];
 
@@ -972,6 +1001,12 @@ class AuditoriaDatabase {
             (l) => extrairCodigoRegional(l.regional) !== 'RJ' && isRegistroDoDia24EmDiante(l)
           )
         : [];
+
+      for (const l of this.lotesFinalizados) {
+        if (extrairCodigoRegional(l.regional) === 'BA' && l.produtos_pendentes && l.produtos_pendentes.length > 0) {
+          l.produtos_pendentes = [];
+        }
+      }
       try {
         localStorage.setItem(STORAGE_KEY_LOTES_FINALIZADOS, JSON.stringify(this.lotesFinalizados));
       } catch {}
@@ -3774,6 +3809,150 @@ class AuditoriaDatabase {
       if (regAlvo) return (p.regional || 'VIA VAREJO RJ') === regAlvo;
       return true;
     });
+  }
+
+  listarPendenciasDetalhadas(regional?: string): ItemPendenciaDetalhada[] {
+    const regAlvo =
+      regional && regional !== 'TODAS'
+        ? regional
+        : this.usuarioAtual?.perfil === 'OPERADOR'
+        ? this.usuarioAtual.regional
+        : undefined;
+
+    const regCodAlvo = regAlvo ? extrairCodigoRegional(regAlvo) : null;
+    const matchReg = (r?: string | null) => {
+      if (!regAlvo || regAlvo === 'TODAS') return true;
+      if (!r) return false;
+      const rNorm = r.trim().toUpperCase();
+      return rNorm === regAlvo.toUpperCase() || (regCodAlvo ? extrairCodigoRegional(rNorm) === regCodAlvo : false);
+    };
+
+    const lista: ItemPendenciaDetalhada[] = [];
+    const seenImeis = new Set<string>();
+
+    // 1. Produtos com status PENDENTE ou ERRO_DUPLICADO em memória
+    for (const p of this.produtos) {
+      if (!matchReg(p.regional)) continue;
+      const isPendente =
+        p.status_sincronizacao === 'PENDENTE' ||
+        p.sync_status === 'PENDENTE' ||
+        p.status_sincronizacao === 'ERRO_DUPLICADO';
+      if (!isPendente) continue;
+
+      const imeiNorm = (p.imei || p.serial || '').trim().toUpperCase();
+      if (imeiNorm) seenImeis.add(imeiNorm);
+
+      lista.push({
+        id: p.id,
+        serial: p.serial,
+        imei: p.imei || p.serial,
+        modelo_produto: p.modelo_produto || 'Modelo não especificado',
+        numero_caixa: p.numero_caixa || 'SEM CAIXA',
+        numero_lote: p.numero_lote || '01',
+        regional: p.regional || 'VIA VAREJO BA',
+        data_auditoria: p.data_auditoria || (p.data_cadastro ? p.data_cadastro.split('T')[0] : ''),
+        data_cadastro: p.data_cadastro,
+        status_sincronizacao: p.status_sincronizacao || 'PENDENTE',
+        motivo: p.duplicado_servidor_info ? 'Duplicado no Servidor / Inconforme' : 'Pendente de sincronização online / Inconforme',
+        origem: 'PRODUTO',
+      });
+    }
+
+    // 2. Pendências registradas nos lotes finalizados
+    for (const l of this.lotesFinalizados) {
+      if (!matchReg(l.regional)) continue;
+      if (l.produtos_pendentes && Array.isArray(l.produtos_pendentes)) {
+        for (const pend of l.produtos_pendentes) {
+          const pendImei = (pend.imei || '').trim().toUpperCase();
+          if (pendImei && seenImeis.has(pendImei)) continue;
+          if (pendImei) seenImeis.add(pendImei);
+
+          lista.push({
+            id: `lote-pend-${l.numero_lote}-${pend.imei}`,
+            serial: pend.imei,
+            imei: pend.imei,
+            modelo_produto: pend.modelo || 'Não especificado',
+            numero_caixa: 'Caixa 0 (Não embalado)',
+            numero_lote: l.numero_lote,
+            regional: l.regional,
+            data_auditoria: l.data_fechamento ? l.data_fechamento.split('T')[0] : '',
+            data_cadastro: l.data_fechamento,
+            status_sincronizacao: 'INCONFORME_LOTE',
+            motivo: pend.motivo || l.motivo_pendencias || 'Pendente no lote / Ajustado no físico',
+            origem: 'LOTE_PENDENTE',
+          });
+        }
+      }
+    }
+
+    return lista;
+  }
+
+  excluirProdutosPendentes(idsOuSeriais: (string | number)[], regional?: string): ResultadoExclusaoPendencias {
+    const targets = new Set(idsOuSeriais.map((item) => String(item).trim().toUpperCase()));
+    let removidos = 0;
+
+    // 1. Remover de this.produtos
+    for (let i = this.produtos.length - 1; i >= 0; i--) {
+      const p = this.produtos[i];
+      const matchId = targets.has(String(p.id).trim().toUpperCase());
+      const matchSerial = targets.has((p.serial || '').trim().toUpperCase());
+      const matchImei = targets.has((p.imei || '').trim().toUpperCase());
+
+      if (matchId || matchSerial || matchImei) {
+        const isPendente =
+          p.status_sincronizacao === 'PENDENTE' ||
+          p.sync_status === 'PENDENTE' ||
+          p.status_sincronizacao === 'ERRO_DUPLICADO';
+        if (isPendente) {
+          this.produtos.splice(i, 1);
+          this.serialMap.delete(p.serial.trim().toUpperCase());
+          removidos++;
+        }
+      }
+    }
+
+    // 2. Remover de lotesFinalizados.produtos_pendentes
+    for (const l of this.lotesFinalizados) {
+      if (l.produtos_pendentes && Array.isArray(l.produtos_pendentes)) {
+        const antes = l.produtos_pendentes.length;
+        l.produtos_pendentes = l.produtos_pendentes.filter((pend) => {
+          const pendId = `lote-pend-${l.numero_lote}-${pend.imei}`.toUpperCase();
+          const pendImei = (pend.imei || '').trim().toUpperCase();
+          return !targets.has(pendId) && !targets.has(pendImei);
+        });
+        const delta = antes - l.produtos_pendentes.length;
+        if (delta > 0) {
+          removidos += delta;
+        }
+      }
+    }
+
+    if (removidos > 0) {
+      this.salvarTudo();
+      this.notificarMudanca('produtos');
+      this.notificarMudanca('sync');
+    }
+
+    return {
+      sucesso: true,
+      removidos,
+      mensagem: `${removidos} pendência(s) excluída(s) com sucesso. Base operacional atualizada.`,
+    };
+  }
+
+  excluirTodasPendencias(regional?: string): ResultadoExclusaoPendencias {
+    const pendencias = this.listarPendenciasDetalhadas(regional);
+    if (pendencias.length === 0) {
+      return {
+        sucesso: true,
+        removidos: 0,
+        mensagem: 'Nenhuma pendência encontrada para exclusão nesta visão.',
+      };
+    }
+
+    const idsOuImeis = pendencias.map((p) => p.id || p.imei);
+    return this.excluirProdutosPendentes(idsOuImeis, regional);
   }
 
   // =========================================================================

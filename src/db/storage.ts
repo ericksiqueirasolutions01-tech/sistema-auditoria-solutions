@@ -1970,7 +1970,8 @@ class AuditoriaDatabase {
     import_batch_id?: string | null;
     classificacao_produto?: string | null;
     product_classification?: string | null;
-    nf_origem?: string | null;
+    regional_usuario?: string | null;
+    regional_produto?: string | null;
     box_id?: string | null;
     box_name?: string | null;
   }): { sucesso: boolean; produto?: ProdutoAuditoria; erro?: string } {
@@ -1990,29 +1991,38 @@ class AuditoriaDatabase {
       };
     }
 
-    // 0.0.2. Verificação de Escopo Regional (Gate 2: operator cross-region -> denied)
-    if (item.regional && !podeAcessarRegional(this.usuarioAtual, item.regional)) {
+    // 0.0.2. Verificação de Escopo Regional do Usuário (regional_usuario)
+    // Usada estritamente para autenticação e permissão de usuário.
+    if (item.regional_usuario && !podeAcessarRegional(this.usuarioAtual, item.regional_usuario)) {
       return {
         sucesso: false,
-        erro: `Acesso negado: Usuário (${this.usuarioAtual.login}) com perfil "${this.usuarioAtual.perfil}" está restrito à regional "${this.usuarioAtual.regional || 'atribuída'}" e não pode registrar produtos em "${item.regional}".`,
+        erro: `Acesso negado: Seu usuário está restrito à regional ${this.usuarioAtual.regional}. Operação em ${item.regional_usuario} não permitida.`,
       };
     }
 
     const serialNorm = (item.serial || item.imei || '').trim().toUpperCase();
 
-    // Consulta de referência de inventário regional ativa (Prompt Mestre Seções 4, 5, 8, 16)
+    // Consulta de referência de inventário regional ativa
     const refLookup =
       this.consultarImeiReferencia(serialNorm, item.regional) ||
       this.consultarImeiReferencia(serialNorm, this.usuarioAtual?.perfil === 'OPERADOR' ? this.usuarioAtual.regional : undefined) ||
       this.consultarImeiReferencia(serialNorm);
 
-    // A regional nunca deve ser digitada manualmente. Ela vem da base oficial de referência se encontrada.
-    const regionalFinal =
+    // Separação de conceitos de regional (Regra de Negócio):
+    // 1. regional_usuario: Regional operacional da estação/operador (ex: VIA VAREJO RJ), usada para autenticação e escopo da máquina.
+    // 2. regional_produto: Regional de origem vinda da Coluna J da planilha (ex: CAJAMAR, BA, MG), usada para armazenamento, consulta e relatório.
+    // Qualquer bloqueio do tipo regional_usuario != regional_produto é terminantemente proibido.
+    const regionalUsuario = (
+      this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
+        ? this.usuarioAtual.regional
+        : (item.regional_usuario || (this.usuarioAtual.regional ? this.usuarioAtual.regional : (item.regional?.trim() || 'VIA VAREJO RJ')))
+    );
+    const regionalProduto = (
       refLookup?.regional
         ? refLookup.regional.trim().toUpperCase()
-        : (this.usuarioAtual.perfil === 'OPERADOR' && this.usuarioAtual.regional
-          ? this.usuarioAtual.regional
-          : (item.regional?.trim() || (this.usuarioAtual.regional ? this.usuarioAtual.regional : 'VIA VAREJO RJ')));
+        : (item.regional_produto ? item.regional_produto.trim().toUpperCase() : (item.regional ? item.regional.trim().toUpperCase() : regionalUsuario))
+    );
+    const regionalFinal = regionalUsuario;
 
     const resolvedSourceType: 'LISTED' | 'OUT_OF_LIST' = item.source_type || (refLookup ? 'LISTED' : 'OUT_OF_LIST');
     const resolvedDealer = item.dealer !== undefined ? item.dealer : (refLookup?.dealer_normalized || null);
@@ -2074,7 +2084,7 @@ class AuditoriaDatabase {
     }
 
     // 1. Validate mandatory fields
-    if (!item.modelo_produto.trim()) {
+    if (!item.modelo_produto || !item.modelo_produto.trim()) {
       return { sucesso: false, erro: 'O modelo do produto é obrigatório.' };
     }
     const eanFinal = (item.ean || item.sku || refLookup?.sku || '').trim();
@@ -2181,6 +2191,8 @@ class AuditoriaDatabase {
       id_servidor: null,
       uuid: crypto.randomUUID ? crypto.randomUUID() : `sec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       regional: regionalFinal,
+      regional_usuario: regionalUsuario,
+      regional_produto: regionalProduto,
       fabricante: resolvedFabricante,
       modelo_produto: (resolvedSourceType === 'LISTED' && refLookup?.model_description ? refLookup.model_description : item.modelo_produto).trim(),
       ean: eanFinal,
@@ -3590,14 +3602,14 @@ class AuditoriaDatabase {
       if (nfExistente && nfNovo && nfExistente !== nfNovo) {
         return {
           compativel: false,
-          erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
+          erro: 'CAIXA BLOQUEADA: NF Origem Samsung diferente da caixa atual.',
           configCaixa: this.obterConfiguracaoCaixa(caixa, regAlvo || undefined),
         };
       }
       if ((nfExistente && !nfNovo) || (!nfExistente && nfNovo)) {
         return {
           compativel: false,
-          erro: 'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.',
+          erro: 'CAIXA BLOQUEADA: NF Origem Samsung diferente da caixa atual.',
           configCaixa: this.obterConfiguracaoCaixa(caixa, regAlvo || undefined),
         };
       }

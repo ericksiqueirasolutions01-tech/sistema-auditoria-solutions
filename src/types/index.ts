@@ -142,7 +142,9 @@ export interface ProdutoAuditoria {
   id_local?: number; // Equivalente explícito a id
   id_servidor: string | null; // ID atribuído no servidor após sincronização
   uuid: string;
-  regional: string; // Ex: 'VIA VAREJO RJ', 'VIA VAREJO SP', 'VIA VAREJO MG', 'VIA VAREJO BA'
+  regional: string; // Ex: 'VIA VAREJO RJ', 'VIA VAREJO SP', 'VIA VAREJO MG', 'VIA VAREJO BA' (regional da estação operacional)
+  regional_usuario?: string | null; // Regional operacional da estação/operador
+  regional_produto?: string | null; // Regional de origem do produto vinda da Coluna J da planilha
   fabricante: string; // Marca real do produto (ex: SAMSUNG, MOTOROLA, OPPO, JOVI, etc.)
   modelo_produto: string;
   ean: string;

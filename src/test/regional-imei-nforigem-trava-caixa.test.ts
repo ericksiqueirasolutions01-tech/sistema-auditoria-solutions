@@ -161,8 +161,8 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
     expect(res.produto?.modelo_produto).toBe('SAMSUNG GALAXY S24 ULTRA');
     expect(res.produto?.fabricante).toBe('SAMSUNG');
     expect(res.produto?.nf_origem_samsung).toBe('NF-SAMSUNG-99999');
-    // Regional veio da base oficial (VIA VAREJO PE), não de digitação manual
-    expect(res.produto?.regional).toBe('VIA VAREJO PE');
+    // Regional do produto veio da base oficial Coluna J (VIA VAREJO PE)
+    expect(res.produto?.regional_produto).toBe('VIA VAREJO PE');
   });
 
   // =========================================================================
@@ -282,7 +282,7 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
 
     expect(resB.sucesso).toBe(false);
     expect(resB.erro).toBe(
-      'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.'
+      'CAIXA BLOQUEADA: NF Origem Samsung diferente da caixa atual.'
     );
 
     // Validação direta da função validarCompatibilidadeCaixa
@@ -294,7 +294,7 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
     });
     expect(validacao.compativel).toBe(false);
     expect(validacao.erro).toBe(
-      'CAIXA BLOQUEADA: Não é permitido misturar produtos com NFOrigem Samsung diferentes na mesma caixa.'
+      'CAIXA BLOQUEADA: NF Origem Samsung diferente da caixa atual.'
     );
   });
 
@@ -320,7 +320,7 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
 
     const prodLocal = res.produto!;
     expect(prodLocal.imei).toBe('355555555555555');
-    expect(prodLocal.regional).toBe('VIA VAREJO PR');
+    expect(prodLocal.regional_produto).toBe('VIA VAREJO PR');
     expect(prodLocal.nf_origem_samsung).toBe('NF-PR-8888');
 
     // 2. Simular payload enviado para api/central/sync
@@ -360,7 +360,7 @@ describe('Validação Estrutural: Regional por IMEI (Coluna J) + Trava de Caixa 
     );
     expect(prodCentral).toBeDefined();
     expect(prodCentral.imei).toBe('355555555555555');
-    expect(prodCentral.regional).toBe('VIA VAREJO PR');
+    expect(prodCentral.regional_produto || prodCentral.regional).toBe('VIA VAREJO PR');
     expect(prodCentral.nf_origem_samsung).toBe('NF-PR-8888');
   });
 

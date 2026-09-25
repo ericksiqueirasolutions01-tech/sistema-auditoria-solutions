@@ -8,6 +8,7 @@ import { LOGO_SAMSUNG_BASE64, LOGO_SOLUTIONS_BASE64 } from '../assets/logosDataU
 import { ModalCaptura10FotosCaixa } from '../components/ModalCaptura10FotosCaixa';
 import { ModalAlertaDuplicidadeServidor } from '../components/ModalAlertaDuplicidadeServidor';
 import { ModalFechamentoLote } from '../components/ModalFechamentoLote';
+import { ModalDetalhesProduto } from '../components/ModalDetalhesProduto';
 import {
   ModalEspelhoCaixa,
   ModalNovaCaixa,
@@ -50,6 +51,10 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  Zap,
+  Barcode,
+  Package,
+  AlertCircle,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -304,7 +309,30 @@ export const BipagemRapida: React.FC = () => {
     db.obterContadoresCaixa(caixaAtiva)
   );
 
-  // Responsividade: modo celular ou planilha Excel
+  // Novo Conceito: Modo Operador (Interface Simples e Rápida de Galpão) vs Modo Admin (Detalhado)
+  const [modoOperacao, setModoOperacao] = useState<'operador' | 'admin'>(() => {
+    if (typeof window !== 'undefined') {
+      const salvo = localStorage.getItem('solutions_modo_operacao');
+      if (salvo === 'admin' || salvo === 'operador') return salvo;
+    }
+    return 'operador';
+  });
+
+  const alternarModoOperacao = (modo: 'operador' | 'admin') => {
+    setModoOperacao(modo);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('solutions_modo_operacao', modo);
+    }
+    setTimeout(() => focarInputSerial(), 80);
+  };
+
+  // Trava / Congelamento de Condição Inicial (Produto Lacrado: SIM -> Bloqueado)
+  const [lacreConfirmado, setLacreConfirmado] = useState<boolean>(true);
+
+  // Modal de Detalhes Completos do Produto ao clicar na lista compacta
+  const [produtoDetalheModal, setProdutoDetalheModal] = useState<ProdutoAuditoria | null>(null);
+
+  // Responsividade: modo celular ou planilha Excel (quando em Modo Admin)
   const [modoVisualizacao, setModoVisualizacao] = useState<'celular' | 'excel'>(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       return 'celular';
@@ -609,7 +637,7 @@ export const BipagemRapida: React.FC = () => {
         caixa: caixaLimpa,
         classificacao: classificacaoResolvida,
         produto_lacrado: lacreAtivo,
-        regional: regionalResolvida,
+        regional: regBusca,
         nf_origem_samsung: nfOrigemSamsungResolvido,
       });
 
@@ -644,7 +672,6 @@ export const BipagemRapida: React.FC = () => {
         box_id: caixaLimpa.toLowerCase().replace(/\s+/g, '-'),
         box_name: caixaLimpa,
         numero_nf: originInvoiceResolvido || '',
-        nf_origem: originInvoiceResolvido,
         origin_invoice: originInvoiceResolvido,
         nf_origem_samsung: nfOrigemSamsungResolvido,
         produto_lacrado: lacreAtivo,
@@ -652,7 +679,9 @@ export const BipagemRapida: React.FC = () => {
         kit_completo: lacreAtivo === 'SIM' ? null : (kitAtivo as SimNao),
         aparelho_marcas_uso: lacreAtivo === 'SIM' ? null : (marcasAtivo as SimNao),
         observacao: obsAtivo.trim(),
-        regional: regionalResolvida,
+        regional: regBusca,
+        regional_usuario: regBusca,
+        regional_produto: regionalResolvida,
         fabricante: fabricanteResolvido,
         source_type: sourceType,
         dealer: dealerResolvido,
@@ -1746,40 +1775,65 @@ export const BipagemRapida: React.FC = () => {
       </datalist>
 
       {/* ========================================================================= */}
-      {/* BARRA DE ALTERNAÇÃO DE VISUALIZAÇÃO: MODO CELULAR VS PLANILHA EXCEL */}
+      {/* SELETOR DE MODO: OPERADOR (RÁPIDO) VS ADMIN (DETALHADO) */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl p-3 sm:p-4 border-2 border-slate-300 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-300 w-full sm:w-auto justify-center">
-          <button
-            type="button"
-            onClick={() => {
-              setModoVisualizacao('celular');
-              setTimeout(() => focarInputSerial(), 80);
-            }}
-            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              modoVisualizacao === 'celular'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            Modo Celular (Bipagem Ágil)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setModoVisualizacao('excel');
-              setTimeout(() => focarInputSerial(), 80);
-            }}
-            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              modoVisualizacao === 'excel'
-                ? 'bg-emerald-700 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Modo Planilha (Grid Completo)
-          </button>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-300">
+            <button
+              type="button"
+              onClick={() => alternarModoOperacao('operador')}
+              className={`px-4 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                modoOperacao === 'operador'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              Modo Operador (Rápido)
+            </button>
+            <button
+              type="button"
+              onClick={() => alternarModoOperacao('admin')}
+              className={`px-4 py-2 rounded-lg font-black text-xs uppercase flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                modoOperacao === 'admin'
+                  ? 'bg-indigo-700 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Modo Admin (Detalhes)
+            </button>
+          </div>
+
+          {modoOperacao === 'admin' && (
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-300">
+              <button
+                type="button"
+                onClick={() => {
+                  setModoVisualizacao('celular');
+                  setTimeout(() => focarInputSerial(), 80);
+                }}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1 cursor-pointer ${
+                  modoVisualizacao === 'celular' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" /> Celular
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModoVisualizacao('excel');
+                  setTimeout(() => focarInputSerial(), 80);
+                }}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1 cursor-pointer ${
+                  modoVisualizacao === 'excel' ? 'bg-emerald-700 text-white' : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Planilha
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Botão de Envio para Online / Servidor Central */}
@@ -1872,7 +1926,486 @@ export const BipagemRapida: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================================= */}
+      {modoOperacao === 'operador' ? (
+        /* ========================================================================= */
+        /* MODO OPERADOR: TELA DE OPERAÇÃO RÁPIDA (GALPÃO / WMS)                     */
+        /* ========================================================================= */
+        <div className="space-y-4">
+          {/* CABEÇALHO OPERACIONAL: Apenas os 6 itens requisitados */}
+          <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-md border-2 border-slate-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* 1. Regional operacional */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Regional Operacional</span>
+              <span className="text-xs font-black uppercase text-white truncate block mt-0.5" title={regionalAtiva}>
+                {regionalAtiva}
+              </span>
+            </div>
+
+            {/* 2. Estação */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estação</span>
+              <span className="text-xs font-mono font-black text-emerald-400 block mt-0.5">
+                💻 {computadorAtual.id}
+              </span>
+            </div>
+
+            {/* 3. Caixa atual */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Caixa Atual</span>
+                <span className="text-xs font-black uppercase text-amber-400 block mt-0.5">
+                  {caixaAtiva}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCaixaParaMudarInput(caixaAtiva);
+                  setMostrarAlterarCaixaModal(true);
+                }}
+                className="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-1 rounded font-bold cursor-pointer transition-colors"
+                title="Mudar ou criar caixa"
+              >
+                Trocar
+              </button>
+            </div>
+
+            {/* 4. Lote */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Lote</span>
+              <span className="text-xs font-black uppercase text-white block mt-0.5">
+                {loteAtivo || 'LOTE 1'}
+              </span>
+            </div>
+
+            {/* 5. Lacre */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Lacre</span>
+              <span className="text-xs font-mono font-black text-indigo-300 truncate block mt-0.5" title={lacreSegurancaAtivo || 'Não informado'}>
+                {lacreSegurancaAtivo || db.obterLacreCaixa(caixaAtiva, regBusca) || 'Não informado'}
+              </span>
+            </div>
+
+            {/* 6. Status da caixa */}
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Status da Caixa</span>
+              <span className={`text-xs font-black uppercase block mt-0.5 ${
+                contadores.totalAuditados >= 20 ? 'text-rose-400' : 'text-emerald-400'
+              }`}>
+                {contadores.totalAuditados >= 20 ? 'COMPLETA (20/20)' : `${contadores.totalAuditados} / 20 PRODUTOS`}
+              </span>
+            </div>
+          </div>
+
+          {/* Banner de Aviso de Lote Finalizado (se aplicável) */}
+          {isLoteAtualFinalizado && (
+            <div className="bg-rose-600 text-white rounded-2xl p-3.5 shadow-md flex items-center justify-between gap-3 font-bold text-xs">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>O LOTE {loteAtivo} ESTÁ FINALIZADO E BLOQUEADO. Abra um novo lote para continuar auditando.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const num = parseInt(loteAtivo.replace(/\D/g, ''), 10);
+                  const prox = isNaN(num) ? '02' : String(num + 1).padStart(2, '0');
+                  handleMudarLoteAtivo(prox);
+                }}
+                className="bg-white text-rose-900 px-3 py-1.5 rounded-lg uppercase font-black text-xs shrink-0 cursor-pointer"
+              >
+                Próximo Lote ❯
+              </button>
+            </div>
+          )}
+
+          {/* FLUXO OPERACIONAL (Passos 1 a 6) */}
+          <div className="bg-white rounded-2xl p-4 sm:p-5 border-2 border-slate-300 shadow-sm space-y-4">
+            {/* Linha de Passos Iniciais: 1 (Abrir caixa), 2 (Informar lacre), 3 (Definir condição inicial) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-b border-slate-200 pb-4">
+              {/* 1. Abrir caixa */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">1</span>
+                    Abrir Caixa
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNovaAuditoria}
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> Nova Caixa
+                  </button>
+                </div>
+                <input
+                  list="lista-caixas-existentes"
+                  type="text"
+                  value={caixaAtiva}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setCaixaAtiva(val);
+                    setFiltroCaixa(val);
+                    recarregarDados(val);
+                  }}
+                  placeholder="Ex: Caixa 01"
+                  className="w-full text-sm font-black font-mono text-blue-900 uppercase bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* 2. Informar lacre */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">2</span>
+                  Informar Lacre
+                </span>
+                <input
+                  type="text"
+                  value={lacreSegurancaAtivo}
+                  onChange={(e) => {
+                    const v = e.target.value.toUpperCase();
+                    setLacreSegurancaAtivo(v);
+                    if (v.trim()) {
+                      db.definirLacreCaixa(caixaAtiva, v.trim(), regBusca);
+                    }
+                  }}
+                  placeholder="Ex: LACRE-123456"
+                  className="w-full text-sm font-black font-mono text-slate-800 uppercase bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* 3. Definir condição inicial */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">3</span>
+                  Condição Inicial
+                </span>
+                {lacreConfirmado ? (
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      🔒 Produto lacrado confirmado
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setLacreConfirmado(false)}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                    >
+                      Alterar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLacreAtivo('SIM');
+                        setLacreConfirmado(true);
+                      }}
+                      className={`flex-1 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        lacreAtivo === 'SIM'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                      }`}
+                    >
+                      SIM (Lacrado)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLacreAtivo('NÃO');
+                        setLacreConfirmado(true);
+                      }}
+                      className={`flex-1 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        lacreAtivo === 'NÃO'
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                      }`}
+                    >
+                      NÃO (Aberto)
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Condição para produto aberto (se selecionado NÃO) */}
+            {lacreAtivo === 'NÃO' && (
+              <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs animate-in fade-in">
+                <div>
+                  <label className="text-[10px] font-bold text-amber-900 uppercase block mb-1">Kit Completo:</label>
+                  <select
+                    value={kitAtivo}
+                    onChange={(e) => setKitAtivo(e.target.value as SimNao)}
+                    className="w-full text-xs font-bold bg-white border border-amber-300 rounded-lg p-1.5 focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="SIM">SIM</option>
+                    <option value="NÃO">NÃO</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-amber-900 uppercase block mb-1">Marcas de Uso:</label>
+                  <select
+                    value={marcasAtivo}
+                    onChange={(e) => setMarcasAtivo(e.target.value as SimNao)}
+                    className="w-full text-xs font-bold bg-white border border-amber-300 rounded-lg p-1.5 focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="SIM">SIM</option>
+                    <option value="NÃO">NÃO</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* 4. Bipar IMEI */}
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Barcode className="w-4 h-4 text-blue-600" />
+                <span>4. Bipar IMEI (15 Dígitos)</span>
+              </label>
+              <div className="relative">
+                <input
+                  ref={serialInputRef}
+                  type="text"
+                  value={serialInput}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, '').slice(0, 15);
+                    setSerialInput(v);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Aponte o leitor de código de barras ou digite o IMEI..."
+                  autoFocus
+                  className="w-full text-xl sm:text-2xl font-mono font-black tracking-widest text-slate-900 bg-slate-50 border-2 border-blue-500 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-4 focus:ring-blue-500/20 placeholder:text-slate-400 placeholder:text-sm placeholder:font-sans placeholder:tracking-normal shadow-inner"
+                />
+                {serialInput.length > 0 && (
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-600 bg-slate-200 px-2.5 py-1 rounded-md">
+                    {serialInput.length}/15
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 5. Mostrar resultado instantâneo */}
+            {serialInput.trim().length === 15 && (
+              <div className="bg-blue-50/80 border-2 border-blue-300 rounded-2xl p-4 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                    5. Resultado da Consulta
+                  </span>
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                    referenciaDetectada ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {referenciaDetectada ? 'PRODUTO NA LISTA' : 'FORA DA LISTA'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                  <div className="bg-white p-2.5 rounded-xl border border-blue-200">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase block">Modelo</span>
+                    <span className="font-black text-slate-900 block truncate mt-0.5">{modeloAtivo || '-'}</span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-blue-200">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase block">SKU</span>
+                    <span className="font-mono font-black text-slate-900 block truncate mt-0.5">{eanAtivo || '-'}</span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-blue-200">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase block">NF Origem Samsung</span>
+                    <span className="font-black text-blue-900 block truncate mt-0.5">
+                      {referenciaDetectada?.nf_origem_samsung || referenciaDetectada?.origin_invoice || 'Não localizada'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-blue-200">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase block">Regional de Origem (Coluna J)</span>
+                    <span className="font-black text-amber-700 uppercase block truncate mt-0.5">
+                      {referenciaDetectada?.regional || 'PADRÃO'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Trava Operacional: NF Origem Samsung Homogênea na Caixa */}
+                {(() => {
+                  const nfProduto = referenciaDetectada?.nf_origem_samsung || referenciaDetectada?.origin_invoice || null;
+                  const checkCaixa = db.validarCompatibilidadeCaixa({
+                    caixa: caixaAtiva,
+                    classificacao: classificacaoAtiva || 'PADRAO',
+                    produto_lacrado: lacreAtivo,
+                    regional: regBusca,
+                    nf_origem_samsung: nfProduto,
+                  });
+
+                  if (!checkCaixa.compativel) {
+                    return (
+                      <div className="bg-rose-100 border-2 border-rose-400 text-rose-900 p-3.5 rounded-xl flex items-center gap-3 font-black text-xs shadow-xs animate-pulse">
+                        <AlertCircle className="w-5 h-5 text-rose-700 shrink-0" />
+                        <div>
+                          <span className="block font-black uppercase text-[10px] text-rose-800">
+                            Bloqueio Operacional de Caixa
+                          </span>
+                          <span className="text-xs">{checkCaixa.erro}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* 6. Adicionar produto */}
+                {(() => {
+                  const nfProduto = referenciaDetectada?.nf_origem_samsung || referenciaDetectada?.origin_invoice || null;
+                  const checkCaixa = db.validarCompatibilidadeCaixa({
+                    caixa: caixaAtiva,
+                    classificacao: classificacaoAtiva || 'PADRAO',
+                    produto_lacrado: lacreAtivo,
+                    regional: regBusca,
+                    nf_origem_samsung: nfProduto,
+                  });
+
+                  const bloq = !checkCaixa.compativel;
+
+                  return (
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={processarBipagemLinha}
+                        disabled={bloq}
+                        className={`w-full sm:w-auto px-6 py-3 rounded-xl font-black text-xs uppercase shadow-md flex items-center justify-center gap-2 transition-all ${
+                          bloq
+                            ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                        }`}
+                      >
+                        <Plus className="w-4 h-4" />
+                        6. Adicionar Produto à {caixaAtiva} (Enter)
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* TABELA DE PRODUTOS COMPACTA */}
+          {(() => {
+            const produtosDaCaixa = produtos.filter(
+              (p) => (p.numero_caixa || '').trim().toUpperCase() === caixaAtiva.trim().toUpperCase()
+            );
+
+            return (
+              <div className="bg-white rounded-2xl border-2 border-slate-300 shadow-sm overflow-hidden">
+                <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-black uppercase text-slate-800">
+                      Produtos na {caixaAtiva} ({produtosDaCaixa.length} / 20)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCaixaPara10Fotos(caixaAtiva);
+                        setModal10FotosAberto(true);
+                      }}
+                      className="text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Camera className="w-3.5 h-3.5" /> Fotos da Caixa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMostrarEspelhoModal(true)}
+                      className="text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Espelho da Caixa
+                    </button>
+                  </div>
+                </div>
+
+                {produtosDaCaixa.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400">
+                    <Boxes className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-xs font-bold">Nenhum produto bipado nesta caixa ainda.</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Aponte o leitor para o IMEI do produto para iniciar a auditoria.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3 text-center w-10">#</th>
+                          <th className="py-2.5 px-3">IMEI</th>
+                          <th className="py-2.5 px-3">Modelo</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3">NF Origem</th>
+                          <th className="py-2.5 px-3">Regional</th>
+                          <th className="py-2.5 px-3 text-center w-28">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {produtosDaCaixa.map((p, idx) => (
+                          <tr key={p.id} className="hover:bg-blue-50/50 transition-colors">
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-400">
+                              {String(idx + 1).padStart(2, '0')}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono font-black text-slate-900">
+                              {p.imei || p.serial}
+                            </td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800 truncate max-w-[200px]" title={p.modelo_produto}>
+                              {p.modelo_produto}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                p.status_sincronizacao === 'ENVIADO'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {p.status_sincronizacao || 'PENDENTE'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-700 truncate max-w-[140px]" title={p.nf_origem_samsung || p.origin_invoice || p.numero_nf}>
+                              {p.nf_origem_samsung || p.origin_invoice || p.numero_nf || '-'}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-amber-700 uppercase">
+                              {p.regional_produto || p.regional}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setProdutoDetalheModal(p)}
+                                  className="p-1 rounded-md text-blue-600 hover:bg-blue-100 transition-colors cursor-pointer"
+                                  title="Ver Detalhes Completos"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleExcluirLinha(p.id, p.imei || p.serial, p.status_sincronizacao)}
+                                  className="p-1 rounded-md text-rose-500 hover:bg-rose-100 transition-colors cursor-pointer"
+                                  title="Excluir Produto"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* MODO ADMIN: VISUALIZAÇÃO DETALHADA                                        */
+        /* ========================================================================= */
+        <div className="space-y-4">
       {/* CABEÇALHO DA OPERAÇÃO: REGIONAL, ESTAÇÃO, CAIXA, LOTE ATUAL E CLASSIFICAÇÃO */}
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-3 sm:p-4 shadow-md flex flex-wrap items-center justify-between gap-4 border-2 border-blue-600/50">
@@ -4209,6 +4742,8 @@ export const BipagemRapida: React.FC = () => {
       </div>
       </div>
       )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. MODAL: GERADOR DE ESPELHO DA CAIXA (COM LOGOS SOLUTIONS E SAMSUNG) */}
@@ -4485,6 +5020,12 @@ export const BipagemRapida: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Detalhes Completos do Produto (Modo Operador / Lista Compacta) */}
+      <ModalDetalhesProduto
+        produto={produtoDetalheModal}
+        onFechar={() => setProdutoDetalheModal(null)}
+      />
 
     </div>
   );

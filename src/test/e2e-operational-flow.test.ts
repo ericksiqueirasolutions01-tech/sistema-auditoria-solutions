@@ -94,7 +94,7 @@ describe('GATE 13: Testes Automatizados e Fluxo Operacional E2E (13 Passos)', ()
         numero_caixa: 'Caixa 01',
         data_auditoria: '17/09/2026',
         produto_lacrado: 'SIM',
-        regional: 'VIA VAREJO SP', // Outra regional
+        regional_usuario: 'VIA VAREJO SP', // Outra regional de usuário
       });
 
       expect(resRegionalCruzada.sucesso).toBe(false);

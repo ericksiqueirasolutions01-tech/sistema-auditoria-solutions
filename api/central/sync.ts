@@ -556,7 +556,9 @@ export default async function handler(req: any, res: any) {
             computador_id: computador?.id || p.computador_id || 'PC-001',
             computador_nome: computador?.nome || p.computador_nome || 'Estacao',
             usuario_sincronizacao: usuarioNormalizado.nome || 'Operador',
-            regional: p.regional || regional || computador?.regional || regionalNome,
+            regional: p.regional_produto || p.regional || regional || computador?.regional || regionalNome,
+            regional_produto: p.regional_produto || p.regional || regional || regionalNome,
+            regional_usuario: p.regional_usuario || regional || computador?.regional || regionalNome,
           };
           centralData.produtos.push(itemNormalizado);
           if (sn) mapExistentes.set(sn, itemNormalizado);

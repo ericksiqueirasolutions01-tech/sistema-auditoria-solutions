@@ -96,9 +96,11 @@ describe('GATE 2: Arquitetura de Identidade, RBAC e Dispositivos', () => {
       expect(pode).toBe(false);
 
       const res = db.inserirProduto({
+        modelo_produto: 'Galaxy S24',
+        ean: '7892509123456',
         imei: '354897001122339',
         numero_lote: 'LOTE-SP-001',
-        regional: 'VIA VAREJO SP',
+        regional_usuario: 'VIA VAREJO SP',
       } as any);
 
       expect(res.sucesso).toBe(false);
